@@ -38,6 +38,13 @@ export interface SyncEngineOptions {
   openDoc: (docId: string) => Promise<DocHandle | null>
   /** Called after a document that only existed on the server has been materialised. */
   onRemoteDoc?: (docId: string) => void
+  /**
+   * Awaited after remote updates were imported into a document and BEFORE the pulled
+   * sequence number is persisted. Use it to make the merged document durable (e.g.
+   * `persister.flush()`); otherwise a crash could advance `pulledSeq` past updates that
+   * never reached local storage. If it rejects, `pulledSeq` is not advanced.
+   */
+  beforeCommitPulled?: (docId: string) => Promise<void>
   logger?: SyncLogger
   /** Periodic sync interval (default 30 s). */
   intervalMs?: number
@@ -59,8 +66,8 @@ export const WORKSPACE_DOC_ID = 'workspace'
 const compactedKey = (docId: string) => `sync.compactedSeq.${docId}`
 
 export class SyncEngine {
-  private readonly o: Required<Omit<SyncEngineOptions, 'onRemoteDoc' | 'logger'>> &
-    Pick<SyncEngineOptions, 'onRemoteDoc' | 'logger'>
+  private readonly o: Required<Omit<SyncEngineOptions, 'onRemoteDoc' | 'logger' | 'beforeCommitPulled'>> &
+    Pick<SyncEngineOptions, 'onRemoteDoc' | 'logger' | 'beforeCommitPulled'>
   private status: SyncStatus = { state: 'idle', lastSyncedAt: null, pending: 0 }
   private readonly listeners = new Set<(s: SyncStatus) => void>()
   private readonly chains = new Map<string, Promise<unknown>>()
@@ -272,6 +279,8 @@ export class SyncEngine {
       }
       pulledCount += res.updates.length
       if (seq !== pulledSeq) {
+        // The merged state must be durable before we claim to have consumed these updates.
+        if (this.o.beforeCommitPulled) await this.o.beforeCommitPulled(docId)
         pulledSeq = seq
         await storage.setSyncState({ docId, pushedVersion: state.pushedVersion, pulledSeq })
         state.pulledSeq = pulledSeq

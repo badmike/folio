@@ -172,4 +172,43 @@ describe('SyncEngine', () => {
       a.engine.stop()
     } finally { vi.useRealTimers() }
   })
+  it('makes imported state durable before advancing pulledSeq', async () => {
+    const s = new FakeServer()
+    const a = device(s, 'A')
+    a.doc().edit('a1'); await a.engine.syncDoc('nb1')
+
+    const storage = new FakeStorage()
+    const docs = new Map<string, FakeDoc>()
+    const order: string[] = []
+    const origSet = storage.setSyncState.bind(storage)
+    storage.setSyncState = async (st) => { order.push(`state:${st.pulledSeq}`); await origSet(st) }
+    const api = new SyncApi({ baseUrl: 'http://x/', getToken: async () => s.token, fetch: s.fetch })
+    const engine = new SyncEngine({
+      api, storage: storage.asStorage(), deviceId: 'B',
+      openDoc: async (id) => { if (!docs.has(id)) docs.set(id, new FakeDoc('B')); return docs.get(id)! },
+      beforeCommitPulled: async (id) => { order.push(`durable:${docs.get(id)!.texts().join(',')}`) },
+    })
+    storage.ids.push('nb1')
+    await engine.syncDoc('nb1')
+    expect(order.indexOf('durable:a1')).toBeGreaterThanOrEqual(0)
+    expect(order.indexOf('durable:a1')).toBeLessThan(order.indexOf('state:1'))
+  })
+
+  it('does not advance pulledSeq when the durability hook fails', async () => {
+    const s = new FakeServer()
+    const a = device(s, 'A')
+    a.doc().edit('a1'); await a.engine.syncDoc('nb1')
+
+    const storage = new FakeStorage()
+    const docs = new Map<string, FakeDoc>()
+    const api = new SyncApi({ baseUrl: 'http://x/', getToken: async () => s.token, fetch: s.fetch })
+    const engine = new SyncEngine({
+      api, storage: storage.asStorage(), deviceId: 'B',
+      openDoc: async (id) => { if (!docs.has(id)) docs.set(id, new FakeDoc('B')); return docs.get(id)! },
+      beforeCommitPulled: async () => { throw new Error('disk full') },
+    })
+    storage.ids.push('nb1')
+    await expect(engine.syncDoc('nb1')).rejects.toThrow('disk full')
+    expect(storage.states.get('nb1')).toBeUndefined()
+  })
 })
