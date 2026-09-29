@@ -46,7 +46,13 @@ impl JwksCache {
             .timeout(Duration::from_secs(10))
             .build()
             .expect("reqwest client");
-        Self { url, http, keys: RwLock::new(HashMap::new()), last_fetch: Mutex::new(None), min_refetch: DEFAULT_MIN_REFETCH }
+        Self {
+            url,
+            http,
+            keys: RwLock::new(HashMap::new()),
+            last_fetch: Mutex::new(None),
+            min_refetch: DEFAULT_MIN_REFETCH,
+        }
     }
 
     pub fn with_min_refetch(mut self, d: Duration) -> Self {
@@ -82,7 +88,12 @@ impl JwksCache {
             }
         }
         *last = Some(Instant::now());
-        let res = self.http.get(url).send().await.and_then(|r| r.error_for_status());
+        let res = self
+            .http
+            .get(url)
+            .send()
+            .await
+            .and_then(|r| r.error_for_status());
         let set: JwkSet = match res {
             Ok(r) => r.json().await.map_err(|e| {
                 tracing::error!(counter = "auth_jwks_error", error = %e, "invalid JWKS document");
@@ -114,7 +125,11 @@ impl JwksCache {
             .ok_or_else(|| AppError::Unauthorized("unknown signing key".into()))
     }
 
-    pub async fn verify(&self, token: &str, cfg: &crate::config::Config) -> Result<String, AppError> {
+    pub async fn verify(
+        &self,
+        token: &str,
+        cfg: &crate::config::Config,
+    ) -> Result<String, AppError> {
         let bad = |m: &str| AppError::Unauthorized(m.to_string());
         let header = decode_header(token).map_err(|_| bad("malformed token"))?;
         if header.alg != Algorithm::RS256 {
@@ -158,7 +173,10 @@ impl JwksCache {
 
 /// User ids end up in object keys / logs; keep them boring.
 fn valid_user_id(s: &str) -> bool {
-    !s.is_empty() && s.len() <= 128 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"_-.:@".contains(&b))
+    !s.is_empty()
+        && s.len() <= 128
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"_-.:@".contains(&b))
 }
 
 impl FromRequestParts<AppState> for AuthUser {

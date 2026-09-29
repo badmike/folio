@@ -22,16 +22,30 @@ pub struct UploadQuery {
 
 /// Extracts a bare `type/subtype` from a Content-Type header, defaulting to octet-stream.
 fn clean_mime(headers: &HeaderMap) -> String {
-    let raw = headers.get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or("");
-    let base = raw.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    let raw = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let base = raw
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
     let ok = base.len() <= 100
         && base.split_once('/').is_some_and(|(a, b)| {
             let tok = |s: &str| {
-                !s.is_empty() && s.bytes().all(|c| c.is_ascii_alphanumeric() || b"!#$&^_.+-".contains(&c))
+                !s.is_empty()
+                    && s.bytes()
+                        .all(|c| c.is_ascii_alphanumeric() || b"!#$&^_.+-".contains(&c))
             };
             tok(a) && tok(b)
         });
-    if ok { base } else { "application/octet-stream".into() }
+    if ok {
+        base
+    } else {
+        "application/octet-stream".into()
+    }
 }
 
 /// POST /assets
@@ -54,15 +68,21 @@ pub async fn upload(
         return Err(AppError::BadRequest("empty asset body".into()));
     }
     if body.len() > st.config.max_asset_bytes {
-        return Err(AppError::PayloadTooLarge(format!("asset exceeds {} bytes", st.config.max_asset_bytes)));
+        return Err(AppError::PayloadTooLarge(format!(
+            "asset exceeds {} bytes",
+            st.config.max_asset_bytes
+        )));
     }
     let mime = clean_mime(&headers);
     let key = format!("assets/{}/{}", seg(&user.user_id), seg(&id));
     let size = body.len() as i64;
-    st.store.put(&ObjPath::from(key.as_str()), PutPayload::from(body)).await.map_err(|e| {
-        tracing::error!(counter = "storage_error", op = "asset_put", error = %e);
-        AppError::internal(e)
-    })?;
+    st.store
+        .put(&ObjPath::from(key.as_str()), PutPayload::from(body))
+        .await
+        .map_err(|e| {
+            tracing::error!(counter = "storage_error", op = "asset_put", error = %e);
+            AppError::internal(e)
+        })?;
     sqlx::query(
         "INSERT INTO assets (id, user_id, mime, size, object_key, created_at) VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(user_id, id) DO UPDATE SET mime = excluded.mime, size = excluded.size, object_key = excluded.object_key",
@@ -79,7 +99,11 @@ pub async fn upload(
 }
 
 /// GET /assets/{id} — only the owner can read (lookup is scoped by user id).
-pub async fn download(State(st): State<AppState>, user: AuthUser, Path(id): Path<String>) -> AppResult<Response> {
+pub async fn download(
+    State(st): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<String>,
+) -> AppResult<Response> {
     validate_id("asset id", &id)?;
     let row = sqlx::query("SELECT mime, object_key FROM assets WHERE user_id = ? AND id = ?")
         .bind(&user.user_id)
@@ -105,10 +129,23 @@ pub async fn download(State(st): State<AppState>, user: AuthUser, Path(id): Path
         .map_err(AppError::internal)?;
     let mut res = bytes.into_response();
     let h = res.headers_mut();
-    h.insert(header::CONTENT_TYPE, HeaderValue::from_str(&mime).unwrap_or(HeaderValue::from_static("application/octet-stream")));
+    h.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(&mime)
+            .unwrap_or(HeaderValue::from_static("application/octet-stream")),
+    );
     // Uploaded content is untrusted: never let a browser sniff or execute it in our origin.
-    h.insert("x-content-type-options", HeaderValue::from_static("nosniff"));
-    h.insert("content-security-policy", HeaderValue::from_static("sandbox; default-src 'none'"));
-    h.insert(header::CACHE_CONTROL, HeaderValue::from_static("private, max-age=3600"));
+    h.insert(
+        "x-content-type-options",
+        HeaderValue::from_static("nosniff"),
+    );
+    h.insert(
+        "content-security-policy",
+        HeaderValue::from_static("sandbox; default-src 'none'"),
+    );
+    h.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, max-age=3600"),
+    );
     Ok(res)
 }

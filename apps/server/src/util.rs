@@ -28,7 +28,8 @@ pub fn utc_day(ms: i64) -> String {
 pub fn validate_id(kind: &str, s: &str) -> Result<(), AppError> {
     let ok = !s.is_empty()
         && s.len() <= 128
-        && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"_-.:".contains(&b));
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"_-.:".contains(&b));
     if ok {
         Ok(())
     } else {

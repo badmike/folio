@@ -22,7 +22,10 @@ pub async fn connect(database_url: &str) -> anyhow::Result<SqlitePool> {
         }
     }
 
-    let pool = SqlitePoolOptions::new().max_connections(8).connect_with(opts).await?;
+    let pool = SqlitePoolOptions::new()
+        .max_connections(8)
+        .connect_with(opts)
+        .await?;
     sqlx::migrate!("./migrations").run(&pool).await?;
     Ok(pool)
 }

@@ -72,14 +72,27 @@ impl AiProvider for MockProvider {
         self.requests.lock().unwrap().push(req);
         let next = {
             let mut q = self.responses.lock().unwrap();
-            if q.is_empty() { None } else { Some(q.remove(0)) }
+            if q.is_empty() {
+                None
+            } else {
+                Some(q.remove(0))
+            }
         };
         let text = match next {
             Some(Ok(t)) => t,
             Some(Err(e)) => return Err(AppError::Upstream(e)),
-            None => self.default_response.lock().unwrap().clone().unwrap_or_default(),
+            None => self
+                .default_response
+                .lock()
+                .unwrap()
+                .clone()
+                .unwrap_or_default(),
         };
-        Ok(AiResponse { text, tokens_in: 10, tokens_out: 5 })
+        Ok(AiResponse {
+            text,
+            tokens_in: 10,
+            tokens_out: 5,
+        })
     }
 }
 
@@ -213,10 +226,16 @@ Respond with ONLY a single JSON object of the form {\"text\": \"<transcription>\
 and nothing else. If the image contains no legible writing, respond with {\"text\": \"\", \"confidence\": 0}.";
 
 pub fn recognize_user_text(languages: &[String], hint: Option<&str>) -> String {
-    let langs = if languages.is_empty() { "en, de".to_string() } else { languages.join(", ") };
+    let langs = if languages.is_empty() {
+        "en, de".to_string()
+    } else {
+        languages.join(", ")
+    };
     let mut s = format!("Expected language(s): {langs}. Transcribe the handwriting in the image.");
     if let Some(h) = hint.filter(|h| !h.trim().is_empty()) {
-        s.push_str(&format!("\nContext hint (may help disambiguate words; do not include it in the output): {h}"));
+        s.push_str(&format!(
+            "\nContext hint (may help disambiguate words; do not include it in the output): {h}"
+        ));
     }
     s
 }
@@ -237,7 +256,8 @@ pub fn summarize_instruction(kind: &str) -> Option<&'static str> {
     })
 }
 
-pub const ASK_SYSTEM: &str = "You answer questions about the user's own notes inside a note-taking app. \
+pub const ASK_SYSTEM: &str =
+    "You answer questions about the user's own notes inside a note-taking app. \
 Use the provided notes as your primary source and say so when the notes do not contain the answer. \
 Answer in the language of the question. Output Markdown only.";
 
@@ -264,7 +284,10 @@ mod tests {
 
     #[test]
     fn parses_plain_and_fenced_json() {
-        assert_eq!(parse_recognition(r#"{"text":"Hallo","confidence":0.9}"#), ("Hallo".into(), 0.9));
+        assert_eq!(
+            parse_recognition(r#"{"text":"Hallo","confidence":0.9}"#),
+            ("Hallo".into(), 0.9)
+        );
         let (t, c) = parse_recognition("```json\n{\"text\":\"a\\nb\",\"confidence\":2}\n```");
         assert_eq!((t.as_str(), c), ("a\nb", 1.0));
         let (t, c) = parse_recognition("just words");
@@ -282,7 +305,10 @@ mod tests {
         });
         assert_eq!(b["model"], "v");
         assert_eq!(b["messages"][0]["content"][0]["type"], "image");
-        assert_eq!(b["messages"][0]["content"][0]["source"]["media_type"], "image/png");
+        assert_eq!(
+            b["messages"][0]["content"][0]["source"]["media_type"],
+            "image/png"
+        );
         assert_eq!(b["messages"][0]["content"][1]["type"], "text");
     }
 }
