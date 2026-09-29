@@ -10,16 +10,26 @@ use tracing_subscriber::EnvFilter;
 async fn main() -> anyhow::Result<()> {
     // Minimal container healthcheck: `folio-server --healthcheck` probes /health on the bind port.
     if std::env::args().any(|a| a == "--healthcheck") {
-        let port = std::env::var("FOLIO_BIND").ok().and_then(|b| b.rsplit(':').next().map(str::to_string)).unwrap_or_else(|| "8787".into());
-        let ok = reqwest::get(format!("http://127.0.0.1:{port}/health")).await.map(|r| r.status().is_success()).unwrap_or(false);
+        let port = std::env::var("FOLIO_BIND")
+            .ok()
+            .and_then(|b| b.rsplit(':').next().map(str::to_string))
+            .unwrap_or_else(|| "8787".into());
+        let ok = reqwest::get(format!("http://127.0.0.1:{port}/health"))
+            .await
+            .map(|r| r.status().is_success())
+            .unwrap_or(false);
         std::process::exit(if ok { 0 } else { 1 });
     }
-    let filter = EnvFilter::try_from_env("FOLIO_LOG").or_else(|_| EnvFilter::try_from_default_env())
+    let filter = EnvFilter::try_from_env("FOLIO_LOG")
+        .or_else(|_| EnvFilter::try_from_default_env())
         .unwrap_or_else(|_| EnvFilter::new("info,tower_http=info,sqlx=warn"));
     if std::env::var("FOLIO_LOG_FORMAT").is_ok_and(|v| v == "pretty") {
         tracing_subscriber::fmt().with_env_filter(filter).init();
     } else {
-        tracing_subscriber::fmt().json().with_env_filter(filter).init();
+        tracing_subscriber::fmt()
+            .json()
+            .with_env_filter(filter)
+            .init();
     }
 
     let config = Config::from_env()?;
@@ -53,7 +63,9 @@ async fn main() -> anyhow::Result<()> {
 
     let listener = tokio::net::TcpListener::bind(bind).await?;
     tracing::info!(addr = %bind, version = env!("CARGO_PKG_VERSION"), "folio-server listening");
-    axum::serve(listener, build_router(state)).with_graceful_shutdown(shutdown_signal()).await?;
+    axum::serve(listener, build_router(state))
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
     tracing::info!("shutdown complete");
     Ok(())
 }
@@ -64,7 +76,8 @@ async fn shutdown_signal() {
     };
     #[cfg(unix)]
     let term = async {
-        if let Ok(mut s) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+        if let Ok(mut s) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        {
             s.recv().await;
         }
     };

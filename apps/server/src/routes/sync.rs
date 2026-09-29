@@ -19,7 +19,8 @@ const MAX_PULL_LIMIT: i64 = 2000;
 const MAX_PULL_BYTES: usize = 16 * 1024 * 1024;
 
 fn decode_b64(what: &str, s: &str) -> AppResult<Vec<u8>> {
-    B64.decode(s.trim()).map_err(|_| AppError::BadRequest(format!("{what} is not valid base64")))
+    B64.decode(s.trim())
+        .map_err(|_| AppError::BadRequest(format!("{what} is not valid base64")))
 }
 
 #[derive(Deserialize)]
@@ -71,7 +72,9 @@ async fn push_inner(st: &AppState, user: &AuthUser, req: PushReq) -> AppResult<P
         )));
     }
     if !st.push_limiter.check(&user.user_id) {
-        return Err(AppError::RateLimited("too many sync pushes, slow down".into()));
+        return Err(AppError::RateLimited(
+            "too many sync pushes, slow down".into(),
+        ));
     }
 
     let now = now_ms();
@@ -153,15 +156,19 @@ pub async fn pull(
     if q.since < 0 {
         return Err(AppError::BadRequest("since must be >= 0".into()));
     }
-    let limit = q.limit.unwrap_or(DEFAULT_PULL_LIMIT).clamp(1, MAX_PULL_LIMIT);
+    let limit = q
+        .limit
+        .unwrap_or(DEFAULT_PULL_LIMIT)
+        .clamp(1, MAX_PULL_LIMIT);
 
-    let latest_seq: i64 = sqlx::query("SELECT latest_seq FROM docs WHERE user_id = ? AND doc_id = ?")
-        .bind(&user.user_id)
-        .bind(&q.doc_id)
-        .fetch_optional(&st.db)
-        .await?
-        .map(|r| r.get("latest_seq"))
-        .unwrap_or(0);
+    let latest_seq: i64 =
+        sqlx::query("SELECT latest_seq FROM docs WHERE user_id = ? AND doc_id = ?")
+            .bind(&user.user_id)
+            .bind(&q.doc_id)
+            .fetch_optional(&st.db)
+            .await?
+            .map(|r| r.get("latest_seq"))
+            .unwrap_or(0);
 
     // Newest snapshot the client has not yet seen.
     let mut from = q.since;
@@ -189,7 +196,10 @@ pub async fn pull(
             .bytes()
             .await
             .map_err(AppError::internal)?;
-        snapshot = Some(SnapshotItem { upto_seq: upto, data: B64.encode(&data) });
+        snapshot = Some(SnapshotItem {
+            upto_seq: upto,
+            data: B64.encode(&data),
+        });
         from = upto;
     }
 
@@ -213,9 +223,17 @@ pub async fn pull(
             break;
         }
         total += bytes.len();
-        updates.push(UpdateItem { seq: r.get("seq"), update: B64.encode(&bytes) });
+        updates.push(UpdateItem {
+            seq: r.get("seq"),
+            update: B64.encode(&bytes),
+        });
     }
-    Ok(Json(PullRes { updates, latest_seq, snapshot, has_more }))
+    Ok(Json(PullRes {
+        updates,
+        latest_seq,
+        snapshot,
+        has_more,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -245,30 +263,44 @@ pub async fn compact(
         return Err(AppError::BadRequest("snapshot must not be empty".into()));
     }
     if data.len() > st.config.max_asset_bytes {
-        return Err(AppError::PayloadTooLarge(format!("snapshot exceeds {} bytes", st.config.max_asset_bytes)));
+        return Err(AppError::PayloadTooLarge(format!(
+            "snapshot exceeds {} bytes",
+            st.config.max_asset_bytes
+        )));
     }
-    let latest: Option<i64> = sqlx::query("SELECT latest_seq FROM docs WHERE user_id = ? AND doc_id = ?")
-        .bind(&user.user_id)
-        .bind(&req.doc_id)
-        .fetch_optional(&st.db)
-        .await?
-        .map(|r| r.get("latest_seq"));
-    let latest = latest.ok_or_else(|| AppError::NotFound("unknown document".into()))?;
-    if req.upto_seq < 1 || req.upto_seq > latest {
-        return Err(AppError::BadRequest(format!("uptoSeq must be between 1 and {latest}")));
-    }
-    let existing: Option<i64> =
-        sqlx::query("SELECT MAX(upto_seq) AS m FROM doc_snapshots WHERE user_id = ? AND doc_id = ?")
+    let latest: Option<i64> =
+        sqlx::query("SELECT latest_seq FROM docs WHERE user_id = ? AND doc_id = ?")
             .bind(&user.user_id)
             .bind(&req.doc_id)
-            .fetch_one(&st.db)
+            .fetch_optional(&st.db)
             .await?
-            .get("m");
+            .map(|r| r.get("latest_seq"));
+    let latest = latest.ok_or_else(|| AppError::NotFound("unknown document".into()))?;
+    if req.upto_seq < 1 || req.upto_seq > latest {
+        return Err(AppError::BadRequest(format!(
+            "uptoSeq must be between 1 and {latest}"
+        )));
+    }
+    let existing: Option<i64> = sqlx::query(
+        "SELECT MAX(upto_seq) AS m FROM doc_snapshots WHERE user_id = ? AND doc_id = ?",
+    )
+    .bind(&user.user_id)
+    .bind(&req.doc_id)
+    .fetch_one(&st.db)
+    .await?
+    .get("m");
     if existing.is_some_and(|e| e >= req.upto_seq) {
-        return Err(AppError::Conflict("a newer or equal snapshot already exists".into()));
+        return Err(AppError::Conflict(
+            "a newer or equal snapshot already exists".into(),
+        ));
     }
 
-    let key = format!("snapshots/{}/{}/{:020}.bin", seg(&user.user_id), seg(&req.doc_id), req.upto_seq);
+    let key = format!(
+        "snapshots/{}/{}/{:020}.bin",
+        seg(&user.user_id),
+        seg(&req.doc_id),
+        req.upto_seq
+    );
     st.store
         .put(&ObjPath::from(key.as_str()), PutPayload::from(data))
         .await
@@ -288,13 +320,14 @@ pub async fn compact(
     .bind(now_ms())
     .execute(&mut *tx)
     .await?;
-    let deleted = sqlx::query("DELETE FROM doc_updates WHERE user_id = ? AND doc_id = ? AND seq <= ?")
-        .bind(&user.user_id)
-        .bind(&req.doc_id)
-        .bind(req.upto_seq)
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
+    let deleted =
+        sqlx::query("DELETE FROM doc_updates WHERE user_id = ? AND doc_id = ? AND seq <= ?")
+            .bind(&user.user_id)
+            .bind(&req.doc_id)
+            .bind(req.upto_seq)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
     let old: Vec<String> = sqlx::query(
         "SELECT object_key FROM doc_snapshots WHERE user_id = ? AND doc_id = ? AND upto_seq < ?",
     )
@@ -320,7 +353,10 @@ pub async fn compact(
             tracing::warn!(counter = "storage_error", op = "snapshot_cleanup", error = %e);
         }
     }
-    Ok(Json(CompactRes { upto_seq: req.upto_seq, deleted_updates: deleted }))
+    Ok(Json(CompactRes {
+        upto_seq: req.upto_seq,
+        deleted_updates: deleted,
+    }))
 }
 
 #[derive(Serialize)]
@@ -332,7 +368,10 @@ pub struct DocItem {
 }
 
 /// GET /sync/docs — documents known to the server for this user.
-pub async fn list_docs(State(st): State<AppState>, user: AuthUser) -> AppResult<Json<Vec<DocItem>>> {
+pub async fn list_docs(
+    State(st): State<AppState>,
+    user: AuthUser,
+) -> AppResult<Json<Vec<DocItem>>> {
     let rows = sqlx::query(
         "SELECT doc_id, latest_seq, updated_at FROM docs WHERE user_id = ? ORDER BY updated_at DESC, doc_id",
     )

@@ -49,16 +49,27 @@ impl Config {
 
     /// Parses config from an explicit map (testable, no global env access).
     pub fn from_map(v: &HashMap<String, String>) -> anyhow::Result<Self> {
-        let get = |k: &str| v.get(k).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        let get = |k: &str| {
+            v.get(k)
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        };
         let parse_num = |k: &str, d: i64| -> anyhow::Result<i64> {
             match get(k) {
-                Some(s) => s.parse().map_err(|_| anyhow::anyhow!("{k} must be an integer")),
+                Some(s) => s
+                    .parse()
+                    .map_err(|_| anyhow::anyhow!("{k} must be an integer")),
                 None => Ok(d),
             }
         };
         let list = |k: &str| -> Vec<String> {
             get(k)
-                .map(|s| s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect())
+                .map(|s| {
+                    s.split(',')
+                        .map(|p| p.trim().to_string())
+                        .filter(|p| !p.is_empty())
+                        .collect()
+                })
                 .unwrap_or_default()
         };
 
@@ -83,11 +94,13 @@ impl Config {
 
         let ai_model = get("FOLIO_AI_MODEL").unwrap_or_else(|| "claude-sonnet-5-5".into());
         let clerk_issuer = get("CLERK_ISSUER").or_else(|| get("FOLIO_CLERK_ISSUER"));
-        let clerk_jwks_url = get("CLERK_JWKS_URL").or_else(|| get("FOLIO_CLERK_JWKS_URL")).or_else(|| {
-            clerk_issuer
-                .as_ref()
-                .map(|i| format!("{}/.well-known/jwks.json", i.trim_end_matches('/')))
-        });
+        let clerk_jwks_url = get("CLERK_JWKS_URL")
+            .or_else(|| get("FOLIO_CLERK_JWKS_URL"))
+            .or_else(|| {
+                clerk_issuer
+                    .as_ref()
+                    .map(|i| format!("{}/.well-known/jwks.json", i.trim_end_matches('/')))
+            });
 
         Ok(Self {
             bind,
@@ -98,10 +111,13 @@ impl Config {
             clerk_jwks_url,
             clerk_issuer,
             clerk_authorized_parties: list("FOLIO_CLERK_AUTHORIZED_PARTIES"),
-            auth_dev: get("FOLIO_AUTH_DEV").map(|s| matches!(s.as_str(), "true" | "1" | "yes")).unwrap_or(false),
+            auth_dev: get("FOLIO_AUTH_DEV")
+                .map(|s| matches!(s.as_str(), "true" | "1" | "yes"))
+                .unwrap_or(false),
             storage,
             anthropic_api_key: get("ANTHROPIC_API_KEY"),
-            anthropic_base_url: get("ANTHROPIC_BASE_URL").unwrap_or_else(|| "https://api.anthropic.com".into()),
+            anthropic_base_url: get("ANTHROPIC_BASE_URL")
+                .unwrap_or_else(|| "https://api.anthropic.com".into()),
             ai_vision_model: get("FOLIO_AI_VISION_MODEL").unwrap_or_else(|| ai_model.clone()),
             ai_model,
             ai_daily_quota: parse_num("FOLIO_AI_DAILY_QUOTA", 200)?,
@@ -140,7 +156,10 @@ mod tests {
         .collect();
         let c = Config::from_map(&m).unwrap();
         assert!(matches!(c.storage, StorageConfig::S3(_)));
-        assert_eq!(c.clerk_jwks_url.as_deref(), Some("https://x.clerk.accounts.dev/.well-known/jwks.json"));
+        assert_eq!(
+            c.clerk_jwks_url.as_deref(),
+            Some("https://x.clerk.accounts.dev/.well-known/jwks.json")
+        );
         assert!(c.auth_dev);
     }
 }

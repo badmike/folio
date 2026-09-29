@@ -44,16 +44,36 @@ pub fn build_router(state: AppState) -> Router {
 
     let mut app = Router::new()
         .route("/health", get(health))
-        .route("/sync/push", post(routes::sync::push).layer(DefaultBodyLimit::max(cfg.max_update_bytes / 3 * 4 + 64 * 1024)))
+        .route(
+            "/sync/push",
+            post(routes::sync::push).layer(DefaultBodyLimit::max(
+                cfg.max_update_bytes / 3 * 4 + 64 * 1024,
+            )),
+        )
         .route("/sync/pull", get(routes::sync::pull))
-        .route("/sync/compact", post(routes::sync::compact).layer(DefaultBodyLimit::max(sync_limit)))
+        .route(
+            "/sync/compact",
+            post(routes::sync::compact).layer(DefaultBodyLimit::max(sync_limit)),
+        )
         .route("/sync/docs", get(routes::sync::list_docs))
         .route("/devices", post(routes::devices::register))
-        .route("/assets", post(routes::assets::upload).layer(DefaultBodyLimit::max(cfg.max_asset_bytes)))
+        .route(
+            "/assets",
+            post(routes::assets::upload).layer(DefaultBodyLimit::max(cfg.max_asset_bytes)),
+        )
         .route("/assets/{id}", get(routes::assets::download))
-        .route("/ai/recognize", post(routes::ai::recognize).layer(DefaultBodyLimit::max(16 * 1024 * 1024)))
-        .route("/ai/summarize", post(routes::ai::summarize).layer(DefaultBodyLimit::max(2 * 1024 * 1024)))
-        .route("/ai/ask", post(routes::ai::ask).layer(DefaultBodyLimit::max(2 * 1024 * 1024)))
+        .route(
+            "/ai/recognize",
+            post(routes::ai::recognize).layer(DefaultBodyLimit::max(16 * 1024 * 1024)),
+        )
+        .route(
+            "/ai/summarize",
+            post(routes::ai::summarize).layer(DefaultBodyLimit::max(2 * 1024 * 1024)),
+        )
+        .route(
+            "/ai/ask",
+            post(routes::ai::ask).layer(DefaultBodyLimit::max(2 * 1024 * 1024)),
+        )
         .fallback(fallback)
         .with_state(state);
 

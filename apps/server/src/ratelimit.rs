@@ -17,7 +17,11 @@ impl RateLimiter {
     }
 
     pub fn with_window(limit: u32, window: Duration) -> Self {
-        Self { limit, window, hits: Mutex::new(HashMap::new()) }
+        Self {
+            limit,
+            window,
+            hits: Mutex::new(HashMap::new()),
+        }
     }
 
     /// Returns true if the event is allowed.

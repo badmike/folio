@@ -94,7 +94,11 @@ impl IntoResponse for AppError {
         if matches!(self, Self::Unauthorized(_)) {
             tracing::warn!(counter = "auth_failure", message = %message, "auth rejected");
         }
-        (status, Json(json!({ "error": self.code(), "message": message }))).into_response()
+        (
+            status,
+            Json(json!({ "error": self.code(), "message": message })),
+        )
+            .into_response()
     }
 }
 
