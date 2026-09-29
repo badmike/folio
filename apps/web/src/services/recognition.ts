@@ -93,7 +93,8 @@ export class RecognitionService {
     })
     const covered = new Set(recs.flatMap((r) => r.strokeIds))
     const newIds = new Set(recs.map((r) => r.id))
-    const stale = existing.filter((e) => !newIds.has(e.id) && e.strokeIds.some((s) => covered.has(s))).map((e) => e.id)
+    // A recognition is stale once regrouping fully covers its strokes with newer results.
+    const stale = existing.filter((e) => !newIds.has(e.id) && e.strokeIds.every((s) => covered.has(s))).map((e) => e.id)
     const ops = []
     if (stale.length) ops.push({ type: 'deleteRecognitions' as const, pageId, ids: stale })
     if (fresh.length) ops.push({ type: 'setRecognitions' as const, pageId, recognitions: fresh })
@@ -153,8 +154,24 @@ export class AttachedRecognition {
     } else {
       candidates = this.session.doc.objects(pageId)
     }
-    const out = candidates.filter(isLiveInk)
-    if (!out.some((s) => s.id === stroke.id)) out.push(stroke)
+    const found = new Map<string, InkStroke>()
+    for (const o of candidates) if (isLiveInk(o)) found.set(o.id, o)
+    found.set(stroke.id, stroke)
+    // Regrouping must see whole existing groups (a word/line is usually wider than the region),
+    // otherwise a partial re-recognition would replace a good full-line result.
+    for (let pass = 0; pass < 3; pass++) {
+      let grew = false
+      for (const r of this.session.doc.recognitions(pageId)) {
+        if (!r.strokeIds.some((id) => found.has(id))) continue
+        for (const id of r.strokeIds) {
+          if (found.has(id)) continue
+          const o = this.session.doc.object(pageId, id)
+          if (isLiveInk(o)) { found.set(id, o); grew = true }
+        }
+      }
+      if (!grew) break
+    }
+    const out = [...found.values()]
     return out
   }
 
