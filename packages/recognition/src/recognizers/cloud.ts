@@ -1,5 +1,5 @@
 import type { InkStroke } from '@folio/document'
-import { INK_POINT_STRIDE } from '@folio/document'
+import { INK_POINT_STRIDE } from '@folio/document/model'
 import { applyTransform } from '../geometry'
 import { bytesToBase64, rasterizeToPng } from '../raster'
 import type { HandwritingResultEx, LocalRecognizer, RecognizeOpts } from './types'

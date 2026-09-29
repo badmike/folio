@@ -1,4 +1,4 @@
-import { INK_POINT_STRIDE } from '@folio/document'
+import { INK_POINT_STRIDE } from '@folio/document/model'
 import type { InkStroke, Rect, Transform, Vec2 } from '@folio/document'
 
 /*
