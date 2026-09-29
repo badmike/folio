@@ -2,7 +2,7 @@ import {
   createPage, worldBounds,
   type NotebookMeta, type Operation, type Page, type PageBackground, type PageFormat, type PageId, type Rect, type ToolSettings,
 } from '@folio/document'
-import { createEditor, type Editor, type PenMode, type Tool, type ToolOptionsMap } from '@folio/editor'
+import { createEditor, type Editor, type PenMode, type SelectionStylePatch, type Tool, type ToolOptionsMap } from '@folio/editor'
 import { ref, shallowRef } from 'vue'
 import { exportBounds, thumbnailDataUrl } from './services/export'
 import { whenFontsReady } from './services/fonts'
@@ -227,7 +227,20 @@ export class NotebookController {
   // ---- commands --------------------------------------------------------------
 
   setTool(t: Tool) { this.editor.value?.setTool(t) }
-  setOption<T extends Tool>(tool: T, patch: Partial<ToolOptionsMap[T]>) { this.editor.value?.setToolOptions(tool, patch) }
+  setOption<T extends Tool>(tool: T, patch: Partial<ToolOptionsMap[T]>) {
+    const e = this.editor.value
+    if (!e) return
+    e.setToolOptions(tool, patch)
+    // With a selection, colour / width / opacity edits restyle the selected objects too.
+    const style = selectionStylePatch(tool, patch as Record<string, unknown>)
+    if (style && e.selection.length) {
+      e.setSelectionStyle(style, { coalesceKey: `selstyle:${Object.keys(style).join(',')}` })
+    }
+  }
+  /** Restyle the current selection directly (select-tool popover). */
+  styleSelection(patch: SelectionStylePatch) {
+    this.editor.value?.setSelectionStyle(patch, { coalesceKey: `selstyle:${Object.keys(patch).join(',')}` })
+  }
   undo() { this.editor.value?.undo() }
   redo() { this.editor.value?.redo() }
 
@@ -381,4 +394,20 @@ export class NotebookController {
     await this.saveThumbnail()
     await this.ws.release(this.id)
   }
+}
+
+/** Map a tool-options patch to the style fields that apply to already drawn objects. */
+export function selectionStylePatch(tool: Tool, patch: Record<string, unknown>): SelectionStylePatch | null {
+  const out: SelectionStylePatch = {}
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
+  const str = (v: unknown) => (typeof v === 'string' ? v : undefined)
+  if (tool === 'pen' || tool === 'highlighter') {
+    out.color = str(patch.color); out.width = num(patch.width); out.opacity = num(patch.opacity)
+  } else if (tool === 'shape' || tool === 'arrow') {
+    out.color = str(patch.strokeColor); out.width = num(patch.strokeWidth); out.opacity = num(patch.opacity)
+  } else if (tool === 'text') {
+    out.color = str(patch.color)
+  } else return null
+  for (const k of Object.keys(out) as (keyof SelectionStylePatch)[]) if (out[k] === undefined) delete out[k]
+  return Object.keys(out).length ? out : null
 }
