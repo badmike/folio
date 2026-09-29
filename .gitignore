@@ -13,3 +13,5 @@ apps/server/data/
 *.db-wal
 test-results/
 playwright-report/
+dist-sync/
+test-results-sync/
