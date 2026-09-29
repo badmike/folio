@@ -1,6 +1,6 @@
 import { NotebookDocument } from '@folio/document'
 import { describe, expect, it } from 'vitest'
-import { addRaw, ink, objs, setup, shape, text } from './helpers'
+import { addRaw, arrow, ink, objs, setup, shape, text } from './helpers'
 
 describe('execute / undo / redo', () => {
   it('round trips add, update, delete', () => {
@@ -120,5 +120,47 @@ describe('execute / undo / redo', () => {
     addRaw(h, [text('t', 0, 0)])
     expect(h.editor.applyCleanup([{ kind: 'text', sourceStrokeIds: ['nope'], object: { text: 'x' } }])).toEqual([])
     expect(h.editor.canUndo).toBe(false)
+  })
+})
+
+describe('setSelectionStyle', () => {
+  it('restyles ink, shape, arrow and text in one undoable commit', () => {
+    const h = setup()
+    const ed = h.editor
+    addRaw(h, [ink('i', [[0, 0], [5, 5]]), shape('s', 50, 50), arrow('a', 0, 0, 40, 40), text('t', 10, 10), shape('other', 300, 300)])
+    ed.select(['i', 's', 'a', 't'])
+    const before = h.ops.length
+    expect(ed.setSelectionStyle({ color: '#ff0000', width: 9, opacity: 0.5 })).toBe(4)
+    expect(h.ops.length).toBe(before + 1)
+    const o = (id: string) => h.doc.object(h.pageId, id) as any
+    expect(o('i').style).toMatchObject({ color: '#ff0000', width: 9, opacity: 0.5, tool: expect.anything() })
+    expect(o('s').style).toMatchObject({ strokeColor: '#ff0000', strokeWidth: 9, opacity: 0.5, roughness: 0 })
+    expect(o('a').style).toMatchObject({ strokeColor: '#ff0000', strokeWidth: 9, opacity: 0.5 })
+    expect(o('t').color).toBe('#ff0000')
+    expect(o('other').style.strokeColor).toBe('#000') // not selected
+    ed.undo()
+    expect(o('i').style.color).not.toBe('#ff0000')
+    expect(o('s').style.strokeWidth).toBe(2)
+    expect(o('t').color).toBe('#000')
+    ed.redo()
+    expect(o('s').style.strokeColor).toBe('#ff0000')
+  })
+
+  it('does nothing without a selection or when values are unchanged', () => {
+    const h = setup()
+    addRaw(h, [shape('s', 0, 0)])
+    expect(h.editor.setSelectionStyle({ color: '#f00' })).toBe(0)
+    h.editor.select(['s'])
+    expect(h.editor.setSelectionStyle({ color: '#000', width: 2 })).toBe(0)
+    expect(h.editor.canUndo).toBe(false)
+  })
+
+  it('applies to the members of a selected group', () => {
+    const h = setup()
+    addRaw(h, [shape('a', 0, 0), shape('b', 200, 0)])
+    h.editor.select(['a', 'b'])
+    h.editor.groupSelection()
+    expect(h.editor.setSelectionStyle({ width: 7 })).toBe(2)
+    expect((h.doc.object(h.pageId, 'b') as any).style.strokeWidth).toBe(7)
   })
 })

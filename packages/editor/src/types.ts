@@ -96,3 +96,10 @@ export interface ExportImageOptions {
   scale?: number
   bounds?: Rect
 }
+
+/** Style values that can be applied to a whole selection (see Editor.setSelectionStyle). */
+export interface SelectionStylePatch {
+  color?: string
+  width?: number
+  opacity?: number
+}
