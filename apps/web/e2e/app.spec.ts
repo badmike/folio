@@ -47,6 +47,15 @@ test('welcome notebook renders through WebGL', async () => {
   // dark pixels of the heading/diagram must be on screen
   const dark = await nonBackgroundPixels(page, { x: b.x + 300, y: b.y + 150, width: 700, height: 500 })
   expect(dark).toBeGreaterThan(1500)
+  // regression: the arrow label background used to wash the whole shaft out to light grey
+  const shaft = await page.evaluate(() => {
+    const e = (window as any).__folio.editor
+    const a = e.worldToScreen({ x: -150, y: 100 })
+    const c = e.worldToScreen({ x: -120, y: 100 })
+    return { x: a.x, y: a.y - 4, width: c.x - a.x, height: 8 }
+  })
+  const hb = await hostBox(page)
+  expect(await nonBackgroundPixels(page, { ...shaft, x: hb.x + shaft.x, y: hb.y + shaft.y })).toBeGreaterThan(20)
   await shot('02-welcome')
   await page.getByTestId('back').click()
   await expect(page.getByTestId('new-notebook')).toBeVisible()
