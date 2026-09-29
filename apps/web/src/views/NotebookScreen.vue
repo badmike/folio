@@ -117,7 +117,7 @@ const zoomPct = computed(() => Math.round(ctl.zoom.value * 100))
 
 <template>
   <div class="screen" data-testid="notebook-screen">
-    <div ref="host" class="canvas-host" data-testid="editor-host" />
+    <div ref="host" class="canvas-host" data-testid="editor-host" @pointerdown.capture="ctl.highlighted.value && ctl.clearHighlight()" />
 
     <header class="topbar">
       <button class="icon-btn panel" aria-label="Back to library" data-testid="back" @click="back"><Icon name="back" /></button>

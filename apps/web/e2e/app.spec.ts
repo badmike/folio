@@ -152,6 +152,58 @@ test('clean up converts a hand-drawn rectangle into a shape (and restores ink)',
   await expect.poll(() => countType(page, 'shape')).toBe(shapesBefore)
 })
 
+test('handwriting is recognized offline (Tesseract) and becomes searchable', async () => {
+  await page.getByTestId('tool-pen').click()
+  const letters: Record<string, [number, number][][]> = {
+    H: [[[0, 0], [0, 80]], [[40, 0], [40, 80]], [[0, 40], [40, 40]]],
+    E: [[[40, 0], [0, 0], [0, 80], [40, 80]], [[0, 40], [30, 40]]],
+    L: [[[0, 0], [0, 80], [40, 80]]],
+    O: [[[20, 0], [40, 15], [40, 65], [20, 80], [0, 65], [0, 15], [20, 0]]],
+  }
+  let x0 = 300
+  for (const ch of 'HELLO') {
+    for (const st of letters[ch]) await drawStroke(page, st.map(([x, y]) => [x0 + x, 640 + y] as [number, number]), 12)
+    x0 += 70
+  }
+  await expect
+    .poll(() => page.evaluate(() => {
+      const f = (window as any).__folio
+      return f.doc.recognitions(f.editor.pageId).some((r: any) => r.kind === 'text' && /hello/i.test(r.text ?? ''))
+    }), { timeout: 60_000 })
+    .toBe(true)
+  await page.getByTestId('open-search').click()
+  await page.getByTestId('nb-search-input').fill('hello')
+  await expect(page.getByTestId('nb-search-hit').first()).toContainText(/handwriting/)
+  await page.getByTestId('nb-search-hit').first().click()
+  await shot('09b-handwriting-search')
+  await page.getByTestId('open-search').click()
+})
+
+test('cleanup mode "ask" offers to convert ink after a pause', async () => {
+  await page.getByTestId('zoom-pct').click()
+  await page.getByRole('button', { name: 'Settings' }).click()
+  await page.getByRole('button', { name: 'Ask', exact: true }).click()
+  await shot('09c-settings')
+  await page.keyboard.press('Escape')
+  await page.getByTestId('tool-pen').click()
+  const before = await countType(page, 'shape')
+  await drawStroke(page, [[700, 560], [850, 562], [852, 660], [702, 662], [700, 563]], 30)
+  await expect(page.getByTestId('cleanup-prompt')).toBeVisible({ timeout: 30_000 })
+  await shot('09d-ask-toast')
+  await page.getByTestId('cleanup-apply').click()
+  await expect.poll(() => countType(page, 'shape')).toBe(before + 1)
+  // the recognized handwriting from the previous step is offered in the same batch
+  const texts = await page.evaluate(() => {
+    const f = (window as any).__folio
+    return f.doc.objects(f.editor.pageId).filter((o: any) => o.type === 'text' && o.sourceStrokeIds?.length).map((o: any) => o.text)
+  })
+  expect(texts.join(' ')).toMatch(/hello/i)
+  // back to the default (keep ink) so the remaining steps are unaffected
+  await page.getByRole('button', { name: 'Settings' }).click()
+  await page.getByRole('button', { name: 'Keep my ink' }).click()
+  await page.keyboard.press('Escape')
+})
+
 test('settings dialog and page panel', async () => {
   await page.getByTestId('open-pages').click()
   await page.getByTestId('bg-grid').click()
@@ -180,7 +232,7 @@ test('works offline after the service worker is active', async () => {
     const f = (window as any).__folio
     return f.doc.pages().flatMap((p: any) => f.doc.objects(p.id)).filter((o: any) => o.type === 'ink' && !o.supersededBy).length
   })
-  expect(total).toBe(4) // 3 waves + the restored rectangle stroke
+  expect(total).toBeGreaterThanOrEqual(4) // waves + restored rectangle stroke + any ink not converted
   await shot('12-offline')
   await context.setOffline(false)
 })
