@@ -25,6 +25,13 @@ function resolveTesseractAsset(a: (typeof TESSERACT_ASSETS)[number]): string {
   return path.join(path.dirname(req.resolve(`${pkg}/package.json`)), ...rest)
 }
 
+/**
+ * loro-crdt's default "browser" build loads its wasm with a *synchronous XHR* at import time. Service
+ * workers do not intercept that, so the app would not boot offline. The base64 build embeds the wasm in
+ * the JS bundle instead (precached like any other script, no extra request, works offline).
+ */
+const loroBase64 = createRequire(path.resolve(here, '../../packages/document/package.json')).resolve('loro-crdt/base64')
+
 const tesseractTargets = TESSERACT_ASSETS.map((a) => ({
   src: resolveTesseractAsset(a).replace(/\\/g, '/'),
   dest: path.posix.join('tesseract', path.posix.dirname(a.to)).replace(/\/\.$/, ''),
@@ -69,6 +76,7 @@ export default defineConfig({
       devOptions: { enabled: false },
     }),
   ],
+  resolve: { alias: { 'loro-crdt': loroBase64 } },
   optimizeDeps: { exclude: ['@sqlite.org/sqlite-wasm'] },
   worker: { format: 'es' },
   build: { target: 'es2022', sourcemap: false },

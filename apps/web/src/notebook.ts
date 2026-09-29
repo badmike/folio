@@ -4,7 +4,7 @@ import {
 } from '@folio/document'
 import { createEditor, type Editor, type PenMode, type Tool, type ToolOptionsMap } from '@folio/editor'
 import { ref, shallowRef } from 'vue'
-import { exportBounds, renderPage } from './services/export'
+import { exportBounds, thumbnailDataUrl } from './services/export'
 import { whenFontsReady } from './services/fonts'
 import { AttachedRecognition, type RecognitionService } from './services/recognition'
 import { settings } from './services/settings'
@@ -21,6 +21,13 @@ const NO_SELECTION: SelectionInfo = { count: 0, ink: false, derived: false, text
 
 /** Injection key for child components. */
 export const NOTEBOOK_KEY = Symbol('notebook') as symbol & { __type?: NotebookController }
+
+/** `localStorage['folio.debug']` exposes the editor as window.__folio (used by e2e tests and for debugging). */
+function exposeDebugHandle(editor: Editor, ctl: NotebookController) {
+  try {
+    if (import.meta.env.DEV || localStorage.getItem('folio.debug')) (window as unknown as Record<string, unknown>).__folio = { editor, ctl, doc: ctl.doc }
+  } catch { /* ignore */ }
+}
 
 const camKey = (nb: string, page: string) => `folio.cam.${nb}.${page}`
 function lsGet(k: string): string | null { try { return localStorage.getItem(k) } catch { return null } }
@@ -92,6 +99,7 @@ export class NotebookController {
       onStrokeCommitted: (pid, stroke) => this.rec?.onStrokeCommitted(pid, stroke),
     })
     this.editor.value = editor
+    exposeDebugHandle(editor, this)
     this.rec = this.recognition.attach(editor, this.session)
     this.restoreToolSettings(editor, doc.meta())
     this.syncTool(editor)
@@ -346,18 +354,8 @@ export class NotebookController {
   /** Small preview of the first page for the library card. */
   async saveThumbnail(): Promise<void> {
     try {
-      const first = this.doc.pages()[0]
-      if (!first) return
-      const b = exportBounds(this.doc, first)
-      const scale = Math.min(1, 360 / Math.max(b.width, b.height))
-      const blob = await renderPage(this.doc, first.id, { scale, theme: settings.theme, bounds: b })
-      const url = await new Promise<string>((resolve, reject) => {
-        const r = new FileReader()
-        r.onload = () => resolve(String(r.result))
-        r.onerror = () => reject(r.error)
-        r.readAsDataURL(blob)
-      })
-      await this.ws.setThumbnail(this.id, url)
+      const url = await thumbnailDataUrl(this.doc, settings.theme)
+      if (url) await this.ws.setThumbnail(this.id, url)
     } catch { /* thumbnails are best effort */ }
   }
 

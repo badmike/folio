@@ -48,7 +48,7 @@ const e = () => ctl.editor.value!
 </template>
 
 <style scoped>
-.sel { position: absolute; left: 50%; transform: translateX(-50%); z-index: 19; display: flex; align-items: center; gap: 2px; padding: 4px 6px; max-width: calc(100% - 16px); overflow-x: auto; scrollbar-width: none; }
+.sel { position: absolute; left: 0; right: 0; margin: 0 auto; width: max-content; z-index: 19; display: flex; align-items: center; gap: 2px; padding: 4px 6px; max-width: calc(100% - 16px); overflow-x: auto; scrollbar-width: none; }
 .sel.bottom { bottom: calc(76px + var(--safe-bottom)); }
 .sel.top { top: calc(126px + var(--safe-top)); }
 </style>
