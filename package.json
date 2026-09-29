@@ -1,0 +1,21 @@
+{
+  "name": "folio",
+  "private": true,
+  "version": "0.1.0",
+  "description": "folio — offline-first semantic infinite canvas notebook by Coder's Cantina",
+  "author": "Coder's Cantina <m.wallner@coderscantina.com>",
+  "packageManager": "pnpm@10.33.0",
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @folio/web dev",
+    "build": "pnpm --filter @folio/web build",
+    "test": "pnpm -r --if-present test",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "server": "cargo run --manifest-path apps/server/Cargo.toml"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "~5.9.3",
+    "vitest": "^5.0.2"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "@folio/document",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {"loro-crdt":"^1.16.3","fflate":"^0.8.3","nanoid":"^5.1.0"},
+  "devDependencies": {}
+}
