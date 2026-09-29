@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { recognizeShape } from '../src/shape'
 import { makeStroke, polyline } from './helpers'
-import { ellipseLoop, generateScribbles, generateShapeSamples } from './synth'
+import { ellipseLoop, generateScribbles, generateShapeSamples, generateSparseShapeSamples } from './synth'
 
 describe('recognizeShape', () => {
   it('reaches >= 90% accuracy on noisy synthetic shapes', () => {
@@ -21,11 +21,42 @@ describe('recognizeShape', () => {
     expect(ok / samples.length).toBeGreaterThanOrEqual(0.9)
   })
 
+  it('reaches >= 95% accuracy on sparsely sampled shapes (mouse input, 16-36 points)', () => {
+    const samples = [1, 2].flatMap((seed) => generateSparseShapeSamples(seed, 20))
+    const wrong = samples.filter((s) => recognizeShape(s.strokes)?.shape !== s.expect).map((s) => s.label)
+    expect(wrong.length / samples.length, wrong.join(',')).toBeLessThanOrEqual(0.05)
+  }, 30_000)
+
+  it('classifies a rectangle with only a few points per side as a rectangle', () => {
+    const side = (a: [number, number], b: [number, number], n: number) =>
+      Array.from({ length: n }, (_, i) => ({ x: a[0] + ((b[0] - a[0]) * i) / n, y: a[1] + ((b[1] - a[1]) * i) / n }))
+    const pts = [
+      ...side([100, 100], [300, 100], 4), ...side([300, 100], [300, 220], 3),
+      ...side([300, 220], [100, 220], 4), ...side([100, 220], [100, 100], 3), { x: 100, y: 104 },
+    ]
+    const m = recognizeShape([makeStroke(pts)])!
+    expect(m.shape).toBe('rectangle')
+    expect(m.confidence).toBeGreaterThan(0.75)
+  })
+
   it('rejects text-like scribbles', () => {
     let accepted = 0
     const all = generateScribbles(7, 40)
     for (const strokes of all) if (recognizeShape(strokes, {})) accepted++
     expect(accepted).toBeLessThanOrEqual(0)
+  })
+
+  it('still rejects scribbles when they are sparsely sampled', () => {
+    let accepted = 0
+    for (const strokes of generateScribbles(11, 40)) {
+      const sparse = strokes.map((st) => {
+        const keep: number[] = []
+        for (let i = 0; i + 5 < st.points.length; i += 6 * 5) keep.push(...st.points.slice(i, i + 6))
+        return { ...st, points: keep }
+      })
+      if (recognizeShape(sparse)) accepted++
+    }
+    expect(accepted).toBe(0)
   })
 })
 

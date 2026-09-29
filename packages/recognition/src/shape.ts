@@ -60,7 +60,7 @@ export function recognizeShape(strokes: InkStroke[], opts: ShapeOptions = {}): S
 // ---------------------------------------------------------------------------
 
 function recognizeSingle(raw: Vec2[], minSize: number): ShapeMatch | null {
-  const pts = smooth(raw)
+  const pts = smooth(normalizeSampling(raw))
   const bb = boundsOf(pts)
   const diag = Math.hypot(bb.width, bb.height)
   if (diag < minSize) return null
@@ -536,6 +536,20 @@ function fitTriangle(r: Vec2[]): Fit | null {
   if (!best) return null
   if (Math.abs(best.rotation) < 0.14) best.rotation = 0
   return best
+}
+
+/** Target spacing (as a fraction of path length) that sparse input is resampled to. */
+const DENSE_POINTS = 96
+
+/**
+ * Make the sampling density independent of the input device. Mouse input without coalesced
+ * events yields a handful of points per side; smoothing / metrics tuned for dense pen data would
+ * then round corners off. Sparse strokes are resampled uniformly by arc length so the (fixed
+ * window) smoothing and all later stages see comparable data. Dense input is left untouched.
+ */
+function normalizeSampling(pts: Vec2[]): Vec2[] {
+  if (pts.length >= DENSE_POINTS) return pts
+  return resample(pts, DENSE_POINTS)
 }
 
 function dedupe(pts: Vec2[]): Vec2[] {

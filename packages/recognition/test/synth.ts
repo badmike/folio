@@ -166,3 +166,54 @@ export function generateScribbles(seed: number, n = 24): InkStroke[][] {
   }
   return out
 }
+
+/**
+ * Keep only ~`count` points of a dense path, spaced by (jittered) arc length, like a mouse
+ * without coalesced events: the hand speeds up and slows down, and corners are usually cut.
+ */
+export function sparsify(pts: P[], count: number, r: R): P[] {
+  const cum = [0]
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y))
+  const total = cum[cum.length - 1]
+  const out: P[] = [pts[0]]
+  let s = 0
+  let j = 1
+  const mean = total / count
+  while (true) {
+    s += mean * r.range(0.6, 1.4)
+    if (s >= total) break
+    while (cum[j] < s) j++
+    const t = (s - cum[j - 1]) / Math.max(1e-9, cum[j] - cum[j - 1])
+    out.push({ x: pts[j - 1].x + t * (pts[j].x - pts[j - 1].x), y: pts[j - 1].y + t * (pts[j].y - pts[j - 1].y) })
+  }
+  out.push(pts[pts.length - 1])
+  return out
+}
+
+/** Closed shapes drawn with few samples (12-32 points per stroke). */
+export function generateSparseShapeSamples(seed: number, perKind = 12): Sample[] {
+  const r = rng(seed)
+  const out: Sample[] = []
+  let t0 = 1000
+  for (let i = 0; i < perKind; i++) {
+    const w = r.range(90, 260)
+    const h = r.range(70, 220)
+    const size = (w + h) / 2
+    const ox = r.range(50, 400)
+    const oy = r.range(50, 400)
+    const dir = r.next() < 0.5 ? 1 : -1
+    const mk = (loop: P[], rot = 0) => {
+      const c = { x: w / 2, y: h / 2 }
+      const rp = rot ? rotatePts(loop, rot, c) : loop
+      const dense = jitter(openLoop(dir === 1 ? rp : [...rp].reverse(), r), size, r, 0.7)
+      const sparse = sparsify(dense, Math.round(r.range(16, 36)), r)
+      return makeStroke(sparse.map((p) => ({ x: p.x + ox, y: p.y + oy })), { startedAt: (t0 += 2000) })
+    }
+    out.push({ label: `sparseRect${i}`, strokes: [mk(rectLoop(w, h))], expect: 'rectangle' })
+    out.push({ label: `sparseRectRot${i}`, strokes: [mk(rectLoop(w, h), r.range(-0.5, 0.5))], expect: 'rectangle' })
+    out.push({ label: `sparseEllipse${i}`, strokes: [mk(ellipseLoop(w, h))], expect: 'ellipse' })
+    out.push({ label: `sparseTri${i}`, strokes: [mk(triangleLoop(w, h))], expect: 'triangle' })
+    out.push({ label: `sparseDiamond${i}`, strokes: [mk(diamondLoop(w, h))], expect: 'diamond' })
+  }
+  return out
+}
