@@ -22,8 +22,14 @@ pub struct TestApp {
 
 pub fn base_config(dir: &std::path::Path) -> Config {
     let mut m: HashMap<String, String> = HashMap::new();
-    m.insert("DATABASE_URL".into(), format!("sqlite://{}/test.db", dir.display()));
-    m.insert("FOLIO_ASSETS_DIR".into(), dir.join("assets").display().to_string());
+    m.insert(
+        "DATABASE_URL".into(),
+        format!("sqlite://{}/test.db", dir.display()),
+    );
+    m.insert(
+        "FOLIO_ASSETS_DIR".into(),
+        dir.join("assets").display().to_string(),
+    );
     m.insert("FOLIO_AUTH_DEV".into(), "true".into());
     Config::from_map(&m).unwrap()
 }
@@ -43,10 +49,17 @@ impl TestApp {
     pub async fn build(dir: tempfile::TempDir, cfg: Config, jwks: JwksCache) -> Self {
         let pool = db::connect(&cfg.database_url).await.unwrap();
         let store = storage::build(&cfg.storage).unwrap();
-        let mock = Arc::new(MockProvider::with_default(r#"{"text":"Hallo Welt","confidence":0.93}"#));
+        let mock = Arc::new(MockProvider::with_default(
+            r#"{"text":"Hallo Welt","confidence":0.93}"#,
+        ));
         let ai: Arc<dyn AiProvider> = mock.clone();
         let state = AppState::new(pool, cfg, store, ai, jwks);
-        Self { router: build_router(state.clone()), state, mock, _dir: dir }
+        Self {
+            router: build_router(state.clone()),
+            state,
+            mock,
+            _dir: dir,
+        }
     }
 
     pub async fn send(&self, req: Request<Body>) -> (StatusCode, axum::http::HeaderMap, Vec<u8>) {
@@ -57,20 +70,36 @@ impl TestApp {
         (status, headers, body)
     }
 
-    pub async fn json(&self, method: &str, uri: &str, token: Option<&str>, body: Option<Value>) -> (StatusCode, Value) {
+    pub async fn json(
+        &self,
+        method: &str,
+        uri: &str,
+        token: Option<&str>,
+        body: Option<Value>,
+    ) -> (StatusCode, Value) {
         let mut b = Request::builder().method(method).uri(uri);
         if let Some(t) = token {
             b = b.header("authorization", format!("Bearer {t}"));
         }
         let req = match body {
-            Some(v) => b.header("content-type", "application/json").body(Body::from(v.to_string())).unwrap(),
+            Some(v) => b
+                .header("content-type", "application/json")
+                .body(Body::from(v.to_string()))
+                .unwrap(),
             None => b.body(Body::empty()).unwrap(),
         };
         let (s, _, bytes) = self.send(req).await;
         (s, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
     }
 
-    pub async fn raw(&self, method: &str, uri: &str, token: &str, ct: &str, body: Vec<u8>) -> (StatusCode, axum::http::HeaderMap, Vec<u8>) {
+    pub async fn raw(
+        &self,
+        method: &str,
+        uri: &str,
+        token: &str,
+        ct: &str,
+        body: Vec<u8>,
+    ) -> (StatusCode, axum::http::HeaderMap, Vec<u8>) {
         let req = Request::builder()
             .method(method)
             .uri(uri)
