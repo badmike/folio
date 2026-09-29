@@ -222,3 +222,16 @@ describe('color', () => {
     expect(premultiplied('#ffffff', 0.5)).toEqual([0.5, 0.5, 0.5, 0.5])
   })
 })
+
+describe('arrow label layout', () => {
+  it('fit shrinks the label box to the text so the background does not cover the shaft', async () => {
+    const { labelLayout, setTextMeasurer } = await import('../src/text')
+    setTextMeasurer((_f, t) => t.length * 9)
+    const wide = labelLayout('clean up', 160, false)
+    const fit = labelLayout('clean up', 160, false, true)
+    expect(wide.width).toBe(144)
+    expect(fit.width).toBe(72)
+    expect(fit.height).toBe(wide.height)
+    setTextMeasurer(null)
+  })
+})

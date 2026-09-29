@@ -508,7 +508,7 @@ export class WebGLRenderer implements Renderer {
         const { start, end } = resolveArrowEndpoints(a, scene.resolve)
         this.drawCachedMesh(a.id, arrowKey(a, start, end, theme), IDENTITY, camera, (mb) => buildArrowMesh(mb, a, start, end, theme), cache)
         if (a.label) {
-          const l = labelLayout(a.label, 160, clean)
+          const l = labelLayout(a.label, 160, clean, true)
           const bg = scene.page.background.color
           this.drawText(
             cache ? a.id + '#label' : null,
