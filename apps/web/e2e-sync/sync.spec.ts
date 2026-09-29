@@ -115,6 +115,14 @@ test('concurrent offline edits on both devices converge after reconnecting', asy
   expect(await typeCount(A, 'ink')).toBe(5)
   expect(await typeCount(A, 'text')).toBe(1)
   expect(await typeCount(B, 'ink')).toBe(5)
+
+  // the merged state was persisted locally on B (survives a reload, even without the network)
+  const merged = await objectIds(B)
+  await ctxB.setOffline(true)
+  await B.reload()
+  await expect.poll(() => B.evaluate(() => !!(window as any).__folio?.editor)).toBe(true)
+  expect(await objectIds(B)).toEqual(merged)
+  await ctxB.setOffline(false)
 })
 
 test('no unexpected console errors on either device', async () => {
