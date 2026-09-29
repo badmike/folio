@@ -130,12 +130,16 @@ export function lineOffsetX(layout: TextLayout, lineIndex: number, align: TextLi
 }
 
 /** Label font for shapes/arrows. */
-export function labelLayout(label: string, boxWidth: number, clean: boolean): TextLayout {
-  return layoutText({
+export function labelLayout(label: string, boxWidth: number, clean: boolean, fit = false): TextLayout {
+  const layout = layoutText({
     text: label,
     fontSize: 18,
     fontFamily: clean ? 'sans' : 'hand',
     width: Math.max(20, boxWidth - 16),
     align: 'center',
   })
+  // `fit` shrinks the box to the widest line (arrow labels paint a background behind
+  // the text, which must not extend over the shaft beyond the text itself).
+  if (!fit) return layout
+  return { ...layout, width: Math.max(1, ...layout.lineWidths) }
 }

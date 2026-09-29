@@ -218,7 +218,7 @@ export function paintScene(
       const g = geo.arrow(obj, start, end, scene.theme)
       drawGeometry(ctx, g, rgba(obj.style.strokeColor, obj.style.opacity), null)
       if (obj.label) {
-        const l = labelLayout(obj.label, 160, clean)
+        const l = labelLayout(obj.label, 160, clean, true)
         const mx = (start.x + end.x) / 2 - l.width / 2
         const my = (start.y + end.y) / 2 - l.height / 2
         ctx.fillStyle = rgba(scene.page.background.color, 0.85)
