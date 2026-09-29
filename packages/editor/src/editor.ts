@@ -18,7 +18,7 @@ import type { ObjectPatchEntry, SelectionFrame } from './manipulate'
 import { SpatialIndex } from './spatial-index'
 import { TextEditor } from './text-edit'
 import type {
-  CleanupPlan, ClipboardPayload, EditorEvents, EditorOptions, ExecuteOptions, ExportImageOptions, PenMode, Tool,
+  CleanupPlan, ClipboardPayload, EditorEvents, SelectionStylePatch, EditorOptions, ExecuteOptions, ExportImageOptions, PenMode, Tool,
   ToolOptionsMap,
 } from './types'
 
@@ -870,6 +870,39 @@ export class Editor {
     )
   }
 
+  /**
+   * Apply colour / width / opacity to every selected leaf as ONE undoable commit.
+   * ink: style.color/width/opacity; shape & arrow: style.strokeColor/strokeWidth/opacity;
+   * text: color (width and opacity do not apply). Pass `{coalesceKey}` while a slider is dragged so
+   * the drag is one undo step. Returns the number of objects changed.
+   */
+  setSelectionStyle(patch: SelectionStylePatch, o?: ExecuteOptions): number {
+    if (this.readOnly) return 0
+    const entries: ObjectPatchEntry[] = []
+    for (const o of this.leavesOfSelection()) {
+      if (o.supersededBy) continue
+      let p: ObjectPatch | null = null
+      if (o.type === 'ink') {
+        const style = { ...o.style }
+        if (patch.color !== undefined) style.color = patch.color
+        if (patch.width !== undefined) style.width = patch.width
+        if (patch.opacity !== undefined) style.opacity = patch.opacity
+        if (!sameStyle(style, o.style)) p = { style } as ObjectPatch
+      } else if (o.type === 'shape' || o.type === 'arrow') {
+        const style = { ...o.style }
+        if (patch.color !== undefined) style.strokeColor = patch.color
+        if (patch.width !== undefined) style.strokeWidth = patch.width
+        if (patch.opacity !== undefined) style.opacity = patch.opacity
+        if (!sameStyle(style, o.style)) p = { style } as ObjectPatch
+      } else if (o.type === 'text') {
+        if (patch.color !== undefined && patch.color !== o.color) p = { color: patch.color }
+      }
+      if (p) entries.push({ id: o.id, patch: p })
+    }
+    this.updateObjects(entries, o)
+    return entries.length
+  }
+
   addObjects(objects: CanvasObject[]): void {
     if (!objects.length) return
     this.execute([{ type: 'addObjects', pageId: this._pageId, objects }])
@@ -1173,3 +1206,9 @@ export function createEditor(opts: EditorOptions): Editor {
 }
 
 export { MAX_ZOOM, MIN_ZOOM }
+
+function sameStyle(a: object, b: object): boolean {
+  const x = a as Record<string, unknown>
+  const y = b as Record<string, unknown>
+  return Object.keys(x).every((k) => x[k] === y[k])
+}
