@@ -3,7 +3,8 @@ import { shallowRef, ref, watch, type ShallowRef } from 'vue'
 import { AuthService } from './services/auth'
 import { diagnostics } from './services/diagnostics'
 import { RecognitionService } from './services/recognition'
-import { bindSettings } from './services/settings'
+import { thumbnailDataUrl } from './services/export'
+import { bindSettings, settings } from './services/settings'
 import { API_BASE, SyncService } from './services/sync'
 import { Workspace } from './services/workspace'
 
@@ -41,6 +42,17 @@ export async function createServices(storage: Storage): Promise<AppServices> {
   return { storage, storageKind: storage.kind, workspace, auth, sync, recognition }
 }
 
+async function makeWelcomeThumbnail(ws: Workspace, id: string): Promise<void> {
+  try {
+    const session = await ws.openNotebook(id)
+    const url = await thumbnailDataUrl(session.doc, settings.theme)
+    if (url) await ws.setThumbnail(id, url)
+    await ws.release(id)
+  } catch (e) {
+    diagnostics.log('welcome.thumbnail', e)
+  }
+}
+
 let booting: Promise<void> | null = null
 
 /** Startup sequence: storage -> settings -> workspace -> first run -> auth/sync. */
@@ -49,9 +61,10 @@ export function boot(): Promise<void> {
     try {
       const opened = await openStorage({ diagnostics })
       const s = await createServices(opened.storage)
-      await s.workspace.ensureFirstRun()
+      const welcome = await s.workspace.ensureFirstRun()
       services.value = s
       bootState.value = 'ready'
+      if (welcome) void makeWelcomeThumbnail(s.workspace, welcome)
       void s.auth.load()
       s.sync.init()
       const flush = () => { void s.workspace.flushAll() }

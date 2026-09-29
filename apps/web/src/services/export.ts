@@ -106,3 +106,18 @@ export async function copyText(text: string): Promise<boolean> {
     }
   }
 }
+
+/** Small PNG data URL preview of a notebook's first page (library cards). */
+export async function thumbnailDataUrl(doc: NotebookDocumentApi, theme: VisualTheme, maxSize = 360): Promise<string | null> {
+  const first = doc.pages()[0]
+  if (!first) return null
+  const b = exportBounds(doc, first)
+  const scale = Math.min(1, maxSize / Math.max(b.width, b.height))
+  const blob = await renderPage(doc, first.id, { scale, theme, bounds: b })
+  return new Promise<string>((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(String(r.result))
+    r.onerror = () => reject(r.error)
+    r.readAsDataURL(blob)
+  })
+}

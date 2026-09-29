@@ -54,7 +54,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside, tru
 </template>
 
 <style scoped>
-.dock { position: absolute; left: 50%; transform: translateX(-50%); z-index: 20; display: flex; align-items: center; max-width: calc(100% - 16px); pointer-events: none; }
+.dock { position: absolute; left: 0; right: 0; margin: 0 auto; width: max-content; z-index: 20; display: flex; align-items: center; max-width: calc(100% - 16px); pointer-events: none; }
 .dock > * { pointer-events: auto; }
 .dock.bottom { bottom: calc(10px + var(--safe-bottom)); flex-direction: column-reverse; gap: 8px; }
 .dock.top { top: calc(64px + var(--safe-top)); flex-direction: column; gap: 8px; }

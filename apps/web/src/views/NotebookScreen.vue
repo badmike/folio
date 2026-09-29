@@ -119,7 +119,7 @@ const zoomPct = computed(() => Math.round(ctl.zoom.value * 100))
   <div class="screen" data-testid="notebook-screen">
     <div ref="host" class="canvas-host" data-testid="editor-host" />
 
-    <header class="top">
+    <header class="topbar">
       <button class="icon-btn panel" aria-label="Back to library" data-testid="back" @click="back"><Icon name="back" /></button>
       <div class="title panel">
         <input v-if="editingTitle" ref="titleInput" v-model="titleDraft" class="title-input" aria-label="Notebook title" data-testid="title-input"
@@ -157,12 +157,12 @@ const zoomPct = computed(() => Math.round(ctl.zoom.value * 100))
 <style scoped>
 .screen { position: fixed; inset: 0; overflow: hidden; background: var(--bg); }
 .canvas-host { position: absolute; inset: 0; touch-action: none; }
-.top {
+.topbar {
   position: absolute; z-index: 25; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 8px; pointer-events: none;
   padding: calc(8px + var(--safe-top)) calc(8px + var(--safe-right)) 0 calc(8px + var(--safe-left));
 }
-.top > * { pointer-events: auto; }
-.top > .spacer { pointer-events: none; }
+.topbar > * { pointer-events: auto; }
+.topbar > .spacer { pointer-events: none; }
 .title { display: flex; align-items: center; gap: 8px; padding: 0 14px 0 4px; min-height: var(--target); min-width: 0; max-width: min(46vw, 420px); }
 .title-btn { border: 0; background: transparent; font-weight: 650; font-size: 16px; padding: 0 10px; min-height: 40px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .title-input { border: 0; outline: none; background: transparent; font-weight: 650; font-size: 16px; padding: 0 10px; min-height: 40px; width: min(320px, 40vw); }
@@ -173,7 +173,7 @@ const zoomPct = computed(() => Math.round(ctl.zoom.value * 100))
 .dot.error { background: var(--danger); }
 .dot.local { background: var(--surface-3); box-shadow: inset 0 0 0 2px var(--muted); }
 .actions { display: flex; padding: 0 2px; }
-.top > .icon-btn.panel { border-radius: 12px; }
+.topbar > .icon-btn.panel { border-radius: 12px; }
 .zoom { position: absolute; z-index: 18; left: calc(8px + var(--safe-left)); display: flex; align-items: center; }
 .zoom.top { bottom: calc(10px + var(--safe-bottom)); }
 .zoom.bottom { top: calc(64px + var(--safe-top)); left: auto; right: calc(8px + var(--safe-right)); }
