@@ -50,6 +50,14 @@ const num = (e: Event) => Number((e.target as HTMLInputElement).value)
         <button :class="{ on: o.select.mode === 'rect' }" @click="ctl.setOption('select', { mode: 'rect' })">Rectangle</button>
         <button :class="{ on: o.select.mode === 'lasso' }" @click="ctl.setOption('select', { mode: 'lasso' })">Lasso</button>
       </div>
+      <template v-if="ctl.selection.value.count">
+        <div class="label">Style of selection</div>
+        <div class="swatches" data-testid="selection-style">
+          <button v-for="c in PALETTE" :key="c" class="sw" :style="{ background: c }" :aria-label="`Selection color ${c}`" @click="ctl.styleSelection({ color: c })" />
+        </div>
+        <label class="slider"><span>Width</span><input type="range" min="1" max="16" step="0.5" value="3" aria-label="Selection width" @input="ctl.styleSelection({ width: num($event) })" /><b></b></label>
+        <label class="slider"><span>Opacity</span><input type="range" min="0.1" max="1" step="0.05" value="1" aria-label="Selection opacity" @input="ctl.styleSelection({ opacity: num($event) })" /><b></b></label>
+      </template>
     </template>
 
     <!-- shape -->
