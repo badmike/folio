@@ -63,8 +63,8 @@ function pick(c: string) { emit('pick', c) }
 </template>
 
 <style scoped>
-.swatches { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.sw { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--border); padding: 0; flex: none; }
+.swatches { display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; }
+.sw { width: 26px; height: 26px; border-radius: 8px; border: 1px solid var(--border); padding: 0; flex: none; }
 .sw:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .sw.on { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent); }
 .sw.checker { background: repeating-conic-gradient(#c9ced6 0 25%, transparent 0 50%) 0 0 / 10px 10px, #fff; }
