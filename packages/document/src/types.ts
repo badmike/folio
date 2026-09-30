@@ -59,6 +59,8 @@ export interface BaseObject {
   supersededBy?: ObjectId
   /** Optional concept links to other objects/pages/notebooks. */
   links?: SemanticLink[]
+  /** The frame (a ShapeObject of kind 'frame') this object belongs to. */
+  frameId?: ObjectId
 }
 
 export interface SemanticLink {
@@ -90,6 +92,9 @@ export interface InkPoint {
 
 export type InkTool = 'pen' | 'highlighter'
 
+/** End shape of a highlighter stroke: cut flat, rounded, cut at a slant or tapered ("curvy"). */
+export type HighlighterCap = 'flat' | 'round' | 'slanted' | 'curvy'
+
 export interface StrokeStyle {
   tool: InkTool
   /** CSS color, e.g. '#1e1e1e' */
@@ -99,6 +104,8 @@ export interface StrokeStyle {
   /** 0..1 */
   opacity: number
   pressureSensitive: boolean
+  /** Highlighter end shape (default 'flat'); ignored for pens. */
+  cap?: HighlighterCap
 }
 
 export interface InkStroke extends BaseObject {
@@ -116,7 +123,11 @@ export interface InkStroke extends BaseObject {
 // Text
 // ---------------------------------------------------------------------------
 
-export type FontFamily = 'hand' | 'sans' | 'mono'
+/**
+ * 'hand' = Caveat, 'sans' = system UI font, 'mono' = Fira Code; the rest are hand-drawn
+ * Google fonts bundled with the app (see FONT_FAMILIES in the renderer).
+ */
+export type FontFamily = 'hand' | 'sans' | 'mono' | 'kalam' | 'patrick' | 'indie' | 'architect' | 'shadows' | 'gloria'
 export type SemanticTextType = 'heading' | 'paragraph' | 'list-item' | 'label' | 'equation'
 
 export interface TextObject extends BaseObject {
@@ -139,10 +150,21 @@ export interface TextObject extends BaseObject {
 // Shapes & arrows
 // ---------------------------------------------------------------------------
 
-export type ShapeKind = 'rectangle' | 'ellipse' | 'triangle' | 'diamond' | 'line'
+/**
+ * 'frame' groups what lies inside it (objects carry `frameId`; content is clipped to the frame
+ * and moves with it; `label` is the frame name). 'blur' is a reveal mask: it blurs
+ * whatever is painted below it. Both are boxes like 'rectangle' and share ShapeObject.
+ */
+export type ShapeKind = 'rectangle' | 'ellipse' | 'triangle' | 'diamond' | 'line' | 'frame' | 'blur'
+
+/** Kinds offered by the shape tool (frame and blur have their own tools). */
+export const DRAWABLE_SHAPE_KINDS: readonly ShapeKind[] = ['rectangle', 'ellipse', 'triangle', 'diamond', 'line']
 
 export type StrokeLineStyle = 'solid' | 'dashed' | 'dotted'
 export type FillStyle = 'hachure' | 'cross-hatch' | 'solid'
+export type Roundness = 'sharp' | 'round'
+/** How a blur mask treats what lies below it: a mosaic of blocks, or a Gaussian blur. */
+export type BlurMode = 'pixelate' | 'gaussian'
 
 export interface ShapeStyle {
   strokeColor: string
@@ -158,7 +180,14 @@ export interface ShapeStyle {
   roughness: number
   /** Deterministic seed so rough rendering is stable across frames/devices. */
   seed: number
+  /** Corner style of rectangles, triangles and diamonds (default 'sharp'). */
+  roundness?: Roundness
 }
+
+/** Default font size (world units) of shape and arrow labels. */
+export const DEFAULT_LABEL_SIZE = 20
+/** Default block size (world units) of a blur shape. */
+export const DEFAULT_BLUR_SIZE = 12
 
 /** Shape geometry: local box from (0,0) to (width,height). */
 export interface ShapeObject extends BaseObject {
@@ -167,8 +196,19 @@ export interface ShapeObject extends BaseObject {
   width: number
   height: number
   style: ShapeStyle
-  /** Optional text label rendered centered inside the shape. */
+  /** Optional text label rendered centered inside the shape (the name, for frames). */
   label?: string
+  /** Label font size in world units (default DEFAULT_LABEL_SIZE). */
+  labelSize?: number
+  /**
+   * kind 'line' only: local polyline the line follows instead of the (0,0)→(width,height)
+   * diagonal. Its bounding box is (0,0)-(width,height).
+   */
+  points?: Vec2[]
+  /** kind 'blur' only: block size (pixelate) or blur radius (gaussian) in world units (default DEFAULT_BLUR_SIZE). */
+  blurSize?: number
+  /** kind 'blur' only: default 'pixelate'. */
+  blurMode?: BlurMode
   sourceStrokeIds?: ObjectId[]
 }
 
@@ -207,6 +247,8 @@ export interface ArrowObject extends BaseObject {
   startHead: Arrowhead
   endHead: Arrowhead
   label?: string
+  /** Label font size in world units (default DEFAULT_LABEL_SIZE). */
+  labelSize?: number
   sourceStrokeIds?: ObjectId[]
 }
 
@@ -336,11 +378,19 @@ export interface Page {
 // Notebook & workspace
 // ---------------------------------------------------------------------------
 
+/** Per-notebook quick-pick swatches of the properties panel (one row of 5 each). */
+export interface QuickColors {
+  stroke: string[]
+  background: string[]
+  highlighter: string[]
+}
+
 export interface ToolSettings {
   pen: StrokeStyle
   highlighter: StrokeStyle
   shape: ShapeStyle
   eraserSize: number
+  quickColors?: QuickColors
 }
 
 export interface NotebookMeta {

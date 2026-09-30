@@ -33,10 +33,20 @@ export const PALETTE: PaletteHue[] = [
   { name: 'red', shades: ['#fff5f5', '#ffc9c9', '#ffa8a8', '#ff8787', '#e03131'] },
 ]
 
-/** Quick-pick swatches shown inline in the properties panel. */
+/** Quick-pick swatches shown inline in the properties panel (defaults; notebooks can override them). */
 export const QUICK_STROKE_COLORS = ['#1e1e1e', '#e03131', '#2f9e44', '#1971c2', '#f08c00'] as const
 export const QUICK_BACKGROUND_COLORS = ['transparent', '#ffc9c9', '#b2f2bb', '#a5d8ff', '#ffec99'] as const
 export const QUICK_HIGHLIGHTER_COLORS = ['#ffd43b', '#69db7c', '#74c0fc', '#f783ac', '#ffa94d'] as const
+
+export interface QuickColorSets {
+  stroke: readonly string[]
+  background: readonly string[]
+  highlighter: readonly string[]
+}
+
+export function defaultQuickColors(): QuickColorSets {
+  return { stroke: QUICK_STROKE_COLORS, background: QUICK_BACKGROUND_COLORS, highlighter: QUICK_HIGHLIGHTER_COLORS }
+}
 
 /** Page/canvas background presets. */
 export const CANVAS_BACKGROUNDS_LIGHT = ['#ffffff', '#f8f9fa', '#f5faff', '#fffce8', '#fdf8f6'] as const

@@ -71,7 +71,9 @@ export function newEffects(): Effects {
   return { pageIds: new Set(), objectIds: new Set(), pagesChanged: false, metaChanged: false }
 }
 
-const OBJ_IGNORE = ['id', 'type', 'points']
+const OBJ_IGNORE = ['id', 'type']
+/** Ink points are immutable once committed; line shapes may change theirs. */
+const INK_IGNORE = ['id', 'type', 'points']
 const PAGE_IGNORE = ['id']
 const META_IGNORE = ['id']
 
@@ -128,7 +130,7 @@ export function reduceOp(
       for (const { id, patch } of op.patches) {
         const prev = state.objMap(op.pageId)?.get(id)
         if (!prev) continue
-        const r = computePatch(prev, patch, OBJ_IGNORE)
+        const r = computePatch(prev, patch, prev.type === 'ink' ? INK_IGNORE : OBJ_IGNORE)
         if (!r) continue
         state.objMap(op.pageId, true)!.set(id, r.next)
         emit?.({ t: 'objPatch', pageId: op.pageId, id, write: r.write, obj: r.next })
