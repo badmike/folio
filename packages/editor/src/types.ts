@@ -8,6 +8,11 @@ export type Tool = 'pen' | 'highlighter' | 'eraser' | 'select' | 'shape' | 'arro
 export type PenMode = 'auto' | 'pen-only' | 'any'
 export type SelectMode = 'auto' | 'rect' | 'lasso'
 
+/**
+ * NOTE: the shape / arrow / text entries are a read-only VIEW derived from
+ * Editor.itemStyle (the single source of truth); setToolOptions() on those
+ * tools is translated into an itemStyle patch.
+ */
 export interface ToolOptionsMap {
   pen: Omit<StrokeStyle, 'tool'>
   highlighter: Omit<StrokeStyle, 'tool'>
@@ -22,6 +27,8 @@ export interface ToolOptionsMap {
     fillColor?: string
     opacity: number
     roughness: number
+    fillStyle?: FillStyle
+    strokeStyle?: StrokeLineStyle
   }
   arrow: {
     strokeColor: string
@@ -30,8 +37,10 @@ export interface ToolOptionsMap {
     roughness: number
     startHead: Arrowhead
     endHead: Arrowhead
+    strokeStyle?: StrokeLineStyle
+    arrowType?: ArrowType
   }
-  text: { fontSize: number; fontFamily: FontFamily; color: string }
+  text: { fontSize: number; fontFamily: FontFamily; color: string; align?: 'left' | 'center' | 'right'; opacity?: number }
 }
 
 export interface RendererFactoryOptions {

@@ -27,12 +27,12 @@ export class TextEditor {
   startNew(p: Vec2): void {
     if (this.editor.readOnly) return
     this.commit()
-    const t = this.editor.toolOptions.text
+    const t = this.editor.itemStyle
     const now = Date.now()
     const draft: TextObject = {
       id: createId(), type: 'text', z: this.editor.nextZ(), createdAt: now, updatedAt: now,
       transform: { x: p.x, y: p.y - t.fontSize * 0.65, rotation: 0, scaleX: 1, scaleY: 1 },
-      text: '', fontSize: t.fontSize, fontFamily: t.fontFamily, color: t.color,
+      text: '', fontSize: t.fontSize, fontFamily: t.fontFamily, color: t.strokeColor, align: t.textAlign, opacity: t.opacity,
     }
     this.open({ kind: 'new', draft }, '')
   }
