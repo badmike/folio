@@ -65,6 +65,8 @@ export interface EditorEvents extends Record<string, unknown> {
   tool: Tool
   history: { canUndo: boolean; canRedo: boolean }
   textedit: { editing: boolean; id?: ObjectId }
+  /** Style context changed (selection, tool, current item style or selected objects' style). */
+  style: StyleContext
 }
 
 export interface ExecuteOptions {
