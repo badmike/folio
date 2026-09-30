@@ -5,8 +5,8 @@
  * pointerup → build InkStroke → commit AFTER the frame. Nothing in here runs
  * recognition, persistence or sync.
  */
-import type { ArrowObject, CanvasObject, InkPoint, ObjectId, ObjectPatch, ShapeObject, Vec2 } from '@folio/document'
-import { ROTATE_HANDLE_OFFSET, arrowPath, elbowWaypointsAfterDrag } from '@folio/renderer'
+import { DRAWABLE_SHAPE_KINDS, type ArrowObject, type CanvasObject, type InkPoint, type ObjectId, type ObjectPatch, type ShapeKind, type ShapeObject, type Vec2 } from '@folio/document'
+import { ROTATE_HANDLE_OFFSET, arrowPath, elbowWaypointsAfterDrag, linePointsAfterDrag } from '@folio/renderer'
 import { buildArrow, buildShape, shapeGeometry, snapAngle } from './create'
 import type { Editor } from './editor'
 import { createId, rectFromPoints, segmentTouchesObject } from './geometry'
@@ -16,6 +16,7 @@ import {
   scaleFromHandle,
 } from './manipulate'
 import type { HandleId, ObjectPatchEntry, SelectionFrame } from './manipulate'
+import type { AlignMode, Tool } from './types'
 
 /** One pointer sample; a single instance is reused (no per-move allocation). */
 interface Sample {
@@ -45,6 +46,69 @@ const TAP_MAX_MOVE = 6
 const DOUBLE_TAP_MS = 350
 const DOUBLE_TAP_DIST = 24
 
+/**
+ * Pan velocity from the last ~80 ms of pointer samples, and the coasting loop that
+ * keeps the camera moving after a flick (exponential decay, like native scroll views).
+ */
+export class Flick {
+  private samples: { t: number; x: number; y: number }[] = []
+  private raf = 0
+  private vx = 0
+  private vy = 0
+  private last = 0
+  constructor(private panBy: (dx: number, dy: number) => void) {}
+
+  /** Record a pointer position (screen px) at time `t` (ms). */
+  track(t: number, x: number, y: number): void {
+    this.samples.push({ t, x, y })
+    while (this.samples.length > 8) this.samples.shift()
+  }
+  reset(): void { this.samples = [] }
+
+  /** Velocity (px/ms) over the recent samples; zero when the pointer paused before lifting. */
+  velocity(t: number): { vx: number; vy: number } {
+    const s = this.samples
+    const first = s.find((p) => t - p.t <= 100) ?? s[0]
+    const lastS = s[s.length - 1]
+    if (!first || !lastS || lastS === first || t - lastS.t > 60) return { vx: 0, vy: 0 }
+    const dt = Math.max(1, lastS.t - first.t)
+    return { vx: (lastS.x - first.x) / dt, vy: (lastS.y - first.y) / dt }
+  }
+
+  /** Start coasting with the recorded velocity. Returns true when a flick was fast enough. */
+  release(t: number): boolean {
+    const { vx, vy } = this.velocity(t)
+    this.reset()
+    if (Math.hypot(vx, vy) < 0.35) return false
+    this.vx = vx
+    this.vy = vy
+    this.last = 0
+    this.stop()
+    const step = (now: number): void => {
+      if (!this.last) this.last = now
+      const dt = Math.min(64, now - this.last)
+      this.last = now
+      this.panBy(this.vx * dt, this.vy * dt)
+      const decay = Math.exp(-dt / FLICK_DECAY_MS)
+      this.vx *= decay
+      this.vy *= decay
+      this.raf = Math.hypot(this.vx, this.vy) > 0.02 ? rafFrame(step) : 0
+    }
+    this.raf = rafFrame(step)
+    return true
+  }
+
+  get active(): boolean { return this.raf !== 0 }
+  stop(): void {
+    if (this.raf) cafFrame(this.raf)
+    this.raf = 0
+  }
+}
+const FLICK_DECAY_MS = 320
+const rafFrame = (cb: (now: number) => void): number =>
+  typeof requestAnimationFrame === 'function' ? requestAnimationFrame(cb) : (setTimeout(() => cb(performance.now()), 16) as unknown as number)
+const cafFrame = (id: number): void => (typeof cancelAnimationFrame === 'function' ? cancelAnimationFrame(id) : clearTimeout(id))
+
 export class InputController {
   private el: HTMLElement
   private sample: Sample = {
@@ -60,6 +124,8 @@ export class InputController {
   private pointerInside = false
   private lastTap?: { t: number; x: number; y: number }
   private disposers: (() => void)[] = []
+  /** Inertia for one-finger and hand-tool panning. */
+  readonly flick = new Flick((dx, dy) => this.ed.panBy(dx, dy))
 
   constructor(private ed: Editor) {
     this.el = ed.root
@@ -71,20 +137,24 @@ export class InputController {
     on(this.el, 'pointermove', (e) => this.onPointerMove(e))
     on(this.el, 'pointerup', (e) => this.onPointerUp(e, false))
     on(this.el, 'pointercancel', (e) => this.onPointerUp(e, true))
-    on(this.el, 'wheel', (e) => this.onWheel(e), { passive: false })
+    on(this.el, 'wheel', (e) => { this.flick.stop(); this.onWheel(e) }, { passive: false })
     on(this.el, 'contextmenu', (e) => e.preventDefault())
+    // two quick pen taps (dotting an i) must not trigger the browser's double-click zoom / selection
+    on(this.el, 'dblclick', (e) => e.preventDefault())
     const win = (type: string, fn: (e: never) => void, capture = false) => {
       window.addEventListener(type, fn as EventListener, capture)
       this.disposers.push(() => window.removeEventListener(type, fn as EventListener, capture))
     }
     win('keydown', (e: KeyboardEvent) => this.onKeyDown(e))
     win('keyup', (e: KeyboardEvent) => this.onKeyUp(e))
+    win('paste', (e: ClipboardEvent) => this.onPaste(e))
     win('pointerdown', (e: PointerEvent) => {
       this.pointerInside = e.target instanceof Node && ed.opts.container.contains(e.target)
     }, true)
   }
 
   destroy(): void {
+    this.flick.stop()
     this.interaction?.cancel()
     this.interaction = undefined
     for (const d of this.disposers) d()
@@ -121,6 +191,7 @@ export class InputController {
   private onPointerDown(e: PointerEvent): void {
     const ed = this.ed
     this.pointerInside = true
+    this.flick.stop()
     const r = this.el.getBoundingClientRect()
     this.rect.left = r.left
     this.rect.top = r.top
@@ -154,23 +225,33 @@ export class InputController {
 
     if (type === 'touch') {
       this.touches.set(e.pointerId, { x: s.x, y: s.y })
+      this.flick.reset()
+      this.flick.track(s.time, s.x, s.y)
       if (this.touches.size >= 2) {
         // second finger: abandon any single-finger drawing/tool and switch to pinch/pan
         if (this.interaction) { this.interaction.cancel(); this.interaction = undefined }
         return
       }
-      if (!(this.touchDraws() && !ed.readOnly)) return // one-finger pan handled in move
+      if (!(this.touchDraws() && !ed.readOnly) || ed.tool === 'hand') return // one-finger pan handled in move
     }
 
     if (type === 'mouse') {
       if (e.button === 2) { this.ignored.add(e.pointerId); return }
-      if (e.button === 1 || this.spaceDown || ed.readOnly) {
+      if (e.button === 1 || this.spaceDown || ed.readOnly || ed.tool === 'hand') {
         this.interaction = new PanInteraction(ed, e.pointerId, s)
         return
       }
       if (e.button !== 0) return
     }
-    if (ed.readOnly) return
+    if (ed.readOnly || ed.tool === 'hand') {
+      this.interaction = new PanInteraction(ed, e.pointerId, s)
+      return
+    }
+    // stylus eraser end or barrel button: erase, like native note apps
+    if (type === 'pen' && (e.button === 5 || (e.buttons & 32) !== 0 || (e.buttons & 2) !== 0)) {
+      this.interaction = new EraserInteraction(ed, e.pointerId, s)
+      return
+    }
     this.interaction = this.createToolInteraction(e.pointerId, s)
   }
 
@@ -183,11 +264,18 @@ export class InputController {
         return new StrokeInteraction(ed, id, s, ed.tool)
       case 'eraser': return new EraserInteraction(ed, id, s)
       case 'select': return new SelectInteraction(ed, id, s, (t, hit) => this.onTap(t, hit))
-      case 'shape': return new ShapeInteraction(ed, id, s)
+      case 'shape': return new ShapeInteraction(ed, id, s, ed.toolOptions.shape.kind)
+      case 'frame': return new ShapeInteraction(ed, id, s, 'frame')
+      case 'blur': return new ShapeInteraction(ed, id, s, 'blur')
       case 'arrow': return new ArrowInteraction(ed, id, s)
       case 'text': return new TextTapInteraction(ed, id, s)
+      case 'hand': return new PanInteraction(ed, id, s)
     }
   }
+
+  /** @internal Pan interactions report their samples here so a flick keeps the camera moving. */
+  trackPan(s: Sample): void { this.flick.track(s.time, s.x, s.y) }
+  releasePan(s: Sample): void { this.flick.release(s.time) }
 
   private onPointerMove(e: PointerEvent): void {
     if (this.ignored.has(e.pointerId)) return
@@ -225,6 +313,7 @@ export class InputController {
       }
     } else {
       this.ed.panBy(nx - t.x, ny - t.y)
+      this.flick.track(e.timeStamp, nx, ny)
     }
     t.x = nx
     t.y = ny
@@ -232,7 +321,9 @@ export class InputController {
 
   private onPointerUp(e: PointerEvent, cancelled: boolean): void {
     if (e.pointerType === 'pen') this.penDown = Math.max(0, this.penDown - 1)
+    const wasTouchPan = this.touches.has(e.pointerId) && this.touches.size === 1 && !(this.interaction && this.interaction.pointerId === e.pointerId)
     this.touches.delete(e.pointerId)
+    if (wasTouchPan && !cancelled) this.flick.release(e.timeStamp)
     if (this.ignored.delete(e.pointerId)) return
     try { this.el.releasePointerCapture(e.pointerId) } catch { /* ignore */ }
     const it = this.interaction
@@ -278,9 +369,16 @@ export class InputController {
     if (e.key === ' ') this.spaceDown = false
   }
 
+  /**
+   * Excalidraw key map. Tools: V/1 select, H hand, R/2 rectangle, D/3 diamond, O/4 ellipse,
+   * A/5 arrow, L/6 line, P/7 pen, T/8 text, E/0 eraser, F frame, Q tool lock; folio adds
+   * M highlighter and X blur. Editing: Cmd+Z/Y, Cmd+D, Cmd+G, Cmd+A/C/X/V, Cmd+[ ],
+   * Cmd+Shift+arrows align, Cmd +/-/0 zoom, Shift+1/2 fit. App-level keys (zen, grid,
+   * view mode, search) are left to the host.
+   */
   private onKeyDown(e: KeyboardEvent): void {
     const ed = this.ed
-    if (!this.isActive()) return
+    if (!this.isActive() || e.defaultPrevented) return
     const t = e.target as HTMLElement | null
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
     if (ed.isEditingText) return
@@ -293,21 +391,55 @@ export class InputController {
       if (this.interaction) { this.interaction.cancel(); this.interaction = undefined } else ed.clearSelection()
       return handled()
     }
+    if (mod && e.shiftKey) {
+      const align: Record<string, AlignMode> = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'top', ArrowDown: 'bottom' }
+      if (align[key]) { ed.alignSelection(align[key]); return handled() }
+      switch (key) {
+        case 'z': ed.redo(); return handled()
+        case 'g': ed.ungroupSelection(); return handled()
+        case '[': case '{': ed.sendToBack(); return handled()
+        case ']': case '}': ed.bringToFront(); return handled()
+      }
+      return
+    }
+    if (mod && e.altKey) {
+      if (key === '[') { ed.sendToBack(); return handled() }
+      if (key === ']') { ed.bringToFront(); return handled() }
+      return
+    }
     if (mod) {
       switch (key) {
-        case 'z': (e.shiftKey ? ed.redo() : ed.undo()); return handled()
+        case 'z': ed.undo(); return handled()
         case 'y': ed.redo(); return handled()
         case 'd': ed.duplicateSelection(); return handled()
-        case 'g': (e.shiftKey ? ed.ungroupSelection() : ed.groupSelection()); return handled()
+        case 'g': ed.groupSelection(); return handled()
         case 'a': ed.selectAll(); return handled()
         case 'c': ed.copySelection(); return handled()
         case 'x': if (ed.copySelection()) ed.deleteSelection(); return handled()
-        case 'v': {
-          if (ed.pasteAvailable) { ed.paste(); return handled() }
-          void this.pasteSystemText()
-          return handled()
+        case 'v': if (ed.pasteAvailable) { ed.paste(); return handled() } return // else the 'paste' event brings system text
+        case '[': ed.sendBackward(); return handled()
+        case ']': ed.bringForward(); return handled()
+        case '=': case '+': this.zoomStep(1.2); return handled()
+        case '-': this.zoomStep(1 / 1.2); return handled()
+        case '0': this.resetZoom(); return handled()
+        case 'Enter': {
+          const only = ed.selection.length === 1 ? ed.selection[0] : undefined
+          if (only && ed.startTextEdit(only)) return handled()
+          return
         }
       }
+      return
+    }
+    if (e.altKey) return
+    if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown') {
+      if (!ed.selection.length) return
+      const step = e.shiftKey ? 10 : 1
+      ed.nudgeSelection(key === 'ArrowLeft' ? -step : key === 'ArrowRight' ? step : 0, key === 'ArrowUp' ? -step : key === 'ArrowDown' ? step : 0)
+      return handled()
+    }
+    if (e.shiftKey) {
+      if (key === '!' || key === '1') { ed.zoomToFit(); return handled() }
+      if (key === '@' || key === '2') { this.zoomToSelection(); return handled() }
       return
     }
     switch (key) {
@@ -318,29 +450,70 @@ export class InputController {
         if (only && ed.startTextEdit(only)) return handled()
         return
       }
-      case 'ArrowLeft': case 'ArrowRight': case 'ArrowUp': case 'ArrowDown': {
-        if (!ed.selection.length) return
-        const step = e.shiftKey ? 10 : 1
-        ed.nudgeSelection(key === 'ArrowLeft' ? -step : key === 'ArrowRight' ? step : 0, key === 'ArrowUp' ? -step : key === 'ArrowDown' ? step : 0)
-        return handled()
-      }
-      case 'v': ed.setTool('select'); return handled()
-      case 'p': ed.setTool('pen'); return handled()
-      case 'h': ed.setTool('highlighter'); return handled()
-      case 'e': ed.setTool('eraser'); return handled()
-      case 'r': ed.setToolOptions('shape', { kind: 'rectangle' }); ed.setTool('shape'); return handled()
-      case 'a': ed.setTool('arrow'); return handled()
-      case 't': ed.setTool('text'); return handled()
+      case 'q': ed.setToolLock(!ed.toolLock); return handled()
+    }
+    const tool = TOOL_KEYS[key]
+    if (tool) {
+      if (tool.kind) ed.setToolOptions('shape', { kind: tool.kind })
+      ed.setTool(tool.tool)
+      return handled()
     }
   }
 
-  private async pasteSystemText(): Promise<void> {
-    try {
-      const text = await navigator.clipboard?.readText()
-      if (text && text.trim()) this.ed.pasteText(text)
-    } catch { /* clipboard permission denied */ }
+  private zoomStep(factor: number): void {
+    const vs = this.ed.viewportSize
+    this.ed.zoomAt({ x: vs.width / 2, y: vs.height / 2 }, factor)
   }
+
+  private resetZoom(): void {
+    const ed = this.ed
+    const vs = ed.viewportSize
+    const c = ed.screenToWorld({ x: vs.width / 2, y: vs.height / 2 })
+    ed.setCamera({ zoom: 1, x: c.x - vs.width / 2, y: c.y - vs.height / 2 })
+  }
+
+  private zoomToSelection(): void {
+    const b = this.ed.selectionBounds()
+    if (b) this.ed.zoomToRect(b, 64)
+    else this.ed.zoomToFit()
+  }
+
+  /** System clipboard text (the host may convert it, e.g. Excalidraw JSON); otherwise it becomes a text object. */
+  private onPaste(e: ClipboardEvent): void {
+    const ed = this.ed
+    if (!this.isActive() || ed.isEditingText || ed.readOnly) return
+    const t = e.target as HTMLElement | null
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+    const text = e.clipboardData?.getData('text/plain') ?? ''
+    if (!text.trim()) return
+    e.preventDefault()
+    void this.insertText(text)
+  }
+
+  private async insertText(text: string): Promise<void> {
+    const handled = await this.ed.opts.onPasteText?.(text)
+    if (!handled) this.ed.pasteText(text)
+  }
+
 }
+
+/** Single-key tool shortcuts (Excalidraw letters and digits). */
+const TOOL_KEYS: Record<string, { tool: Tool; kind?: ShapeKind }> = {
+  v: { tool: 'select' }, '1': { tool: 'select' },
+  h: { tool: 'hand' },
+  r: { tool: 'shape', kind: 'rectangle' }, '2': { tool: 'shape', kind: 'rectangle' },
+  d: { tool: 'shape', kind: 'diamond' }, '3': { tool: 'shape', kind: 'diamond' },
+  o: { tool: 'shape', kind: 'ellipse' }, '4': { tool: 'shape', kind: 'ellipse' },
+  a: { tool: 'arrow' }, '5': { tool: 'arrow' },
+  l: { tool: 'shape', kind: 'line' }, '6': { tool: 'shape', kind: 'line' },
+  p: { tool: 'pen' }, '7': { tool: 'pen' },
+  t: { tool: 'text' }, '8': { tool: 'text' },
+  e: { tool: 'eraser' }, '0': { tool: 'eraser' },
+  f: { tool: 'frame' },
+  m: { tool: 'highlighter' },
+  x: { tool: 'blur' },
+}
+void DRAWABLE_SHAPE_KINDS
 
 // ---------------------------------------------------------------------------
 // interactions
@@ -349,13 +522,19 @@ export class InputController {
 class PanInteraction implements Interaction {
   private lx: number
   private ly: number
-  constructor(private ed: Editor, public pointerId: number, s: Sample) { this.lx = s.x; this.ly = s.y }
+  constructor(private ed: Editor, public pointerId: number, s: Sample) {
+    this.lx = s.x
+    this.ly = s.y
+    ed.input.flick.reset()
+    ed.input.trackPan(s)
+  }
   move(s: Sample): void {
     this.ed.panBy(s.x - this.lx, s.y - this.ly)
     this.lx = s.x
     this.ly = s.y
+    this.ed.input.trackPan(s)
   }
-  up(): void {}
+  up(s: Sample): void { this.ed.input.releasePan(s) }
   cancel(): void {}
 }
 
@@ -461,7 +640,7 @@ class EraserInteraction implements Interaction {
   }
 }
 
-type SelectMode = 'none' | 'move' | 'resize' | 'rotate' | 'endpoint' | 'waypoint' | 'segment' | 'marquee' | 'lasso'
+type SelectMode = 'none' | 'move' | 'resize' | 'rotate' | 'endpoint' | 'waypoint' | 'segment' | 'linepoint' | 'marquee' | 'lasso'
 
 class SelectInteraction implements Interaction {
   private mode: SelectMode = 'none'
@@ -486,6 +665,8 @@ class SelectInteraction implements Interaction {
   private insertWaypoint = false
   private pathSnapshot: Vec2[] = []
   private lastBindTarget?: ObjectId
+  /** Line point edit: which point moves, or which segment gets a new point. */
+  private lineEdit?: { index: number } | { insertAfter: number }
 
   constructor(private ed: Editor, public pointerId: number, s: Sample, private onTap: (s: Sample, hit: CanvasObject | undefined) => void) {
     this.sx = s.x
@@ -495,19 +676,20 @@ class SelectInteraction implements Interaction {
     const zoom = ed.camera.zoom
     const hitR = s.pointerType === 'mouse' ? 10 : 18
 
-    // 1. handles / arrow endpoints of the current selection
+    // 1. handles / path points of the current selection
     if (ed.selection.length) {
       const leaves = ed.leavesOf(ed.selection)
-      if (leaves.length === 1 && leaves[0].type === 'arrow') {
-        const a = leaves[0]
+      const path = ed.selectedArrow() ?? ed.selectedLine()
+      if (leaves.length === 1 && path) {
         const near = (p: Vec2): boolean => Math.hypot((p.x - ed.camera.x) * zoom - s.x, (p.y - ed.camera.y) * zoom - s.y) < hitR
-        const handles = ed.selectedArrowHandles() ?? []
+        const handles = ed.selectedPathHandles() ?? []
         // ends win over waypoints, waypoints over virtual (create-bend) handles
         for (const kind of ['end', 'waypoint', 'virtual'] as const) {
           const h = handles.find((x) => x.kind === kind && near(x.world))
           if (!h) continue
-          if (h.id === 'start' || h.id === 'end') this.beginEndpoint(h.id, leaves)
-          else this.beginArrowHandle(a as ArrowObject, h.id, kind === 'waypoint' ? 'waypoint' : 'virtual')
+          if (path.type === 'shape') this.beginLinePoint(path, h.id, kind, handles.length)
+          else if (h.id === 'start' || h.id === 'end') this.beginEndpoint(h.id, leaves)
+          else this.beginArrowHandle(path, h.id, kind === 'waypoint' ? 'waypoint' : 'virtual')
           break
         }
       } else {
@@ -545,7 +727,9 @@ class SelectInteraction implements Interaction {
       } else if (!this.wasSelected) {
         ed.select([id])
       }
-      this.leaves = ed.leavesOf(ed.selection)
+      // Alt+drag moves a copy (Excalidraw); the clones start where the originals are
+      if (s.alt && !ed.readOnly) ed.duplicateSelection(0, 0)
+      this.leaves = ed.withFrameContent(ed.leavesOf(ed.selection))
       this.snapshot(this.leaves)
       this.mode = 'move'
       return
@@ -585,6 +769,17 @@ class SelectInteraction implements Interaction {
       this.mode = 'waypoint'
       this.insertWaypoint = kind === 'virtual'
     }
+  }
+
+  /** Line shape: drag an end / interior point (`wp:i`) or a segment middle (`v:i`, inserts a point). */
+  private beginLinePoint(line: ShapeObject, id: string, kind: 'end' | 'waypoint' | 'virtual', _count: number): void {
+    this.mode = 'linepoint'
+    this.leaves = [line]
+    this.snapshot(this.leaves)
+    const n = (line.points?.length ?? 2)
+    if (kind === 'virtual') this.lineEdit = { insertAfter: Number(id.split(':')[1]) }
+    else this.lineEdit = { index: id === 'start' ? 0 : id === 'end' ? n - 1 : Number(id.split(':')[1]) }
+    this.handleIndex = 'index' in this.lineEdit ? this.lineEdit.index : -1
   }
 
   private beginEndpoint(which: 'start' | 'end', leaves: CanvasObject[]): void {
@@ -641,6 +836,15 @@ class SelectInteraction implements Interaction {
         ed.setOverlayExtra({ bindingTargetId: target?.id })
         break
       }
+      case 'linepoint': {
+        if (!this.moved && dscreen < 3) return
+        this.moved = true
+        const line = this.snap.get(this.leaves[0].id) as ShapeObject
+        const geo = linePointsAfterDrag(line, this.lineEdit!, { x: s.wx, y: s.wy })
+        this.patches = [{ id: line.id, patch: { ...geo, updatedAt: Date.now() } as ObjectPatch }]
+        ed.setPreview(this.patches)
+        break
+      }
       case 'waypoint':
       case 'segment': {
         if (!this.moved && dscreen < 3) return
@@ -682,12 +886,14 @@ class SelectInteraction implements Interaction {
       case 'rotate':
       case 'endpoint':
       case 'waypoint':
-      case 'segment': {
+      case 'segment':
+      case 'linepoint': {
         const patches = this.patches
         ed.setPreview(null)
         ed.setOverlayExtra({})
-        if (this.moved && patches) ed.updateObjects(patches) // single commit = one undo step
+        if (this.moved && patches) ed.commitTransform(patches) // single commit = one undo step
         else if (this.mode === 'waypoint' && !this.insertWaypoint) this.tapWaypoint(s)
+        else if (this.mode === 'linepoint' && this.handleIndex > 0) this.tapLinePoint(s)
         else if (this.mode === 'move') {
           // a plain tap on a member of a multi-selection selects just that object
           if (!this.shift && this.wasSelected && this.hitId && ed.selection.length > 1) ed.select([this.hitId])
@@ -714,6 +920,25 @@ class SelectInteraction implements Interaction {
       }
       default: break
     }
+  }
+
+  /** Double-tap on an interior line point removes it. */
+  private tapLinePoint(s: Sample): void {
+    const line = this.leaves[0] as ShapeObject
+    const n = line.points?.length ?? 2
+    if (this.handleIndex >= n - 1) return // ends cannot be removed
+    const now = s.time || Date.now()
+    const key = `${line.id}:line:${this.handleIndex}`
+    const prev = lastWaypointTap.get(this.ed)
+    if (prev && prev.key === key && now - prev.t < DOUBLE_TAP_MS) {
+      lastWaypointTap.delete(this.ed)
+      const geo = linePointsAfterDrag(line, { remove: this.handleIndex })
+      const patch: ObjectPatch = { ...geo, updatedAt: Date.now() } as ObjectPatch
+      if ((geo.points?.length ?? 0) <= 2) { delete (patch as Record<string, unknown>).points; patch.$unset = ['points'] }
+      this.ed.updateObjects([{ id: line.id, patch }])
+      return
+    }
+    lastWaypointTap.set(this.ed, { key, t: now })
   }
 
   /** Double-tap on an existing waypoint removes it (one undo step). */
@@ -748,15 +973,25 @@ class ShapeInteraction implements Interaction {
   private moved = false
   private sx: number
   private sy: number
-  constructor(private ed: Editor, public pointerId: number, s: Sample) {
+  private frameName?: string
+  constructor(private ed: Editor, public pointerId: number, s: Sample, private kind: ShapeKind) {
     this.start = { x: s.wx, y: s.wy }
     this.sx = s.x
     this.sy = s.y
+    if (kind === 'frame') this.frameName = ed.nextFrameName()
   }
   private build(s: Sample): ShapeObject {
-    const o = this.ed.toolOptions.shape
-    const geo = shapeGeometry(o.kind, this.start, { x: s.wx, y: s.wy }, s.shift)
-    return buildShape(this.obj?.id ?? createId(), o.kind, geo, this.ed.shapeStyle(this.obj?.style.seed), this.ed.nextZ())
+    const kind = this.kind
+    const geo = shapeGeometry(kind, this.start, { x: s.wx, y: s.wy }, s.shift)
+    const seed = this.obj?.style.seed
+    const shape = buildShape(this.obj?.id ?? createId(), kind, geo, kind === 'frame' ? this.ed.frameStyle() : this.ed.shapeStyle(seed), this.ed.nextZ())
+    if (kind === 'frame') shape.label = this.frameName
+    if (kind === 'blur') {
+      shape.blurSize = this.ed.itemStyle.blurSize
+      if (this.ed.itemStyle.blurMode !== 'pixelate') shape.blurMode = this.ed.itemStyle.blurMode
+      delete shape.style.fillColor
+    }
+    return shape
   }
   move(s: Sample): void {
     if (!this.moved && Math.hypot(s.x - this.sx, s.y - this.sy) < this.minPx) return
@@ -771,6 +1006,7 @@ class ShapeInteraction implements Interaction {
     const zoom = this.ed.camera.zoom
     if (Math.max(obj.width, obj.height) * zoom < this.minPx) return
     this.ed.addObjects([obj])
+    this.ed.afterCreate()
     this.ed.select([obj.id])
   }
   cancel(): void {
@@ -826,6 +1062,7 @@ class ArrowInteraction implements Interaction {
     const { arrow } = this.build(s)
     if (Math.hypot(arrow.end.x - arrow.start.x, arrow.end.y - arrow.start.y) * this.ed.camera.zoom < 8) return
     this.ed.addObjects([arrow])
+    this.ed.afterCreate()
     this.ed.select([arrow.id])
   }
   cancel(): void {

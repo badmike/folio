@@ -2,7 +2,7 @@ import type {
   ArrowObject, CanvasObject, DocChangeEvent, GroupObject, InkStroke, NotebookDocumentApi, ObjectId, ObjectPatch,
   Operation, Page, PageId, Rect, ShapeObject, TextObject, Vec2,
 } from '@folio/document'
-import { arrowHandleSpecs } from '@folio/renderer'
+import { arrowHandleSpecs, lineHandleSpecs } from '@folio/renderer'
 import type { ArrowHandleSpec, Camera, LiveInkLayer, Renderer, Scene, SelectionOverlay, Size, VisualTheme } from '@folio/renderer'
 import {
   MAX_ZOOM, MIN_ZOOM, cameraForRect, clampCameraToPage, clampZoom, screenToWorld as s2w, worldToScreen as w2s, zoomCameraAt,
@@ -10,8 +10,8 @@ import {
 import { createDefaultLiveLayer, createDefaultRenderer, exportPageImage } from './defaults'
 import { Emitter } from './emitter'
 import {
-  createId, hitTestObject, inflate, localBounds, objectIntersectsLasso, rectsIntersect, resolveArrowEndpoints, unionRects,
-  worldBounds, worldToLocal,
+  createId, hitTestObject, inflate, localBounds, objectIntersectsLasso, rectContainsRect, rectsIntersect, resolveArrowEndpoints,
+  unionRects, worldBounds, worldToLocal,
 } from './geometry'
 import { InputController } from './input'
 import { HANDLE_IDS, applyPatch, cloneObjects, computeFrame, computeMovePatches } from './manipulate'
@@ -22,9 +22,10 @@ import {
   applicableFor, defaultItemStyle, derivedToolOptions, itemPatchFromToolOptions, patchForObject, selectionContext,
   strokeToInkWidth, toolContext,
 } from './style'
+import { ONE_SHOT_TOOLS } from './types'
 import type {
-  CleanupPlan, ClipboardPayload, EditorEvents, EditorOptions, ExecuteOptions, ExportImageOptions, ItemStyle, PenMode,
-  SelectionStylePatch, StyleContext, StylePatch, Tool, ToolOptionsMap,
+  AlignMode, CleanupPlan, ClipboardPayload, DistributeAxis, EditorEvents, EditorOptions, ExecuteOptions, ExportImageOptions, ItemStyle,
+  PenMode, SelectionStylePatch, StyleContext, StylePatch, Tool, ToolColors, ToolOptionsMap,
 } from './types'
 
 const HISTORY_LIMIT = 500
@@ -50,6 +51,9 @@ export function defaultToolOptions(): ToolOptionsMap {
     highlighter: { color: '#ffd43b', width: 18, opacity: 0.35, pressureSensitive: false },
     eraser: { size: 20 },
     select: { mode: 'auto' },
+    hand: {},
+    frame: {},
+    blur: {},
     ...derivedToolOptions(defaultItemStyle(), 'rectangle'),
   }
 }
@@ -70,7 +74,7 @@ export class Editor {
   /** @internal */ readonly opts: EditorOptions
 
   private renderer: Renderer
-  private input: InputController
+  /** @internal */ readonly input: InputController
   private resizeObserver?: ResizeObserver
   private unsubDoc: () => void
 
@@ -86,6 +90,10 @@ export class Editor {
   private _theme: VisualTheme
   private _readOnly: boolean
   private _penMode: PenMode
+  private _toolLock: boolean
+  private switchingTool = false
+  /** Colours remembered per one-shot tool (shape, arrow, text, frame, blur); empty until a tool's colour was changed. */
+  private _toolColors: ToolColors = {}
 
   // page cache
   private objs = new Map<ObjectId, CanvasObject>()
@@ -123,6 +131,7 @@ export class Editor {
     this._theme = opts.theme ?? 'rough'
     this._readOnly = !!opts.readOnly
     this._penMode = opts.penMode ?? 'auto'
+    this._toolLock = !!opts.toolLock
 
     const container = opts.container
     try {
@@ -188,6 +197,21 @@ export class Editor {
   get theme(): VisualTheme { return this._theme }
   get readOnly(): boolean { return this._readOnly }
   get penMode(): PenMode { return this._penMode }
+  get toolLock(): boolean { return this._toolLock }
+  /** Per-tool colour memory (persist with the notebook). */
+  get toolColors(): Readonly<ToolColors> { return this._toolColors }
+  setToolColors(colors: ToolColors): void {
+    this._toolColors = { ...colors }
+    this.applyToolColors(this._tool)
+  }
+  private stashToolColors(tool: Tool): void {
+    if (!ONE_SHOT_TOOLS.includes(tool)) return
+    this._toolColors = { ...this._toolColors, [tool]: { strokeColor: this._itemStyle.strokeColor, backgroundColor: this._itemStyle.backgroundColor } }
+  }
+  private applyToolColors(tool: Tool): void {
+    const c = this._toolColors[tool]
+    if (c) this.mergeItemStyle(c)
+  }
   get viewportSize(): Readonly<Size> { return this.viewport }
   get zoom(): number { return this._camera.zoom }
 
@@ -196,12 +220,27 @@ export class Editor {
   }
 
   setReadOnly(v: boolean): void {
+    if (v === this._readOnly) return
     this._readOnly = v
-    if (v) this.commitTextEdit()
+    if (v) { this.commitTextEdit(); this.clearInteractionState() }
+    this.events.emit('readonly', v)
     this.requestRender()
   }
 
   setPenMode(m: PenMode): void { this._penMode = m }
+
+  /** Tool lock: one-shot tools stay active after creating an object (Excalidraw "Q"). */
+  setToolLock(v: boolean): void {
+    if (v === this._toolLock) return
+    this._toolLock = v
+    this.events.emit('toollock', v)
+  }
+
+  /** After a one-shot tool created something: back to the selection tool unless locked. */
+  afterCreate(): void {
+    if (this._toolLock || this.switchingTool || !ONE_SHOT_TOOLS.includes(this._tool)) return
+    this.setTool('select')
+  }
 
   setTheme(theme: VisualTheme): void {
     this._theme = theme
@@ -211,8 +250,14 @@ export class Editor {
 
   setTool(tool: Tool): void {
     if (tool === this._tool) return
-    this.commitTextEdit()
+    this.switchingTool = true
+    try { this.commitTextEdit() } finally { this.switchingTool = false }
+    // each drawing tool keeps its own colours
+    this.stashToolColors(this._tool)
     this._tool = tool
+    this.applyToolColors(tool)
+    // every tool but select drops the selection so the panel shows the tool's defaults
+    if (tool !== 'select' && this._selection.length) this.select([])
     this.events.emit('tool', tool)
     this.emitStyle()
     this.requestRender()
@@ -284,6 +329,14 @@ export class Editor {
       this.updateObjects(entries, o)
       changed = entries.length
       this.mergeItemStyle(patch)
+      // restyling a selection also sets the remembered colour of the tools that draw those types
+      if (patch.strokeColor !== undefined || patch.backgroundColor !== undefined) {
+        for (const tool of new Set(leaves.map(toolForObject))) {
+          if (!tool) continue
+          const cur = this._toolColors[tool] ?? { strokeColor: this._itemStyle.strokeColor, backgroundColor: this._itemStyle.backgroundColor }
+          this._toolColors = { ...this._toolColors, [tool]: { strokeColor: patch.strokeColor ?? cur.strokeColor, backgroundColor: patch.backgroundColor ?? cur.backgroundColor } }
+        }
+      }
     } else if (!leaves.length && (this._tool === 'pen' || this._tool === 'highlighter')) {
       const t = this._tool
       const cur = this._toolOptions[t]
@@ -291,6 +344,7 @@ export class Editor {
       if (patch.strokeColor !== undefined) next.color = patch.strokeColor
       if (patch.strokeWidth !== undefined) next.width = strokeToInkWidth(t, patch.strokeWidth)
       if (patch.opacity !== undefined) next.opacity = patch.opacity
+      if (patch.cap !== undefined && t === 'highlighter') next.cap = patch.cap
       this._toolOptions = { ...this._toolOptions, [t]: next }
       this._toolOptionsView = undefined
       this.events.emit('tool', this._tool)
@@ -434,7 +488,8 @@ export class Editor {
   // ---------------------------------------------------------------------------
 
   /** Resolve an object of the current page (live-preview overrides win). */
-  readonly resolve = (id: ObjectId): CanvasObject | undefined => this.overrides.get(id) ?? this.objs.get(id)
+  readonly resolve = (id: ObjectId): CanvasObject | undefined =>
+    this.resolveOverride ? this.resolveOverride(id) : this.overrides.get(id) ?? this.objs.get(id)
 
   private static indexable(o: CanvasObject): boolean {
     return o.type !== 'group' && !o.supersededBy
@@ -641,14 +696,13 @@ export class Editor {
     const { marquee, lasso, bindingTargetId } = this.overlayExtra
     if (!this._selection.length && !marquee && !lasso && !bindingTargetId) return undefined
     const frame = this.selectionFrame()
-    const onlyArrow = this.leavesOfSelection().length === 1 && this.leavesOfSelection()[0].type === 'arrow'
     const arrowHandles = !this._readOnly && this._tool === 'select' && !this.hideHandles && !this.textEditor.editingId
-      ? this.selectedArrowHandles() : undefined
+      ? this.selectedPathHandles() : undefined
     return {
       ids: this._selection,
       bounds: frame?.rect,
       rotation: frame?.rotation,
-      showHandles: !!frame && !this._readOnly && this._tool === 'select' && !onlyArrow && !this.hideHandles && !this.textEditor.editingId,
+      showHandles: !!frame && !this._readOnly && this._tool === 'select' && !arrowHandles && !this.hideHandles && !this.textEditor.editingId,
       marquee,
       lasso,
       bindingTargetId,
@@ -662,11 +716,23 @@ export class Editor {
     return leaves.length === 1 && leaves[0].type === 'arrow' ? leaves[0] : undefined
   }
 
-  /** Editing handles (ends, waypoints, virtual mid-segment handles) of the single selected arrow. */
-  selectedArrowHandles(): ArrowHandleSpec[] | undefined {
-    const a = this.selectedArrow()
-    return a ? arrowHandleSpecs(a, this.resolve) : undefined
+  /** The single selected line shape, if the selection is exactly one line. */
+  selectedLine(): ShapeObject | undefined {
+    const leaves = this.leavesOfSelection()
+    const o = leaves.length === 1 ? leaves[0] : undefined
+    return o?.type === 'shape' && o.kind === 'line' ? o : undefined
   }
+
+  /** Editing handles (ends, waypoints, virtual mid-segment handles) of the single selected arrow or line. */
+  selectedPathHandles(): ArrowHandleSpec[] | undefined {
+    const a = this.selectedArrow()
+    if (a) return arrowHandleSpecs(a, this.resolve)
+    const l = this.selectedLine()
+    return l ? lineHandleSpecs(l) : undefined
+  }
+
+  /** @deprecated use selectedPathHandles */
+  selectedArrowHandles(): ArrowHandleSpec[] | undefined { return this.selectedPathHandles() }
 
   // -- interaction state (used by the input controller) ---------------------------
 
@@ -744,6 +810,8 @@ export class Editor {
     if (!p) return
     this.pendingStroke = undefined
     this.maxZ = Math.max(this.maxZ, p.stroke.z)
+    const frame = p.pageId === this._pageId ? this.frameContaining(p.stroke) : undefined
+    if (frame) p.stroke.frameId = frame.id
     this.execute([{ type: 'addObjects', pageId: p.pageId, objects: [p.stroke] }])
     this.pendingLiveClear = true
     this.requestRender()
@@ -952,6 +1020,8 @@ export class Editor {
   buildDeleteOps(ids: Iterable<ObjectId>): Operation[] {
     const del = new Set<ObjectId>()
     for (const id of ids) if (this.objs.has(id)) del.add(id)
+    // deleting a frame deletes what it contains (Excalidraw semantics)
+    for (const o of this.objs.values()) if (o.frameId && del.has(o.frameId)) del.add(o.id)
     if (!del.size) return []
     const patches: { id: ObjectId; patch: ObjectPatch }[] = []
     for (const aid of this.arrowIds) {
@@ -1016,10 +1086,141 @@ export class Editor {
     return entries.length
   }
 
+  /** Add objects; new non-frame objects lying inside a frame join it (frames adopt what they enclose). */
   addObjects(objects: CanvasObject[]): void {
     if (!objects.length) return
-    this.execute([{ type: 'addObjects', pageId: this._pageId, objects }])
+    for (const o of objects) {
+      if (o.type === 'group' || (o.type === 'shape' && o.kind === 'frame') || o.frameId) continue
+      const f = this.frameContaining(o)
+      if (f) o.frameId = f.id
+    }
+    const ops: Operation[] = [{ type: 'addObjects', pageId: this._pageId, objects }]
+    const frames = objects.filter((o): o is ShapeObject => o.type === 'shape' && o.kind === 'frame')
+    if (frames.length) {
+      const adopt = this.frameMembershipPatches([...this.objs.values()], [...this.frames(), ...frames])
+      if (adopt.length) ops.push({ type: 'updateObjects', pageId: this._pageId, patches: adopt })
+    }
+    this.execute(ops)
   }
+
+  // ---------------------------------------------------------------------------
+  // frames
+  // ---------------------------------------------------------------------------
+
+  /** Frames of the current page (live geometry). */
+  frames(): ShapeObject[] {
+    const out: ShapeObject[] = []
+    for (const o of this.objs.values()) if (o.type === 'shape' && o.kind === 'frame' && !o.supersededBy) out.push(this.resolve(o.id) as ShapeObject)
+    return out
+  }
+
+  /** Objects that belong to any of the given frames. */
+  frameChildren(frameIds: Iterable<ObjectId>): CanvasObject[] {
+    const set = new Set(frameIds)
+    if (!set.size) return []
+    return [...this.objs.values()].filter((o) => !!o.frameId && set.has(o.frameId) && !o.supersededBy)
+  }
+
+  /** Remove the selected frames but keep their content (it just leaves the frame). */
+  unframeSelection(): void {
+    const frames = this.leavesOfSelection().filter((o): o is ShapeObject => o.type === 'shape' && o.kind === 'frame')
+    if (!frames.length) return
+    const children = this.frameChildren(frames.map((f) => f.id))
+    const now = Date.now()
+    this.clearSelection()
+    this.execute([
+      ...(children.length ? [{ type: 'updateObjects' as const, pageId: this._pageId, patches: children.map((c) => ({ id: c.id, patch: { updatedAt: now, $unset: ['frameId'] } })) }] : []),
+      { type: 'deleteObjects', pageId: this._pageId, ids: frames.map((f) => f.id) },
+    ])
+    this.select(children.map((c) => c.id))
+  }
+
+  /** Select the content of the selected frames instead of the frames. */
+  selectFrameContent(): void {
+    const frames = this.leavesOfSelection().filter((o) => o.type === 'shape' && o.kind === 'frame').map((o) => o.id)
+    if (!frames.length) return
+    this.select(this.frameChildren(frames).map((c) => c.id))
+  }
+
+  /** Leaves plus the content of every frame among them (frames move with their content). */
+  withFrameContent(leaves: CanvasObject[]): CanvasObject[] {
+    const frames = leaves.filter((o) => o.type === 'shape' && o.kind === 'frame').map((o) => o.id)
+    if (!frames.length) return leaves
+    const seen = new Set(leaves.map((o) => o.id))
+    const out = [...leaves]
+    for (const c of this.frameChildren(frames)) if (!seen.has(c.id)) { seen.add(c.id); out.push(c) }
+    return out
+  }
+
+  /** Topmost frame whose bounds fully contain the object, if any. */
+  private frameContaining(o: CanvasObject, frames = this.frames()): ShapeObject | undefined {
+    if (!frames.length || o.type === 'group') return undefined
+    const b = worldBounds(o, this.resolve)
+    if (!b) return undefined
+    let best: ShapeObject | undefined
+    for (const f of frames) {
+      if (f.id === o.id) continue
+      const fb = worldBounds(f, this.resolve)
+      if (fb && rectContainsRect(fb, b) && (!best || f.z > best.z)) best = f
+    }
+    return best
+  }
+
+  /**
+   * Membership patches for `objs` against `frames`: an object fully inside a frame joins it
+   * (and is raised above it when needed), one outside every frame leaves its frame.
+   */
+  private frameMembershipPatches(objs: CanvasObject[], frames: ShapeObject[]): ObjectPatchEntry[] {
+    const out: ObjectPatchEntry[] = []
+    const byId = new Map(frames.map((f) => [f.id, f]))
+    for (const o of objs) {
+      if (o.type === 'group' || o.supersededBy || (o.type === 'shape' && o.kind === 'frame')) continue
+      const f = this.frameContaining(o, frames)
+      if (f) {
+        const patch: ObjectPatch = {}
+        if (o.frameId !== f.id) patch.frameId = f.id
+        if (o.z <= f.z) patch.z = f.z + 0.01
+        if (Object.keys(patch).length) out.push({ id: o.id, patch })
+      } else if (o.frameId && byId.has(o.frameId)) {
+        out.push({ id: o.id, patch: { $unset: ['frameId'] } })
+      } else if (o.frameId && !this.objs.has(o.frameId)) {
+        out.push({ id: o.id, patch: { $unset: ['frameId'] } })
+      }
+    }
+    return out
+  }
+
+  /**
+   * Commit geometry patches from a drag (move / resize / rotate / point edit) as ONE undo step,
+   * including the frame membership changes they cause.
+   */
+  commitTransform(entries: ObjectPatchEntry[]): void {
+    if (!entries.length) return
+    const patched = new Map<ObjectId, CanvasObject>()
+    for (const e of entries) {
+      const o = this.objs.get(e.id)
+      if (o) patched.set(e.id, applyPatch(o, e.patch))
+    }
+    const framesAfter = this.frames().map((f) => (patched.get(f.id) as ShapeObject | undefined) ?? f)
+    const movedFrame = [...patched.values()].some((o) => o.type === 'shape' && o.kind === 'frame')
+    // a moved / resized frame re-evaluates every object; otherwise only the moved ones
+    const candidates = movedFrame ? [...this.objs.values()].map((o) => patched.get(o.id) ?? o) : [...patched.values()]
+    const resolvePatched = (id: ObjectId): CanvasObject | undefined => patched.get(id) ?? this.resolve(id)
+    const membership = this.frameMembershipPatchesWith(candidates, framesAfter, resolvePatched)
+    const merged = new Map<ObjectId, ObjectPatch>(entries.map((e) => [e.id, e.patch]))
+    for (const m of membership) {
+      const prev = merged.get(m.id)
+      merged.set(m.id, prev ? { ...prev, ...m.patch, $unset: [...(prev.$unset ?? []), ...(m.patch.$unset ?? [])] } : m.patch)
+    }
+    this.updateObjects([...merged].map(([id, patch]) => ({ id, patch })))
+  }
+
+  private frameMembershipPatchesWith(objs: CanvasObject[], frames: ShapeObject[], resolve: (id: ObjectId) => CanvasObject | undefined): ObjectPatchEntry[] {
+    const saved = this.resolveOverride
+    this.resolveOverride = resolve
+    try { return this.frameMembershipPatches(objs, frames) } finally { this.resolveOverride = saved }
+  }
+  private resolveOverride: ((id: ObjectId) => CanvasObject | undefined) | null = null
 
   /** Copy the selection (leaves + nested groups) into a serialisable payload. */
   copySelection(): ClipboardPayload | undefined {
@@ -1072,16 +1273,23 @@ export class Editor {
     return obj.id
   }
 
-  duplicateSelection(): ObjectId[] {
+  duplicateSelection(dx = 20, dy = 20): ObjectId[] {
     if (!this._selection.length) return []
-    const objects = this.descendantsOf(this._selection)
-    return this.insertClones(objects, 20, 20)
+    const objects = this.withFrameContent(this.descendantsOf(this._selection))
+    return this.insertClones(objects, dx, dy)
   }
 
   private insertClones(objects: CanvasObject[], dx: number, dy: number): ObjectId[] {
-    const { objects: clones } = cloneObjects(objects, dx, dy, this.maxZ)
-    this.execute([{ type: 'addObjects', pageId: this._pageId, objects: clones }])
-    const top = clones.filter((c) => !c.groupId).map((c) => c.id)
+    const { objects: clones, idMap } = cloneObjects(objects, dx, dy, this.maxZ)
+    // frame membership: remap to cloned frames, otherwise drop (addObjects re-evaluates containment)
+    for (const c of clones) {
+      if (!c.frameId) continue
+      const mapped = idMap.get(c.frameId)
+      if (mapped) c.frameId = mapped
+      else delete c.frameId
+    }
+    this.addObjects(clones)
+    const top = clones.filter((c) => !c.groupId && !(c.frameId && idMap.has(c.frameId) && objects.some((o) => o.id === c.frameId))).map((c) => c.id)
     this.select(top)
     return top
   }
@@ -1166,9 +1374,74 @@ export class Editor {
 
   /** Nudge the selection (screen-independent world units); consecutive nudges coalesce. */
   nudgeSelection(dx: number, dy: number): void {
-    const leaves = this.leavesOfSelection()
+    const leaves = this.withFrameContent(this.leavesOfSelection())
     if (!leaves.length) return
     this.updateObjects(computeMovePatches(leaves, dx, dy, this.resolve), { coalesceKey: 'nudge' })
+  }
+
+  // ---------------------------------------------------------------------------
+  // align & distribute (selection units: a group or a frame moves as one)
+  // ---------------------------------------------------------------------------
+
+  /** Selection units with their world bounds: each top-level selected id and the leaves it moves. */
+  private selectionUnits(): { leaves: CanvasObject[]; bounds: Rect }[] {
+    const units: { leaves: CanvasObject[]; bounds: Rect }[] = []
+    for (const id of this._selection) {
+      const leaves = this.withFrameContent(this.leavesOf([id]))
+      const rects: Rect[] = []
+      for (const l of leaves) {
+        const b = worldBounds(l, this.resolve)
+        if (b) rects.push(b)
+      }
+      const bounds = unionRects(rects)
+      if (bounds) units.push({ leaves, bounds })
+    }
+    return units
+  }
+
+  /** Align the selection units along an edge or centre (needs at least two units). */
+  alignSelection(mode: AlignMode): void {
+    const units = this.selectionUnits()
+    if (units.length < 2) return
+    const all = unionRects(units.map((u) => u.bounds))!
+    const entries: ObjectPatchEntry[] = []
+    for (const u of units) {
+      const b = u.bounds
+      let dx = 0, dy = 0
+      switch (mode) {
+        case 'left': dx = all.x - b.x; break
+        case 'centerX': dx = all.x + all.width / 2 - (b.x + b.width / 2); break
+        case 'right': dx = all.x + all.width - (b.x + b.width); break
+        case 'top': dy = all.y - b.y; break
+        case 'centerY': dy = all.y + all.height / 2 - (b.y + b.height / 2); break
+        case 'bottom': dy = all.y + all.height - (b.y + b.height); break
+      }
+      if (Math.abs(dx) > 1e-9 || Math.abs(dy) > 1e-9) entries.push(...computeMovePatches(u.leaves, dx, dy, this.resolve))
+    }
+    this.updateObjects(entries)
+  }
+
+  /** Space the selection units evenly between the outermost two (needs at least three units). */
+  distributeSelection(axis: DistributeAxis): void {
+    const units = this.selectionUnits()
+    if (units.length < 3) return
+    const h = axis === 'horizontal'
+    const pos = (r: Rect) => (h ? r.x : r.y)
+    const len = (r: Rect) => (h ? r.width : r.height)
+    units.sort((a, b) => pos(a.bounds) - pos(b.bounds))
+    const first = units[0].bounds, last = units[units.length - 1].bounds
+    const span = pos(last) + len(last) - pos(first)
+    const total = units.reduce((n, u) => n + len(u.bounds), 0)
+    const gap = (span - total) / (units.length - 1)
+    const entries: ObjectPatchEntry[] = []
+    let cursor = pos(first) + len(first) + gap
+    for (let i = 1; i < units.length - 1; i++) {
+      const u = units[i]
+      const d = cursor - pos(u.bounds)
+      if (Math.abs(d) > 1e-9) entries.push(...computeMovePatches(u.leaves, h ? d : 0, h ? 0 : d, this.resolve))
+      cursor += len(u.bounds) + gap
+    }
+    this.updateObjects(entries)
   }
 
   // ---------------------------------------------------------------------------
@@ -1240,8 +1513,19 @@ export class Editor {
       strokeColor: s.strokeColor, strokeWidth: s.strokeWidth, opacity: s.opacity, roughness: s.roughness,
       fillStyle: s.fillStyle, strokeStyle: s.strokeStyle, seed: seed ?? Math.floor(Math.random() * 2 ** 31),
     }
+    if (s.roundness === 'round') style.roundness = 'round'
     if (s.backgroundColor && s.backgroundColor !== 'transparent') style.fillColor = s.backgroundColor
     return style
+  }
+
+  /** Style of a new frame: thin, clean, unfilled (the renderer picks the colour). */
+  frameStyle(): ShapeObject['style'] {
+    return { strokeColor: '#9aa0a8', strokeWidth: 1, opacity: 1, roughness: 0, seed: 1 }
+  }
+
+  /** Name for a new frame: "Frame N". */
+  nextFrameName(): string {
+    return `Frame ${this.frames().length + 1}`
   }
 
   /** ShapeStyle for a NEW arrow (no fill). */
@@ -1354,14 +1638,18 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   })
 }
 
+/** The one-shot tool that creates objects of this kind (undefined for ink and groups). */
+function toolForObject(o: CanvasObject): Tool | undefined {
+  switch (o.type) {
+    case 'shape': return o.kind === 'frame' ? 'frame' : o.kind === 'blur' ? 'blur' : 'shape'
+    case 'arrow': return 'arrow'
+    case 'text': return 'text'
+    default: return undefined
+  }
+}
+
 export function createEditor(opts: EditorOptions): Editor {
   return new Editor(opts)
 }
 
 export { MAX_ZOOM, MIN_ZOOM }
-
-function sameStyle(a: object, b: object): boolean {
-  const x = a as Record<string, unknown>
-  const y = b as Record<string, unknown>
-  return Object.keys(x).every((k) => x[k] === y[k])
-}

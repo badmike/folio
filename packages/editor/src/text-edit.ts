@@ -2,8 +2,8 @@
  * DOM text-editing overlay: a positioned <textarea> that tracks the camera.
  * Handles new text objects, editing existing text and editing shape/arrow labels.
  */
-import type { ObjectId, ShapeObject, TextObject, Vec2 } from '@folio/document'
-import { FONT_FAMILIES } from '@folio/renderer'
+import { DEFAULT_LABEL_SIZE, type ObjectId, type ShapeObject, type TextObject, type Vec2 } from '@folio/document'
+import { FONT_FAMILIES, FRAME_LABEL_SIZE, frameColor } from '@folio/renderer'
 import type { Editor } from './editor'
 import { LINE_HEIGHT, createId, localBounds, localToWorld, resolveArrowEndpoints } from './geometry'
 
@@ -100,7 +100,20 @@ export class TextEditor {
       let center: Vec2
       let width = 200
       let rot = 0
-      let size = 20
+      const family = this.editor.theme === 'clean' ? FONT_FAMILIES.sans : FONT_FAMILIES.hand
+      if (o.type === 'shape' && o.kind === 'frame') {
+        // the frame name sits above the top-left corner, left aligned
+        const size = o.labelSize ?? FRAME_LABEL_SIZE
+        const s = this.editor.worldToScreen(localToWorld(o.transform, { x: 0, y: -size * 1.3 - 2 }))
+        Object.assign(el.style, {
+          left: `${s.x}px`, top: `${s.y}px`, fontSize: `${size * z}px`, fontFamily: FONT_FAMILIES.sans,
+          color: frameColor(this.editor.page?.background.color ?? '#ffffff'), textAlign: 'left',
+          transform: `rotate(${o.transform.rotation}rad)`, minWidth: `${60 * z}px`,
+        })
+        this.autosize()
+        return
+      }
+      const size = o.type === 'shape' || o.type === 'arrow' ? o.labelSize ?? DEFAULT_LABEL_SIZE : DEFAULT_LABEL_SIZE
       if (o.type === 'shape') {
         const lb = localBounds(o)!
         center = localToWorld(o.transform, { x: lb.x + lb.width / 2, y: lb.y + lb.height / 2 })
@@ -112,10 +125,9 @@ export class TextEditor {
       } else return
       const s = this.editor.worldToScreen(center)
       Object.assign(el.style, {
-        left: `${s.x}px`, top: `${s.y}px`, fontSize: `${size * z}px`, fontFamily: FONT_FAMILIES.hand, color: '#1e1e1e',
+        left: `${s.x}px`, top: `${s.y}px`, fontSize: `${size * z}px`, fontFamily: family, color: o.style.strokeColor,
         textAlign: 'center', transform: `translate(-50%,-50%) rotate(${rot}rad)`, minWidth: `${Math.min(width, 120) * z}px`,
       })
-      void size
       this.autosize()
       return
     }
@@ -164,7 +176,12 @@ export class TextEditor {
     this.editor.setPreview(null)
     const ed = this.editor
     if (mode.kind === 'new') {
-      if (value.trim()) ed.addObjects([{ ...mode.draft, text: value, updatedAt: Date.now() }])
+      if (value.trim()) {
+        const obj = { ...mode.draft, text: value, updatedAt: Date.now() }
+        ed.addObjects([obj])
+        ed.afterCreate()
+        if (ed.tool === 'select') ed.select([obj.id])
+      }
     } else if (mode.kind === 'text') {
       const o = ed.getObject(mode.id)
       if (o?.type === 'text') {

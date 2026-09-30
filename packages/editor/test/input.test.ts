@@ -273,7 +273,7 @@ describe('select tool', () => {
 
 describe('creation tools', () => {
   it('shape tool drags a rectangle; shift constrains to square', () => {
-    h = setup()
+    h = setup({ toolLock: true }) // keep the shape tool active between drags
     h.editor.setTool('shape')
     drag(h, [100, 100], [220, 160])
     let s = objs(h)[0] as ShapeObject
@@ -290,7 +290,7 @@ describe('creation tools', () => {
   })
 
   it('arrow tool binds endpoints to objects under/near them', () => {
-    h = setup()
+    h = setup({ toolLock: true })
     addRaw(h, [shape('a', 0, 0, 100, 60), shape('b', 300, 0, 100, 60)])
     h.editor.setTool('arrow')
     pointer(h, 'pointerdown', 50, 30)

@@ -1,10 +1,20 @@
 import type {
-  ArrowType, Arrowhead, CanvasObject, DocChangeEvent, FillStyle, FontFamily, InkStroke, StrokeLineStyle, NotebookDocumentApi, ObjectId, Operation, PageId, Rect, ShapeKind,
+  ArrowType, Arrowhead, BlurMode, CanvasObject, DocChangeEvent, FillStyle, FontFamily, HighlighterCap, InkStroke, StrokeLineStyle, NotebookDocumentApi, ObjectId, Operation, PageId, Rect, Roundness, ShapeKind,
   ShapeObject, ArrowObject, TextObject, StrokeStyle,
 } from '@folio/document'
 import type { Camera, LiveInkLayer, Renderer, VisualTheme } from '@folio/renderer'
 
-export type Tool = 'pen' | 'highlighter' | 'eraser' | 'select' | 'shape' | 'arrow' | 'text'
+/** 'hand' pans with any pointer; 'frame' and 'blur' draw the corresponding box shapes. */
+export type Tool = 'pen' | 'highlighter' | 'eraser' | 'select' | 'hand' | 'shape' | 'arrow' | 'text' | 'frame' | 'blur'
+
+/** Tools that create one object and then hand back to the selection tool unless the tool lock is on. */
+export const ONE_SHOT_TOOLS: readonly Tool[] = ['shape', 'arrow', 'text', 'frame', 'blur']
+
+export type AlignMode = 'left' | 'centerX' | 'right' | 'top' | 'centerY' | 'bottom'
+
+/** Stroke / background colour remembered per one-shot tool. */
+export type ToolColors = Partial<Record<Tool, { strokeColor: string; backgroundColor: string }>>
+export type DistributeAxis = 'horizontal' | 'vertical'
 export type PenMode = 'auto' | 'pen-only' | 'any'
 export type SelectMode = 'auto' | 'rect' | 'lasso'
 
@@ -20,6 +30,9 @@ export interface ToolOptionsMap {
   eraser: { size: number }
   /** 'auto': lasso for the Pencil, rectangle otherwise. */
   select: { mode: SelectMode }
+  hand: Record<never, never>
+  frame: Record<never, never>
+  blur: Record<never, never>
   shape: {
     kind: ShapeKind
     strokeColor: string
@@ -29,6 +42,7 @@ export interface ToolOptionsMap {
     roughness: number
     fillStyle?: FillStyle
     strokeStyle?: StrokeLineStyle
+    roundness?: Roundness
   }
   arrow: {
     strokeColor: string
@@ -61,6 +75,13 @@ export interface EditorOptions {
   onStrokeCommitted?: (pageId: PageId, stroke: InkStroke) => void
   readOnly?: boolean
   penMode?: PenMode
+  /** Keep one-shot tools (shape, arrow, text, frame, blur) active after creating an object. Default false. */
+  toolLock?: boolean
+  /**
+   * Text pasted from the system clipboard. Return true when handled (e.g. Excalidraw JSON was
+   * converted and inserted); otherwise the editor inserts it as a text object.
+   */
+  onPasteText?: (text: string) => boolean | Promise<boolean>
   /** Injection points (tests / alternative renderers). */
   rendererFactory?: (o: RendererFactoryOptions) => Renderer
   liveLayerFactory?: (canvas: HTMLCanvasElement) => LiveInkLayer
@@ -76,6 +97,8 @@ export interface EditorEvents extends Record<string, unknown> {
   textedit: { editing: boolean; id?: ObjectId }
   /** Style context changed (selection, tool, current item style or selected objects' style). */
   style: StyleContext
+  toollock: boolean
+  readonly: boolean
 }
 
 export interface ExecuteOptions {
@@ -149,11 +172,17 @@ export interface ItemStyle {
   arrowType: ArrowType
   startHead: Arrowhead
   endHead: Arrowhead
+  /** Corner style of new rectangles / triangles / diamonds. */
+  roundness: Roundness
+  /** Block size / radius of new blur masks (world units). */
+  blurSize: number
+  blurMode: BlurMode
 }
 
-export type StyleProp = keyof ItemStyle
-/** Patch applied by setStyle(); also accepted: ink-only props for pen/highlighter. */
-export type StylePatch = Partial<ItemStyle>
+/** 'cap' is the highlighter end shape; it lives in the highlighter tool options, not in ItemStyle. */
+export type StyleProp = keyof ItemStyle | 'cap'
+/** Patch applied by setStyle(); `cap` only affects highlighter strokes / the highlighter tool. */
+export type StylePatch = Partial<ItemStyle> & { cap?: HighlighterCap }
 
 /**
  * What the properties panel should show for the current context (selection if
@@ -163,7 +192,7 @@ export interface StyleContext {
   source: 'selection' | 'tool'
   /** Properties that make sense for the selected object types / active tool. */
   applicable: StyleProp[]
-  values: { [K in StyleProp]?: ItemStyle[K] | 'mixed' }
+  values: { [K in keyof ItemStyle]?: ItemStyle[K] | 'mixed' } & { cap?: HighlighterCap | 'mixed' }
   /** Selected object types (empty when source === 'tool'). */
   types: CanvasObject['type'][]
   /** Page background colour — the panel previews swatches adapted to it. */

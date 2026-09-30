@@ -195,6 +195,7 @@ export function computeScalePatches(leaves: CanvasObject[], spec: ScaleSpec, res
     if (o.type === 'shape') {
       patch.width = o.width * fx
       patch.height = o.height * fy
+      if (o.points) patch.points = o.points.map((q) => ({ x: q.x * fx, y: q.y * fy }))
     } else if (o.type === 'text') {
       if (fy === 1 && fx !== 1) {
         patch.width = (o.width ?? estimateTextSize(o).width) * fx

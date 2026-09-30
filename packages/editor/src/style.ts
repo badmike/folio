@@ -3,7 +3,8 @@
  * properties apply to which object types, reading common values from a
  * selection and building object patches from a StylePatch.
  */
-import type { ArrowObject, CanvasObject, FillStyle, ObjectPatch, ShapeStyle, StrokeStyle } from '@folio/document'
+import { DEFAULT_LABEL_SIZE, DEFAULT_BLUR_SIZE } from '@folio/document'
+import type { ArrowObject, CanvasObject, FillStyle, ObjectPatch, ShapeObject, ShapeStyle, StrokeStyle } from '@folio/document'
 import { HIGHLIGHTER_WIDTH_PRESETS, PEN_WIDTH_PRESETS, STROKE_WIDTH_PRESETS } from './types'
 import type { ItemStyle, StyleContext, StyleProp, StylePatch, Tool, ToolOptionsMap } from './types'
 
@@ -22,38 +23,57 @@ export function defaultItemStyle(): ItemStyle {
     arrowType: 'straight',
     startHead: 'none',
     endHead: 'arrow',
+    roundness: 'sharp',
+    blurSize: DEFAULT_BLUR_SIZE,
+    blurMode: 'pixelate',
   }
 }
 
 const INK_PROPS: StyleProp[] = ['strokeColor', 'strokeWidth', 'opacity']
-const SHAPE_PROPS: StyleProp[] = ['strokeColor', 'backgroundColor', 'fillStyle', 'strokeWidth', 'strokeStyle', 'roughness', 'opacity']
+const HIGHLIGHTER_PROPS: StyleProp[] = ['strokeColor', 'strokeWidth', 'cap', 'opacity']
+const BOX_PROPS: StyleProp[] = ['strokeColor', 'backgroundColor', 'fillStyle', 'strokeWidth', 'strokeStyle', 'roundness', 'roughness', 'opacity']
+const SHAPE_PROPS: StyleProp[] = BOX_PROPS.filter((p) => p !== 'roundness')
+const LINE_PROPS: StyleProp[] = SHAPE_PROPS.filter((p) => p !== 'backgroundColor' && p !== 'fillStyle')
 const ARROW_PROPS: StyleProp[] = [
   'strokeColor', 'strokeWidth', 'strokeStyle', 'roughness', 'opacity', 'arrowType', 'startHead', 'endHead',
 ]
 const TEXT_PROPS: StyleProp[] = ['strokeColor', 'fontFamily', 'fontSize', 'textAlign', 'opacity']
+const FRAME_PROPS: StyleProp[] = ['fontSize']
+const BLUR_PROPS: StyleProp[] = ['blurMode', 'blurSize', 'opacity']
 /** Canonical property order for the panel. */
 const ORDER: StyleProp[] = [
-  'strokeColor', 'backgroundColor', 'fillStyle', 'strokeWidth', 'strokeStyle', 'roughness', 'fontFamily', 'fontSize',
+  'strokeColor', 'backgroundColor', 'fillStyle', 'strokeWidth', 'cap', 'strokeStyle', 'roundness', 'roughness', 'blurMode', 'blurSize', 'fontFamily', 'fontSize',
   'textAlign', 'arrowType', 'startHead', 'endHead', 'opacity',
 ]
 
+/** Shapes whose corners can be rounded. */
+export function hasCorners(kind: ShapeObject['kind']): boolean {
+  return kind === 'rectangle' || kind === 'triangle' || kind === 'diamond'
+}
+
 export function applicableFor(o: CanvasObject): StyleProp[] {
   switch (o.type) {
-    case 'ink': return INK_PROPS
-    case 'shape': return o.kind === 'line' ? SHAPE_PROPS.filter((p) => p !== 'backgroundColor' && p !== 'fillStyle') : SHAPE_PROPS
-    case 'arrow': return ARROW_PROPS
+    case 'ink': return o.style.tool === 'highlighter' ? HIGHLIGHTER_PROPS : INK_PROPS
+    case 'shape':
+      if (o.kind === 'line') return LINE_PROPS
+      if (o.kind === 'frame') return FRAME_PROPS
+      if (o.kind === 'blur') return BLUR_PROPS
+      // labelled boxes also expose the label size
+      return [...(hasCorners(o.kind) ? BOX_PROPS : SHAPE_PROPS), ...(o.label ? ['fontSize' as const] : [])]
+    case 'arrow': return o.label ? [...ARROW_PROPS, 'fontSize'] : ARROW_PROPS
     case 'text': return TEXT_PROPS
     default: return []
   }
 }
 
-export function toolApplicable(tool: Tool): StyleProp[] {
+export function toolApplicable(tool: Tool, shapeKind?: ShapeObject['kind']): StyleProp[] {
   switch (tool) {
-    case 'pen':
-    case 'highlighter': return INK_PROPS
-    case 'shape': return SHAPE_PROPS
+    case 'pen': return INK_PROPS
+    case 'highlighter': return HIGHLIGHTER_PROPS
+    case 'shape': return shapeKind === 'line' ? LINE_PROPS : shapeKind && !hasCorners(shapeKind) ? SHAPE_PROPS : BOX_PROPS
     case 'arrow': return ARROW_PROPS
     case 'text': return TEXT_PROPS
+    case 'blur': return BLUR_PROPS
     default: return []
   }
 }
@@ -83,13 +103,16 @@ export function defaultFillStyle(s: ShapeStyle): FillStyle {
   return s.fillStyle ?? (s.roughness === 0 ? 'solid' : 'hachure')
 }
 
+export type StyleValue = ItemStyle[keyof ItemStyle] | StrokeStyle['cap']
+
 /** The value of a style property on an object, if the property applies. */
-export function readProp(o: CanvasObject, p: StyleProp): ItemStyle[StyleProp] | undefined {
+export function readProp(o: CanvasObject, p: StyleProp): StyleValue | undefined {
   switch (o.type) {
     case 'ink':
       if (p === 'strokeColor') return o.style.color
       if (p === 'strokeWidth') return inkWidthToStroke(o.style.tool, o.style.width)
       if (p === 'opacity') return o.style.opacity
+      if (p === 'cap') return o.style.tool === 'highlighter' ? o.style.cap ?? 'flat' : undefined
       return undefined
     case 'shape':
     case 'arrow': {
@@ -100,8 +123,12 @@ export function readProp(o: CanvasObject, p: StyleProp): ItemStyle[StyleProp] | 
         case 'fillStyle': return o.type === 'shape' ? defaultFillStyle(s) : undefined
         case 'strokeWidth': return s.strokeWidth
         case 'strokeStyle': return s.strokeStyle ?? 'solid'
+        case 'roundness': return o.type === 'shape' && hasCorners(o.kind) ? s.roundness ?? 'sharp' : undefined
         case 'roughness': return s.roughness
         case 'opacity': return s.opacity
+        case 'fontSize': return o.labelSize ?? DEFAULT_LABEL_SIZE
+        case 'blurSize': return o.type === 'shape' && o.kind === 'blur' ? o.blurSize ?? DEFAULT_BLUR_SIZE : undefined
+        case 'blurMode': return o.type === 'shape' && o.kind === 'blur' ? o.blurMode ?? 'pixelate' : undefined
         case 'arrowType': return o.type === 'arrow' ? o.arrowType ?? 'straight' : undefined
         case 'startHead': return o.type === 'arrow' ? o.startHead : undefined
         case 'endHead': return o.type === 'arrow' ? o.endHead : undefined
@@ -144,15 +171,16 @@ export function selectionContext(leaves: CanvasObject[], canvasBackground: strin
 
 /** Context for the active tool when nothing is selected. */
 export function toolContext(tool: Tool, item: ItemStyle, opts: ToolOptionsMap, canvasBackground: string): StyleContext {
-  const applicable = toolApplicable(tool)
+  const applicable = toolApplicable(tool, opts.shape.kind)
   const values: StyleContext['values'] = {}
   if (tool === 'pen' || tool === 'highlighter') {
     const o = opts[tool]
     values.strokeColor = o.color
     values.strokeWidth = inkWidthToStroke(tool, o.width)
     values.opacity = o.opacity
+    if (tool === 'highlighter') values.cap = o.cap ?? 'flat'
   } else {
-    for (const p of applicable) (values as Record<string, unknown>)[p] = item[p]
+    for (const p of applicable) if (p !== 'cap') (values as Record<string, unknown>)[p] = item[p]
   }
   return { source: 'tool', applicable: [...applicable], values, types: [], canvasBackground }
 }
@@ -168,25 +196,43 @@ export function patchForObject(o: CanvasObject, patch: StylePatch, rawInkWidth =
       if (patch.strokeColor !== undefined) style.color = patch.strokeColor
       if (patch.strokeWidth !== undefined) style.width = rawInkWidth ? patch.strokeWidth : strokeToInkWidth(style.tool, patch.strokeWidth)
       if (patch.opacity !== undefined) style.opacity = patch.opacity
+      if (patch.cap !== undefined && style.tool === 'highlighter') style.cap = patch.cap
       return same(style, o.style) ? undefined : ({ style } as ObjectPatch)
     }
     case 'shape':
     case 'arrow': {
+      const isFrame = o.type === 'shape' && o.kind === 'frame'
+      const isBlur = o.type === 'shape' && o.kind === 'blur'
       const style: ShapeStyle = { ...o.style }
-      if (patch.strokeColor !== undefined) style.strokeColor = patch.strokeColor
-      if (patch.strokeWidth !== undefined) style.strokeWidth = patch.strokeWidth
-      if (patch.strokeStyle !== undefined) style.strokeStyle = patch.strokeStyle
-      if (patch.roughness !== undefined) style.roughness = patch.roughness
-      if (patch.opacity !== undefined) style.opacity = patch.opacity
-      if (o.type === 'shape') {
+      const out: ObjectPatch = {}
+      let changed = false
+      if (!isFrame) {
+        if (patch.strokeColor !== undefined) style.strokeColor = patch.strokeColor
+        if (patch.strokeWidth !== undefined) style.strokeWidth = patch.strokeWidth
+        if (patch.strokeStyle !== undefined) style.strokeStyle = patch.strokeStyle
+        if (patch.roughness !== undefined) style.roughness = patch.roughness
+        if (patch.opacity !== undefined) style.opacity = patch.opacity
+      }
+      if (o.type === 'shape' && !isFrame && !isBlur) {
         if (patch.backgroundColor !== undefined) {
           if (patch.backgroundColor === 'transparent') delete style.fillColor
           else style.fillColor = patch.backgroundColor
         }
         if (patch.fillStyle !== undefined) style.fillStyle = patch.fillStyle
+        if (patch.roundness !== undefined && hasCorners(o.kind)) style.roundness = patch.roundness
       }
-      const out: ObjectPatch = {}
-      let changed = false
+      if (isBlur && patch.blurSize !== undefined && patch.blurSize !== (o.blurSize ?? DEFAULT_BLUR_SIZE)) {
+        (out as Record<string, unknown>).blurSize = patch.blurSize
+        changed = true
+      }
+      if (isBlur && patch.blurMode !== undefined && patch.blurMode !== (o.blurMode ?? 'pixelate')) {
+        (out as Record<string, unknown>).blurMode = patch.blurMode
+        changed = true
+      }
+      if (patch.fontSize !== undefined && !isBlur && patch.fontSize !== (o.labelSize ?? DEFAULT_LABEL_SIZE)) {
+        (out as Record<string, unknown>).labelSize = patch.fontSize
+        changed = true
+      }
       if (!same(style, o.style)) { (out as Record<string, unknown>).style = style; changed = true }
       if (o.type === 'arrow') {
         const a = o as ArrowObject
@@ -228,7 +274,7 @@ export function derivedToolOptions(item: ItemStyle, shapeKind: ToolOptionsMap['s
   return {
     shape: {
       kind: shapeKind, strokeColor: item.strokeColor, strokeWidth: item.strokeWidth, fillColor, opacity: item.opacity,
-      roughness: item.roughness, fillStyle: item.fillStyle, strokeStyle: item.strokeStyle,
+      roughness: item.roughness, fillStyle: item.fillStyle, strokeStyle: item.strokeStyle, roundness: item.roundness,
     },
     arrow: {
       strokeColor: item.strokeColor, strokeWidth: item.strokeWidth, opacity: item.opacity, roughness: item.roughness,
@@ -248,6 +294,7 @@ export function itemPatchFromToolOptions(tool: 'shape' | 'arrow' | 'text', patch
     : {
         strokeColor: 'strokeColor', strokeWidth: 'strokeWidth', opacity: 'opacity', roughness: 'roughness',
         fillStyle: 'fillStyle', strokeStyle: 'strokeStyle', startHead: 'startHead', endHead: 'endHead', arrowType: 'arrowType',
+        roundness: 'roundness',
       }
   for (const [k, v] of Object.entries(patch)) {
     if (k in map && v !== undefined) out[map[k]] = v
