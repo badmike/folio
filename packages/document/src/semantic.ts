@@ -52,6 +52,11 @@ interface Node {
   isShape: boolean
 }
 
+/** Shapes that take part in diagrams (frames and blur masks are containers / effects, lines are drawings). */
+function isDiagramNode(s: ShapeObject): boolean {
+  return s.kind !== 'line' && s.kind !== 'frame' && s.kind !== 'blur'
+}
+
 export function analyzeNotebook(doc: NotebookDocumentApi): PageAnalysis[] {
   const collected = doc.pages().map((page) => ({ page, ...collectPage(doc, page) }))
   // Body text size = character-weighted median of all sized text items.
@@ -111,7 +116,7 @@ function collectPage(doc: NotebookDocumentApi, page: Page): { items: Item[]; rel
   // --- diagram nodes -------------------------------------------------------
   const nodes: Node[] = []
   for (const o of live) {
-    if (o.type === 'shape' && (o as ShapeObject).kind !== 'line') {
+    if (o.type === 'shape' && isDiagramNode(o as ShapeObject)) {
       nodes.push({ id: o.id, bounds: worldBounds(o, resolve), label: (o as ShapeObject).label?.trim() || undefined, fallback: `[${(o as ShapeObject).kind}]`, isShape: true })
     } else if (o.type === 'image') {
       nodes.push({ id: o.id, bounds: worldBounds(o, resolve), label: undefined, fallback: '[image]', isShape: false })
@@ -203,6 +208,11 @@ function collectPage(doc: NotebookDocumentApi, page: Page): { items: Item[]; rel
   }
   for (const o of live) {
     if (o.type === 'shape' && (o as ShapeObject).kind === 'line') drawingRects.push(worldBounds(o, resolve))
+    // a frame's name is a heading-like label for what it contains
+    if (o.type === 'shape' && (o as ShapeObject).kind === 'frame' && (o as ShapeObject).label?.trim()) {
+      const b = worldBounds(o, resolve)
+      items.push({ kind: 'text', text: (o as ShapeObject).label!.trim(), bounds: { x: b.x, y: b.y - 1, width: b.width, height: 1 }, own: true })
+    }
     if (o.type === 'image') {
       items.push({ kind: 'image', text: '', assetId: (o as { assetId: string }).assetId, bounds: worldBounds(o, resolve), own: true })
     }
