@@ -1,6 +1,6 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
-import { countType, drawStroke, hostBox, inkCount, nonBackgroundPixels, wave } from './helpers'
+import { countType, drawStroke, hostBox, inkCount, nonBackgroundPixels, openSettings, wave } from './helpers'
 
 /**
  * One serial user journey against `vite build && vite preview` in real Chromium
@@ -102,10 +102,8 @@ test('strokes survive a reload', async () => {
 })
 
 test('shape tool draws a rectangle', async () => {
-  await page.getByTestId('tool-shape').click() // selects the tool (options open on second click)
-  await page.getByTestId('tool-shape').click()
+  await page.getByTestId('tool-shape').click() // the properties panel shows the shape kinds
   await page.getByTestId('shape-rectangle').click()
-  await page.getByTestId('tool-shape').click()
   await drawStroke(page, [[700, 200], [800, 250], [900, 330]])
   await expect.poll(() => countType(page, 'shape')).toBe(1)
   await shot('05-shape')
@@ -136,7 +134,7 @@ test('leaving the notebook and searching finds the text and navigates to it', as
 })
 
 test('export markdown contains the typed text', async () => {
-  await page.getByTestId('export-menu').click()
+  await page.getByTestId('main-menu').click()
   const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: /Markdown/ }).click()])
   expect(dl.suggestedFilename()).toBe('E2E Notes.md')
   const path = await dl.path()
@@ -190,7 +188,7 @@ test('handwriting is recognized offline (Tesseract) and becomes searchable', asy
 
 test('cleanup mode "ask" offers to convert ink after a pause', async () => {
   await page.getByTestId('zoom-pct').click()
-  await page.getByRole('button', { name: 'Settings' }).click()
+  await openSettings(page)
   await page.getByRole('button', { name: 'Ask', exact: true }).click()
   await shot('09c-settings')
   await page.keyboard.press('Escape')
@@ -208,7 +206,7 @@ test('cleanup mode "ask" offers to convert ink after a pause', async () => {
   })
   expect(texts.join(' ')).toMatch(/hello/i)
   // back to the default (keep ink) so the remaining steps are unaffected
-  await page.getByRole('button', { name: 'Settings' }).click()
+  await openSettings(page)
   await page.getByRole('button', { name: 'Keep my ink' }).click()
   await page.keyboard.press('Escape')
 })
