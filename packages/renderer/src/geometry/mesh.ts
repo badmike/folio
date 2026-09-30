@@ -4,6 +4,7 @@ import type { VisualTheme } from '../contract'
 import { premultiplied, type RGBA } from '../color'
 import { strokeOutline } from './ink'
 import { buildArrowGeometry, buildShapeGeometry, type PathGeometry } from './rough'
+import { frameColor } from '../background'
 
 /** Floats per vertex: x, y, r, g, b, a (premultiplied). */
 export const VERTEX_FLOATS = 6
@@ -200,11 +201,12 @@ export function buildInkMesh(mb: MeshBuilder, stroke: InkStroke, bg = '#ffffff')
 export function buildShapeMesh(mb: MeshBuilder, shape: ShapeObject, theme: VisualTheme, bg = '#ffffff'): void {
   const s = shape.style
   const geo = buildShapeGeometry(shape, theme)
+  const stroke = shape.kind === 'frame' ? frameColor(bg) : adaptColor(s.strokeColor, bg)
   addGeometry(
     mb,
     geo,
-    premultiplied(adaptColor(s.strokeColor, bg), s.opacity),
-    s.fillColor ? premultiplied(adaptColor(s.fillColor, bg), s.opacity) : null,
+    premultiplied(stroke, s.opacity),
+    s.fillColor && shape.kind !== 'frame' ? premultiplied(adaptColor(s.fillColor, bg), s.opacity) : null,
   )
 }
 

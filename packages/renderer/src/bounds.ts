@@ -32,7 +32,7 @@ export function localBounds(obj: CanvasObject): Rect | null {
 
 /** Closed outline polygon in local space used for edge intersection & hit tests. */
 export function localOutline(obj: CanvasObject): Vec2[] | null {
-  if (obj.type === 'shape' && obj.kind !== 'line') return shapeOutline(obj.kind, obj.width, obj.height)
+  if (obj.type === 'shape' && obj.kind !== 'line') return shapeOutline(obj.kind, obj.width, obj.height, { roundness: obj.style.roundness })
   const b = localBounds(obj)
   return b ? rectCorners(b) : null
 }

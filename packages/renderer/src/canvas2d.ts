@@ -1,7 +1,9 @@
-import { adaptColor, isDarkColor } from '@folio/document'
+import { DEFAULT_BLUR_SIZE, adaptColor, isDarkColor } from '@folio/document'
 import type { ArrowObject, CanvasObject, InkStroke, Page, Rect, ShapeObject, Vec2 } from '@folio/document'
 import { arrowPath } from './arrows'
-import { DESK_COLOR, DESK_COLOR_DARK, MINOR_WEIGHT, backgroundLevels, pageRect, patternColor } from './background'
+import { worldCorners } from './bounds'
+import { FRAME_LABEL_SIZE } from './hit'
+import { DESK_COLOR, DESK_COLOR_DARK, MINOR_WEIGHT, backgroundLevels, frameColor, pageRect, patternColor } from './background'
 import { parseColor } from './color'
 import type { Camera, Renderer, Scene, Size, VisualTheme } from './contract'
 import { buildArrowGeometry, buildShapeGeometry, type PathGeometry } from './geometry/rough'
@@ -240,15 +242,29 @@ export function paintScene(
   // every ink/stroke/fill/text colour goes through adaptColor for the page background
   const col = (c: string | undefined, opacity = 1): string => rgba(c ? adaptColor(c, bgColor) : c, opacity)
   const clean = scene.theme === 'clean'
+  const frameOf = (obj: CanvasObject): ShapeObject | undefined => {
+    if (!obj.frameId) return undefined
+    const f = scene.resolve(obj.frameId)
+    return f?.type === 'shape' && f.kind === 'frame' && !f.supersededBy ? f : undefined
+  }
   const paint = (obj: CanvasObject) => {
     ctx.save()
+    // content of a frame is clipped to it
+    const frame = frameOf(obj)
+    if (frame) {
+      const corners = worldCorners(frame)!
+      ctx.beginPath()
+      corners.forEach((c, i) => (i ? ctx.lineTo((c.x - camera.x) * z, (c.y - camera.y) * z) : ctx.moveTo((c.x - camera.x) * z, (c.y - camera.y) * z)))
+      ctx.closePath()
+      ctx.clip()
+    }
     if (obj.type === 'arrow') {
       ctx.transform(z, 0, 0, z, -camera.x * z, -camera.y * z)
       const path = arrowPath(obj, scene.resolve)
       const g = geo.arrow(obj, path, scene.theme)
       drawGeometry(ctx, g, col(obj.style.strokeColor, obj.style.opacity), null)
       if (obj.label) {
-        const l = labelLayout(obj.label, 160, clean, true)
+        const l = labelLayout(obj.label, 160, clean, true, obj.labelSize)
         const mid = pathMidpoint(path)
         const mx = mid.x - l.width / 2
         const my = mid.y - l.height / 2
@@ -260,6 +276,11 @@ export function paintScene(
       return
     }
     const m = transformMatrix(obj.transform)
+    if (obj.type === 'shape' && obj.kind === 'blur') {
+      blurMask(ctx, obj, camera, width, height)
+      ctx.restore()
+      return
+    }
     // camera · object transform
     ctx.transform(z, 0, 0, z, -camera.x * z, -camera.y * z)
     ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5])
@@ -278,9 +299,18 @@ export function paintScene(
       }
       case 'shape': {
         const s = obj.style
+        if (obj.kind === 'frame') {
+          drawGeometry(ctx, geo.shape(obj, scene.theme), col(frameColor(bgColor), s.opacity), null)
+          if (obj.label) {
+            const size = obj.labelSize ?? FRAME_LABEL_SIZE
+            const l = layoutText({ text: obj.label, fontSize: size, fontFamily: 'sans', align: 'left' })
+            drawTextLayout(ctx, l, col(frameColor(bgColor)), 'left', 0, -l.height - 2)
+          }
+          break
+        }
         drawGeometry(ctx, geo.shape(obj, scene.theme), col(s.strokeColor, s.opacity), s.fillColor ? col(s.fillColor, s.opacity) : null)
         if (obj.label) {
-          const l = labelLayout(obj.label, obj.width, clean)
+          const l = labelLayout(obj.label, obj.width, clean, false, obj.labelSize)
           drawTextLayout(ctx, l, adaptColor(s.strokeColor, bgColor), 'center', (obj.width - l.width) / 2, (obj.height - l.height) / 2)
         }
         break
@@ -299,6 +329,59 @@ export function paintScene(
   for (const obj of scene.objects) if (isRenderable(obj, scene.hiddenIds)) paint(obj)
   if (scene.previews) for (const obj of scene.previews) paint(obj)
   if (opts.overlay) drawOverlay(ctx, scene, camera)
+}
+
+/**
+ * Blur what was painted below the shape. Pixelate: copy the shape's screen rect into a
+ * tiny canvas (one pixel per block) and draw it back without smoothing. Gaussian: copy the
+ * rect and draw it back through a `blur()` filter (a smoothed down/up-scale where the
+ * context has no filter support). Works on the target canvas of `ctx`, so it runs in paint order.
+ */
+function blurMask(ctx: Ctx2D, s: ShapeObject, camera: Camera, width: number, height: number): void {
+  const corners = worldCorners(s)
+  if (!corners) return
+  const z = camera.zoom
+  const xs = corners.map((c) => (c.x - camera.x) * z), ys = corners.map((c) => (c.y - camera.y) * z)
+  const x0 = Math.max(0, Math.floor(Math.min(...xs))), y0 = Math.max(0, Math.floor(Math.min(...ys)))
+  const x1 = Math.min(width, Math.ceil(Math.max(...xs))), y1 = Math.min(height, Math.ceil(Math.max(...ys)))
+  const w = x1 - x0, h = y1 - y0
+  if (w < 1 || h < 1) return
+  const size = Math.max(2, (s.blurSize ?? DEFAULT_BLUR_SIZE) * z)
+  // the source canvas may be scaled by a device pixel ratio: read the current transform
+  const t = ctx.getTransform()
+  const src = ctx.canvas as CanvasImageSource
+  const gaussian = s.blurMode === 'gaussian'
+  const tw = gaussian ? Math.max(1, Math.round(w * t.a)) : Math.max(1, Math.round(w / size))
+  const th = gaussian ? Math.max(1, Math.round(h * t.d)) : Math.max(1, Math.round(h / size))
+  const copy = createCanvas(tw, th)
+  const cctx = get2d(copy)
+  if (!cctx) return
+  cctx.imageSmoothingEnabled = true
+  cctx.drawImage(src, x0 * t.a + t.e, y0 * t.d + t.f, w * t.a, h * t.d, 0, 0, tw, th)
+  ctx.save()
+  ctx.globalAlpha = s.style.opacity
+  ctx.beginPath()
+  ctx.rect(x0, y0, w, h)
+  ctx.clip()
+  if (!gaussian) {
+    ctx.imageSmoothingEnabled = false
+    ctx.drawImage(copy as CanvasImageSource, 0, 0, tw, th, x0, y0, w, h)
+  } else if (typeof (ctx as { filter?: unknown }).filter === 'string') {
+    ctx.filter = `blur(${size / 2}px)`
+    ctx.drawImage(copy as CanvasImageSource, 0, 0, tw, th, x0, y0, w, h)
+  } else {
+    // no filter support: shrink with smoothing and grow back, which approximates a blur
+    const k = Math.max(1, size / 2)
+    const small = createCanvas(Math.max(1, Math.round(tw / k)), Math.max(1, Math.round(th / k)))
+    const sctx = get2d(small)
+    if (sctx) {
+      sctx.imageSmoothingEnabled = true
+      sctx.drawImage(copy as CanvasImageSource, 0, 0, small.width, small.height)
+      ctx.imageSmoothingEnabled = true
+      ctx.drawImage(small as CanvasImageSource, 0, 0, small.width, small.height, x0, y0, w, h)
+    }
+  }
+  ctx.restore()
 }
 
 /** Point halfway along a polyline (by length). */
