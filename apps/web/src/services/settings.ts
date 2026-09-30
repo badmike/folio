@@ -15,6 +15,10 @@ export interface AppSettings {
   penMode: PenMode
   defaultPageType: DefaultPageType
   defaultPattern: BackgroundPattern
+  /** New pages get a dark/light background preset matching the app's colour scheme. */
+  canvasFollowsTheme: boolean
+  /** Zen mode: minimal UI. */
+  zen: boolean
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -25,6 +29,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   penMode: 'auto',
   defaultPageType: 'infinite',
   defaultPattern: 'blank',
+  canvasFollowsTheme: true,
+  zen: false,
 }
 
 const KEY = 'settings'
@@ -43,6 +49,8 @@ export function sanitizeSettings(raw: unknown): AppSettings {
   out.penMode = oneOf(r.penMode, ['auto', 'pen-only', 'any'], out.penMode)
   out.defaultPageType = oneOf(r.defaultPageType, ['infinite', 'A4', 'Letter', 'iPad'], out.defaultPageType)
   out.defaultPattern = oneOf(r.defaultPattern, ['blank', 'ruled', 'grid', 'dot'], out.defaultPattern)
+  if (typeof r.canvasFollowsTheme === 'boolean') out.canvasFollowsTheme = r.canvasFollowsTheme
+  if (typeof r.zen === 'boolean') out.zen = r.zen
   if (typeof r.cloudRefinement === 'boolean') out.cloudRefinement = r.cloudRefinement
   if (Array.isArray(r.languages)) {
     const langs = r.languages.filter((l): l is string => typeof l === 'string' && /^[a-z]{2,3}$/.test(l))
@@ -61,3 +69,5 @@ export async function bindSettings(storage: Storage): Promise<() => void> {
   }, { deep: true })
   return () => { stop(); clearTimeout(timer) }
 }
+
+export function toggleZen(on = !settings.zen) { settings.zen = on }

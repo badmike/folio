@@ -7,13 +7,13 @@ import Icon from '../components/Icon.vue'
 import Menu, { type MenuItem } from '../components/Menu.vue'
 import NotebookSearch from '../components/NotebookSearch.vue'
 import PagePanel from '../components/PagePanel.vue'
-import SelectionBar from '../components/SelectionBar.vue'
+import PropertiesPanel from '../components/PropertiesPanel.vue'
 import SettingsDialog from '../components/SettingsDialog.vue'
 import Toolbar from '../components/Toolbar.vue'
 import { NOTEBOOK_KEY, type NotebookController } from '../notebook'
 import { diagnostics } from '../services/diagnostics'
 import { exportFolioFile, exportMarkdownFile, exportPdf, exportPng } from '../services/export'
-import { settings } from '../services/settings'
+import { settings, toggleZen } from '../services/settings'
 import { toastError } from '../services/toast'
 
 const props = defineProps<{ ctl: NotebookController }>()
@@ -25,6 +25,27 @@ const route = useRoute()
 const { workspace: ws, sync, auth } = requireServices()
 const host = ref<HTMLElement | null>(null)
 const panel = ref<'pages' | 'search' | 'ai' | null>(null)
+const zen = computed(() => settings.zen)
+/** Zen tool strip fades to low opacity 2 s after drawing starts; hover/tap near it brings it back. */
+const faded = ref(false)
+let fadeTimer: ReturnType<typeof setTimeout> | undefined
+function armFade() {
+  clearTimeout(fadeTimer)
+  if (!settings.zen) return
+  fadeTimer = setTimeout(() => { faded.value = true }, 2000)
+}
+function wake() { clearTimeout(fadeTimer); faded.value = false }
+function onHostPointerDown() {
+  if (ctl.highlighted.value) ctl.clearHighlight()
+  armFade()
+}
+watch(zen, (on) => {
+  wake()
+  if (on) { panel.value = null; showSettings.value = false; ctl.showToolOptions.value = false }
+})
+function onKeyDown(e: KeyboardEvent) {
+  if (e.altKey && !e.ctrlKey && !e.metaKey && e.code === 'KeyZ') { e.preventDefault(); toggleZen() }
+}
 const showSettings = ref(false)
 const editingTitle = ref(false)
 const titleDraft = ref('')
@@ -76,6 +97,7 @@ onMounted(async () => {
   measureLayout()
   window.addEventListener('resize', measureLayout)
   window.addEventListener('pagehide', onPageHide, true)
+  window.addEventListener('keydown', onKeyDown)
   await nextTick()
   const page = typeof route.query.page === 'string' ? route.query.page : undefined
   ctl.mount(host.value!, page)
@@ -87,6 +109,8 @@ watch(() => settings.penMode, (m) => ctl.editor.value?.setPenMode(m))
 onBeforeUnmount(() => {
   window.removeEventListener('resize', measureLayout)
   window.removeEventListener('pagehide', onPageHide, true)
+  window.removeEventListener('keydown', onKeyDown)
+  clearTimeout(fadeTimer)
   void ctl.destroy().catch((e) => diagnostics.log('notebook.destroy', e))
 })
 
@@ -94,11 +118,15 @@ onBeforeUnmount(() => {
 async function run(fn: () => Promise<unknown>) {
   try { ctl.flushPending(); await fn() } catch (e) { diagnostics.log('export', e); toastError('Export failed.') }
 }
-const exportItems = computed<MenuItem[]>(() => [
-  { label: 'Markdown (.md)', icon: 'doc', action: () => void run(async () => exportMarkdownFile(ctl.title.value, await ws.exportMarkdownText(ctl.id))) },
-  { label: 'Image of this page (.png)', icon: 'download', action: () => void run(() => exportPng(ctl.doc, ctl.pageId.value, settings.theme, ctl.editor.value)) },
-  { label: 'PDF', icon: 'download', action: () => void run(() => exportPdf(ctl.doc, settings.theme)) },
-  { label: 'folio file (.folio)', icon: 'download', action: () => void run(() => exportFolioFile(ws, ctl.id, ctl.title.value)) },
+const mainItems = computed<MenuItem[]>(() => [
+  { label: 'Zen mode', icon: 'zen', checked: settings.zen, action: () => toggleZen() },
+  { divider: true },
+  { label: 'Export as Markdown (.md)', icon: 'doc', action: () => void run(async () => exportMarkdownFile(ctl.title.value, await ws.exportMarkdownText(ctl.id))) },
+  { label: 'Export page as image (.png)', icon: 'download', action: () => void run(() => exportPng(ctl.doc, ctl.pageId.value, settings.theme, ctl.editor.value)) },
+  { label: 'Export as PDF', icon: 'download', action: () => void run(() => exportPdf(ctl.doc, settings.theme)) },
+  { label: 'Export as folio file (.folio)', icon: 'download', action: () => void run(() => exportFolioFile(ws, ctl.id, ctl.title.value)) },
+  { divider: true },
+  { label: 'Settings', icon: 'settings', action: () => { showSettings.value = true } },
 ])
 
 const syncClass = computed(() => sync.uiState.value)
@@ -117,9 +145,9 @@ const zoomPct = computed(() => Math.round(ctl.zoom.value * 100))
 
 <template>
   <div class="screen" data-testid="notebook-screen">
-    <div ref="host" class="canvas-host" data-testid="editor-host" @pointerdown.capture="ctl.highlighted.value && ctl.clearHighlight()" />
+    <div ref="host" class="canvas-host" data-testid="editor-host" @pointerdown.capture="onHostPointerDown" />
 
-    <header class="topbar">
+    <header v-if="!zen" class="topbar">
       <button class="icon-btn panel" aria-label="Back to library" data-testid="back" @click="back"><Icon name="back" /></button>
       <div class="title panel">
         <input v-if="editingTitle" ref="titleInput" v-model="titleDraft" class="title-input" aria-label="Notebook title" data-testid="title-input"
@@ -132,24 +160,26 @@ const zoomPct = computed(() => Math.round(ctl.zoom.value * 100))
         <button class="icon-btn" :class="{ active: panel === 'search' }" aria-label="Search in notebook" data-testid="open-search" @click="togglePanel('search')"><Icon name="search" /></button>
         <button class="icon-btn" :class="{ active: panel === 'pages' }" aria-label="Pages and background" data-testid="open-pages" @click="togglePanel('pages')"><Icon name="layers" /></button>
         <button class="icon-btn" :class="{ active: panel === 'ai' }" aria-label="AI assistant" data-testid="open-ai" @click="togglePanel('ai')"><Icon name="sparkles" /></button>
-        <Menu :items="exportItems" align="right">
-          <button class="icon-btn" aria-label="Export" data-testid="export-menu"><Icon name="download" /></button>
+        <Menu :items="mainItems" align="right">
+          <button class="icon-btn" aria-label="Main menu" data-testid="main-menu"><Icon name="menu" /></button>
         </Menu>
-        <button class="icon-btn" aria-label="Settings" @click="showSettings = true"><Icon name="settings" /></button>
       </div>
     </header>
 
-    <Toolbar :placement="placement" />
-    <SelectionBar :placement="placement" />
+    <Toolbar :placement="placement" :zen="zen" :faded="zen && faded" @wake="wake" />
+    <PropertiesPanel :placement="placement" :zen="zen" />
+    <button v-if="zen" class="zen-exit panel" data-testid="zen-exit" @click="toggleZen(false)">Exit zen mode</button>
 
-    <div class="zoom panel" :class="placement">
+    <div v-if="!zen" class="zoom panel" :class="placement">
       <button class="icon-btn small" aria-label="Fit to content" title="Fit" data-testid="zoom-fit" @click="ctl.fit()"><Icon name="fit" :size="18" /></button>
       <button class="zoom-pct" aria-label="Reset zoom to 100%" data-testid="zoom-pct" @click="ctl.resetZoom()">{{ zoomPct }}%</button>
     </div>
 
-    <PagePanel v-if="panel === 'pages'" @close="panel = null" />
-    <NotebookSearch v-else-if="panel === 'search'" @close="panel = null" />
-    <AiPanel v-else-if="panel === 'ai'" @close="panel = null" />
+    <template v-if="!zen">
+      <PagePanel v-if="panel === 'pages'" @close="panel = null" />
+      <NotebookSearch v-else-if="panel === 'search'" @close="panel = null" />
+      <AiPanel v-else-if="panel === 'ai'" @close="panel = null" />
+    </template>
     <SettingsDialog v-if="showSettings" @close="showSettings = false" />
   </div>
 </template>
@@ -178,6 +208,11 @@ const zoomPct = computed(() => Math.round(ctl.zoom.value * 100))
 .zoom.top { bottom: calc(10px + var(--safe-bottom)); }
 .zoom.bottom { top: calc(64px + var(--safe-top)); left: auto; right: calc(8px + var(--safe-right)); }
 .zoom-pct { border: 0; background: transparent; min-height: 40px; padding: 0 10px; font-variant-numeric: tabular-nums; font-size: 13px; }
+.zen-exit {
+  position: absolute; z-index: 26; top: calc(12px + var(--safe-top)); right: calc(12px + var(--safe-right)); min-height: 36px; padding: 0 14px;
+  font-size: 13px; color: var(--muted); opacity: 0.75; border-radius: 99px;
+}
+.zen-exit:hover, .zen-exit:focus-visible { opacity: 1; color: var(--text); }
 .icon-btn.small { width: 40px; height: 40px; }
 @media (max-width: 520px) {
   .actions .icon-btn { width: 40px; }
