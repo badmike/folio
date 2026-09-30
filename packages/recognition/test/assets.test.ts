@@ -66,6 +66,32 @@ describe('TesseractRecognizer configuration', () => {
     rec.dispose()
   })
 
+  it('uses the length-weighted word confidence, drops low-confidence symbols and cleans the text', async () => {
+    const params: Record<string, string>[] = []
+    const words = [
+      { text: 'Hello', confidence: 90 },
+      { text: '|', confidence: 10 },
+      { text: 'World.', confidence: 60 },
+      { text: '~', confidence: 5 },
+    ]
+    const outputs: unknown[] = []
+    const rec = new TesseractRecognizer({
+      createWorker: async () => ({
+        setParameters: async (p) => void params.push(p),
+        recognize: async (_img, _opts, output) => {
+          outputs.push(output)
+          return { data: { text: '| Hello | World. ~', confidence: 30, blocks: [{ paragraphs: [{ lines: [{ words }] }] }] } }
+        },
+        terminate: async () => undefined,
+      }),
+    })
+    const res = await rec.recognize(letters('a', 0, 0, 3, 0), { languages: ['en'] })
+    expect(res?.text).toBe('Hello World.')
+    expect(res?.confidence).toBeCloseTo((0.9 * 5 + 0.6 * 6) / 11, 5)
+    expect(outputs[0]).toMatchObject({ blocks: true })
+    expect(params[0]).toMatchObject({ preserve_interword_spaces: '1', tessedit_char_blacklist: '|¦~^' })
+  })
+
   it('retries worker creation after a failed start', async () => {
     let attempts = 0
     const rec = new TesseractRecognizer({

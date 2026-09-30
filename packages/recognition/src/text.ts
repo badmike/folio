@@ -54,3 +54,39 @@ export function guessSemanticType(
   if (medianLineHeight > 0 && bounds.height >= 1.6 * medianLineHeight && text.length <= 80) return 'heading'
   return undefined
 }
+
+const VARIANTS: [RegExp, string][] = [
+  [/[‘’‚‛′]/g, "'"],
+  [/[“”„‟″«»]/g, '"'],
+  [/[‒–—―−]/g, '-'],
+  [/…/g, '...'],
+  // an accent used as apostrophe inside a word: don´t -> don't
+  [/(?<=\p{L})[´`](?=\p{L})/gu, "'"],
+]
+/** Glyphs OCR emits for specks and pen texture; never meaningful at a word edge. */
+const TOKEN_NOISE = /^[|¦~^_`´]+|[|¦~^_`´]+$/g
+const LONE_MARKS = /^[.,·'"]+$/
+const LONE_DASH = /^-+$/
+
+/**
+ * Remove the noise OCR produces on handwriting: collapses whitespace, normalises quote and
+ * dash variants, strips stray symbols around words, lone dots and unpaired edge quotes,
+ * and returns '' when no letter or digit is left. Punctuation attached to a word
+ * ("done.", "why?") and a leading list bullet ("- milk") are kept.
+ */
+export function cleanRecognizedText(text: string): string {
+  let s = text
+  for (const [re, to] of VARIANTS) s = s.replace(re, to)
+  const tokens = s
+    .split(/\s+/)
+    .map((t) => t.replace(TOKEN_NOISE, ''))
+    .filter((t) => t && !LONE_MARKS.test(t))
+  while (tokens.length && LONE_DASH.test(tokens[tokens.length - 1])) tokens.pop()
+  s = tokens.join(' ')
+  // a quote at either end with no partner anywhere in the text is noise
+  for (const q of ["'", '"']) {
+    if (s.startsWith(q) && s.indexOf(q, 1) === -1) s = s.slice(1)
+    if (s.endsWith(q) && s.lastIndexOf(q, s.length - 2) === -1) s = s.slice(0, -1)
+  }
+  return /[\p{L}\p{N}]/u.test(s) ? s : ''
+}
