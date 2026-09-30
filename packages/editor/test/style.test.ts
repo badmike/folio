@@ -75,7 +75,7 @@ describe('styleContext', () => {
     // doc change touching the selection
     h.editor.select(['a'])
     seen.length = 0
-    h.doc.apply([{ type: 'updateObjects', pageId: h.pageId, patches: [{ id: 'a', patch: { style: { ...o(h, 'a').style, strokeWidth: 4 } } }] }], 'remote')
+    h.doc.apply([{ type: 'updateObjects', pageId: h.pageId, patches: [{ id: 'a', patch: { style: { ...o(h, 'a').style, strokeWidth: 4 } } }] }], 'journal')
     expect(seen).toContain('selection')
   })
 })
