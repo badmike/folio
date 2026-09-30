@@ -52,6 +52,11 @@ export const rectsIntersect = (a: Rect, b: Rect): boolean =>
 export const rectContainsPoint = (r: Rect, p: Vec2): boolean =>
   p.x >= r.x && p.x <= r.x + r.width && p.y >= r.y && p.y <= r.y + r.height
 
+/** True when `outer` fully contains `inner` (with a small tolerance). */
+export const rectContainsRect = (outer: Rect, inner: Rect, eps = 0.5): boolean =>
+  inner.x >= outer.x - eps && inner.y >= outer.y - eps &&
+  inner.x + inner.width <= outer.x + outer.width + eps && inner.y + inner.height <= outer.y + outer.height + eps
+
 export function unionRects(rects: Rect[]): Rect | undefined {
   if (!rects.length) return undefined
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity

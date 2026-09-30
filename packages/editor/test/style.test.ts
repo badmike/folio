@@ -10,7 +10,7 @@ describe('styleContext', () => {
     ed.setTool('shape')
     let c = ed.styleContext()
     expect(c.source).toBe('tool')
-    expect(c.applicable).toEqual(['strokeColor', 'backgroundColor', 'fillStyle', 'strokeWidth', 'strokeStyle', 'roughness', 'opacity'])
+    expect(c.applicable).toEqual(['strokeColor', 'backgroundColor', 'fillStyle', 'strokeWidth', 'strokeStyle', 'roundness', 'roughness', 'opacity'])
     expect(c.values.strokeColor).toBe('#1e1e1e')
     ed.setTool('arrow')
     c = ed.styleContext()
