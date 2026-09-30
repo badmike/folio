@@ -141,16 +141,16 @@ describe('rough geometry', () => {
 
   it('arrow: shaft + head at end only / both', () => {
     const a = arrow('a', { x: 0, y: 0 }, { x: 100, y: 0 })
-    const one = buildArrowGeometry(a, a.start, a.end, 'clean')
-    expect(one.strokes).toHaveLength(3) // shaft + two barbs
-    const both = buildArrowGeometry({ ...a, startHead: 'arrow' }, a.start, a.end, 'clean')
-    expect(both.strokes).toHaveLength(5)
-    const none = buildArrowGeometry({ ...a, endHead: 'none' }, a.start, a.end, 'clean')
+    const one = buildArrowGeometry(a, [a.start, a.end], 'clean')
+    expect(one.strokes).toHaveLength(2) // shaft + one barb polyline (a-tip-b)
+    const both = buildArrowGeometry({ ...a, startHead: 'arrow' }, [a.start, a.end], 'clean')
+    expect(both.strokes).toHaveLength(3)
+    const none = buildArrowGeometry({ ...a, endHead: 'none' }, [a.start, a.end], 'clean')
     expect(none.strokes).toHaveLength(1)
     // head barbs end at the tip
-    const tip = one.strokes[1][one.strokes[1].length - 1]
+    const tip = one.strokes[1][1]
     expect(Math.abs(tip.x - 100)).toBeLessThan(1)
-    expect(buildArrowGeometry(a, a.start, a.start, 'clean').strokes).toHaveLength(0)
+    expect(buildArrowGeometry(a, [a.start, a.start], 'clean').strokes).toHaveLength(0)
   })
 
   it('meshes for shapes and arrows are non-empty and finite', () => {
@@ -158,7 +158,7 @@ describe('rough geometry', () => {
     buildShapeMesh(mb, shape('s', 'ellipse', 80, 50, {}, { fillColor: '#0f0' }), 'rough')
     const n = mb.vertexCount
     expect(n).toBeGreaterThan(30)
-    buildArrowMesh(mb, arrow('a', { x: 0, y: 0 }, { x: 50, y: 50 }), { x: 0, y: 0 }, { x: 50, y: 50 }, 'clean')
+    buildArrowMesh(mb, arrow('a', { x: 0, y: 0 }, { x: 50, y: 50 }), [{ x: 0, y: 0 }, { x: 50, y: 50 }], 'clean')
     expect(mb.vertexCount).toBeGreaterThan(n)
     expect(mb.view().every(Number.isFinite)).toBe(true)
   })

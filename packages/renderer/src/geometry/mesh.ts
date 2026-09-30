@@ -1,5 +1,5 @@
 import earcut from 'earcut'
-import type { ArrowObject, InkStroke, ShapeObject, Vec2 } from '@folio/document'
+import { adaptColor, type ArrowObject, type InkStroke, type ShapeObject, type Vec2 } from '@folio/document'
 import type { VisualTheme } from '../contract'
 import { premultiplied, type RGBA } from '../color'
 import { strokeOutline } from './ink'
@@ -185,28 +185,31 @@ export function addGeometry(mb: MeshBuilder, geo: PathGeometry, strokeColor: RGB
     for (const poly of geo.fills) addPolygon(mb, poly, fillColor)
     for (const line of geo.hatch) addPolyline(mb, line, geo.hatchWidth, fillColor)
   }
+  for (const poly of geo.solids) addPolygon(mb, poly, strokeColor)
   for (const line of geo.strokes) addPolyline(mb, line, geo.strokeWidth, strokeColor)
 }
 
 // --- object level builders ------------------------------------------------
+// `bg` = page background colour: stored colours are adapted to it (see adaptColor).
 
-export function buildInkMesh(mb: MeshBuilder, stroke: InkStroke): void {
+export function buildInkMesh(mb: MeshBuilder, stroke: InkStroke, bg = '#ffffff'): void {
   const outline = strokeOutline(stroke)
-  addPolygon(mb, outline, premultiplied(stroke.style.color, stroke.style.opacity))
+  addPolygon(mb, outline, premultiplied(adaptColor(stroke.style.color, bg), stroke.style.opacity))
 }
 
-export function buildShapeMesh(mb: MeshBuilder, shape: ShapeObject, theme: VisualTheme): void {
+export function buildShapeMesh(mb: MeshBuilder, shape: ShapeObject, theme: VisualTheme, bg = '#ffffff'): void {
   const s = shape.style
   const geo = buildShapeGeometry(shape, theme)
   addGeometry(
     mb,
     geo,
-    premultiplied(s.strokeColor, s.opacity),
-    s.fillColor ? premultiplied(s.fillColor, s.opacity) : null,
+    premultiplied(adaptColor(s.strokeColor, bg), s.opacity),
+    s.fillColor ? premultiplied(adaptColor(s.fillColor, bg), s.opacity) : null,
   )
 }
 
-export function buildArrowMesh(mb: MeshBuilder, arrow: ArrowObject, start: Vec2, end: Vec2, theme: VisualTheme): void {
-  const geo = buildArrowGeometry(arrow, start, end, theme)
-  addGeometry(mb, geo, premultiplied(arrow.style.strokeColor, arrow.style.opacity), null)
+/** `path` = arrowPath(arrow, resolve). */
+export function buildArrowMesh(mb: MeshBuilder, arrow: ArrowObject, path: Vec2[], theme: VisualTheme, bg = '#ffffff'): void {
+  const geo = buildArrowGeometry(arrow, path, theme)
+  addGeometry(mb, geo, premultiplied(adaptColor(arrow.style.strokeColor, bg), arrow.style.opacity), null)
 }

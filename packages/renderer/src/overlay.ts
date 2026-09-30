@@ -88,6 +88,14 @@ export function buildOverlay(scene: Scene, camera: Camera): OverlayPoly[] {
   if (sel.lasso && sel.lasso.length > 1) {
     out.push({ points: sel.lasso.map((p) => worldToScreen(camera, p)), closed: false, stroke: ACCENT, strokeWidth: 1.5 })
   }
+  if (sel.arrowHandles) {
+    for (const h of sel.arrowHandles) {
+      const c = worldToScreen(camera, h.world)
+      if (h.kind === 'end') out.push({ points: circle(c, 6.5), closed: true, fill: '#ffffff', stroke: ACCENT, strokeWidth: 2 })
+      else if (h.kind === 'waypoint') out.push({ points: circle(c, 5.5), closed: true, fill: ACCENT, stroke: '#ffffff', strokeWidth: 1.5 })
+      else out.push({ points: circle(c, 4.5), closed: true, fill: 'rgba(255,255,255,0.85)', stroke: ACCENT, strokeWidth: 1 })
+    }
+  }
   if (sel.bounds && sel.ids.length) {
     const rot = sel.rotation ?? 0
     const hs = selectionHandles(sel.bounds, rot, camera)

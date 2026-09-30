@@ -2,6 +2,7 @@ import type { ArrowObject, CanvasObject, InkStroke, ObjectId, Rect, Vec2 } from 
 import { applyMat, boundsOfPoints, rectCorners, transformMatrix, unionRects } from './math'
 import { measureText } from './text'
 import { shapeOutline } from './shapes'
+import { arrowPath, arrowTypeOf } from './arrows'
 
 /** Flat stride of ink points (mirrors INK_POINT_STRIDE from @folio/document). */
 export const STRIDE = 6
@@ -47,9 +48,13 @@ export function worldCorners(obj: CanvasObject): Vec2[] | null {
 /** Axis-aligned world bounds (includes stroke width for ink/shapes/arrows). */
 export function objectWorldBounds(obj: CanvasObject, resolve: Resolve, arrowEndpoints?: (a: ArrowObject) => { start: Vec2; end: Vec2 }): Rect | undefined {
   if (obj.type === 'arrow') {
-    const ep = arrowEndpoints ? arrowEndpoints(obj) : { start: obj.start, end: obj.end }
+    let pts: Vec2[]
+    if (arrowEndpoints && arrowTypeOf(obj) === 'straight') {
+      const ep = arrowEndpoints(obj)
+      pts = [ep.start, ep.end]
+    } else pts = arrowPath(obj, resolve)
     const pad = obj.style.strokeWidth / 2 + 8
-    const b = boundsOfPoints([ep.start, ep.end])
+    const b = boundsOfPoints(pts)
     return { x: b.x - pad, y: b.y - pad, width: b.width + pad * 2, height: b.height + pad * 2 }
   }
   if (obj.type === 'group') {

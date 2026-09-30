@@ -1,3 +1,4 @@
+import { adaptColor } from '@folio/document'
 import type { InkPoint, StrokeStyle } from '@folio/document'
 import type { Camera, LiveInkLayer, Size } from './contract'
 
@@ -26,6 +27,9 @@ export function createLiveInkLayer(canvas: HTMLCanvasElement): LiveInkLayer {
   let viewport: Size = { width: canvas.clientWidth || 1, height: canvas.clientHeight || 1, dpr: 1 }
   let camera: Camera = { x: 0, y: 0, zoom: 1 }
   let prevMid: { x: number; y: number } | null = null
+  let background = '#ffffff'
+  /** Colour actually painted for the current stroke on this page background. */
+  const paintColor = () => adaptColor(style!.color, background)
 
   const sx = (x: number) => (x - camera.x) * camera.zoom
   const sy = (y: number) => (y - camera.y) * camera.zoom
@@ -50,8 +54,8 @@ export function createLiveInkLayer(canvas: HTMLCanvasElement): LiveInkLayer {
     if (!ctx || !style || !pts.length) return
     clearAll()
     ctx.globalAlpha = style.opacity
-    ctx.strokeStyle = style.color
-    ctx.fillStyle = style.color
+    ctx.strokeStyle = paintColor()
+    ctx.fillStyle = paintColor()
     ctx.lineWidth = Math.max(0.5, style.width * camera.zoom)
     ctx.lineCap = style.tool === 'highlighter' ? 'butt' : 'round'
     if (pts.length === 1) {
@@ -81,8 +85,8 @@ export function createLiveInkLayer(canvas: HTMLCanvasElement): LiveInkLayer {
   function drawIncremental(): void {
     if (!ctx || !style) return
     ctx.globalAlpha = style.opacity
-    ctx.strokeStyle = style.color
-    ctx.fillStyle = style.color
+    ctx.strokeStyle = paintColor()
+    ctx.fillStyle = paintColor()
     ctx.lineCap = 'round'
     for (; drawn < pts.length; drawn++) {
       const p = pts[drawn]
@@ -106,6 +110,9 @@ export function createLiveInkLayer(canvas: HTMLCanvasElement): LiveInkLayer {
   }
 
   const layer: LiveInkLayer = {
+    setBackground(color) {
+      background = color
+    },
     begin(s) {
       style = s
       pts = []

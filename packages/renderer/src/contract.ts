@@ -27,6 +27,17 @@ export interface SelectionOverlay {
   lasso?: Vec2[]
   /** Object currently hovered as an arrow-binding target. */
   bindingTargetId?: ObjectId
+  /**
+   * Editing handles of the single selected arrow (world space): its two ends,
+   * waypoints and 'virtual' mid-segment handles (drag to create a bend).
+   */
+  arrowHandles?: ArrowHandle[]
+}
+
+export interface ArrowHandle {
+  id: string
+  world: Vec2
+  kind: 'end' | 'waypoint' | 'virtual'
 }
 
 export interface Scene {
@@ -64,6 +75,8 @@ export interface LiveInkLayer {
   clear(): void
   resize(viewport: Size): void
   dispose(): void
+  /** Page colour: stroke colours are adapted to it (adaptColor). Optional, default white. */
+  setBackground?(color: string): void
 }
 
 export interface ArrowGeometry {

@@ -1,6 +1,7 @@
+import { adaptColor, isDarkColor } from '@folio/document'
 import type { ArrowObject, CanvasObject, InkStroke, Page, Rect, ShapeObject, Vec2 } from '@folio/document'
-import { resolveArrowEndpoints } from './arrows'
-import { DESK_COLOR, pageRect, patternFade } from './background'
+import { arrowPath } from './arrows'
+import { DESK_COLOR, DESK_COLOR_DARK, MINOR_WEIGHT, backgroundLevels, pageRect, patternColor } from './background'
 import { parseColor } from './color'
 import type { Camera, Renderer, Scene, Size, VisualTheme } from './contract'
 import { buildArrowGeometry, buildShapeGeometry, type PathGeometry } from './geometry/rough'
@@ -47,11 +48,11 @@ export class GeometryStore {
     return value
   }
 
-  arrow(a: ArrowObject, start: Vec2, end: Vec2, theme: VisualTheme): PathGeometry {
-    const key = arrowKey(a, start, end, theme)
+  arrow(a: ArrowObject, path: Vec2[], theme: VisualTheme): PathGeometry {
+    const key = arrowKey(a, path, theme)
     const hit = this.paths.get(a.id)
     if (hit && hit.key === key) return hit.value
-    const value = buildArrowGeometry(a, start, end, theme)
+    const value = buildArrowGeometry(a, path, theme)
     this.paths.set(a.id, { key, value })
     return value
   }
@@ -79,6 +80,16 @@ function strokePolyline(ctx: Ctx2D, pts: Vec2[]): void {
 function drawGeometry(ctx: Ctx2D, geo: PathGeometry, stroke: string, fill: string | null): void {
   ctx.lineJoin = 'round'
   ctx.lineCap = 'round'
+  if (geo.solids.length) {
+    ctx.fillStyle = stroke
+    for (const poly of geo.solids) {
+      ctx.beginPath()
+      ctx.moveTo(poly[0].x, poly[0].y)
+      for (let i = 1; i < poly.length; i++) ctx.lineTo(poly[i].x, poly[i].y)
+      ctx.closePath()
+      ctx.fill()
+    }
+  }
   if (fill) {
     ctx.fillStyle = fill
     for (const poly of geo.fills) {
@@ -115,7 +126,7 @@ export function drawBackground(ctx: Ctx2D, page: Page, camera: Camera, width: nu
   // visible page region in screen space
   let x0 = 0, y0 = 0, x1 = width, y1 = height
   if (pr && desk) {
-    ctx.fillStyle = DESK_COLOR
+    ctx.fillStyle = isDarkColor(bg.color) ? DESK_COLOR_DARK : DESK_COLOR
     ctx.fillRect(0, 0, width, height)
     x0 = (pr.x - camera.x) * z
     y0 = (pr.y - camera.y) * z
@@ -133,55 +144,71 @@ export function drawBackground(ctx: Ctx2D, page: Page, camera: Camera, width: nu
     ctx.fillRect(0, 0, width, height)
   }
   if (bg.pattern === 'blank' || bg.spacing <= 0) return
-  const fade = patternFade(bg.spacing, z)
-  if (fade <= 0) return
+  const levels = backgroundLevels(bg, z)
+  if (!levels.length) return
   const cx0 = Math.max(0, x0), cy0 = Math.max(0, y0), cx1 = Math.min(width, x1), cy1 = Math.min(height, y1)
   if (cx1 <= cx0 || cy1 <= cy0) return
   ctx.save()
   ctx.beginPath()
   ctx.rect(cx0, cy0, cx1 - cx0, cy1 - cy0)
   ctx.clip()
-  ctx.globalAlpha = Math.max(0, Math.min(1, bg.opacity)) * fade
-  ctx.strokeStyle = rgba(bg.lineColor)
-  ctx.fillStyle = rgba(bg.lineColor)
+  const color = rgba(patternColor(bg))
+  ctx.strokeStyle = color
+  ctx.fillStyle = color
   ctx.lineWidth = 1
-  const s = bg.spacing
+  const opacity = Math.max(0, Math.min(1, bg.opacity))
+  const major = bg.majorEvery && bg.majorEvery > 1 ? Math.round(bg.majorEvery) : 0
   const wx0 = camera.x + cx0 / z, wx1 = camera.x + cx1 / z
   const wy0 = camera.y + cy0 / z, wy1 = camera.y + cy1 / z
-  const kx0 = Math.ceil(wx0 / s), kx1 = Math.floor(wx1 / s)
-  const ky0 = Math.ceil(wy0 / s), ky1 = Math.floor(wy1 / s)
-  // guard against absurd line counts
-  if ((kx1 - kx0 + 1) * (ky1 - ky0 + 1) > 400000 && bg.pattern === 'dot') {
-    ctx.restore()
-    return
-  }
-  if (bg.pattern === 'ruled' || bg.pattern === 'grid') {
-    ctx.beginPath()
-    for (let k = ky0; k <= ky1; k++) {
-      const y = Math.round((k * s - camera.y) * z) + 0.5
-      ctx.moveTo(cx0, y)
-      ctx.lineTo(cx1, y)
-    }
-    if (bg.pattern === 'grid') {
-      for (let k = kx0; k <= kx1; k++) {
-        const x = Math.round((k * s - camera.x) * z) + 0.5
-        ctx.moveTo(x, cy0)
-        ctx.lineTo(x, cy1)
+  const coarse = levels[0].spacing
+  const isMajor = (k: number) => ((k % major) + major) % major === 0
+  for (let li = 0; li < levels.length; li++) {
+    const { spacing: s, alpha } = levels[li]
+    // finer levels skip the lattice points shared with the coarser primary level
+    const ratio = li === 0 ? 0 : Math.round(coarse / s)
+    const shared = (k: number) => ratio > 1 && k % ratio === 0
+    const kx0 = Math.ceil(wx0 / s), kx1 = Math.floor(wx1 / s)
+    const ky0 = Math.ceil(wy0 / s), ky1 = Math.floor(wy1 / s)
+    const passes = major ? [false, true] : [true]
+    if (bg.pattern === 'dot') {
+      if ((kx1 - kx0 + 1) * (ky1 - ky0 + 1) > 90000) continue
+      const r = Math.max(1.25, z)
+      for (const wantMajor of passes) {
+        ctx.globalAlpha = opacity * alpha * (major && !wantMajor ? MINOR_WEIGHT : 1)
+        ctx.beginPath()
+        for (let i = kx0; i <= kx1; i++) {
+          for (let j = ky0; j <= ky1; j++) {
+            if (shared(i) && shared(j)) continue
+            if (major && (isMajor(i) && isMajor(j)) !== wantMajor) continue
+            const x = (i * s - camera.x) * z
+            const y = (j * s - camera.y) * z
+            ctx.moveTo(x + r, y)
+            ctx.arc(x, y, r, 0, Math.PI * 2)
+          }
+        }
+        ctx.fill()
       }
+      continue
     }
-    ctx.stroke()
-  } else {
-    const r = Math.max(1.25, z)
-    ctx.beginPath()
-    for (let i = kx0; i <= kx1; i++) {
-      for (let j = ky0; j <= ky1; j++) {
-        const x = (i * s - camera.x) * z
-        const y = (j * s - camera.y) * z
-        ctx.moveTo(x + r, y)
-        ctx.arc(x, y, r, 0, Math.PI * 2)
+    for (const wantMajor of passes) {
+      ctx.globalAlpha = opacity * alpha * (major && !wantMajor ? MINOR_WEIGHT : 1)
+      ctx.beginPath()
+      for (let k = ky0; k <= ky1; k++) {
+        if (shared(k) || (major && isMajor(k) !== wantMajor)) continue
+        const y = Math.round((k * s - camera.y) * z) + 0.5
+        ctx.moveTo(cx0, y)
+        ctx.lineTo(cx1, y)
       }
+      if (bg.pattern === 'grid') {
+        for (let k = kx0; k <= kx1; k++) {
+          if (shared(k) || (major && isMajor(k) !== wantMajor)) continue
+          const x = Math.round((k * s - camera.x) * z) + 0.5
+          ctx.moveTo(x, cy0)
+          ctx.lineTo(x, cy1)
+        }
+      }
+      ctx.stroke()
     }
-    ctx.fill()
   }
   ctx.restore()
 }
@@ -209,21 +236,25 @@ export function paintScene(
 ): void {
   if (opts.background) drawBackground(ctx, scene.page, camera, width, height, opts.desk)
   const z = camera.zoom
+  const bgColor = scene.page.background.color
+  // every ink/stroke/fill/text colour goes through adaptColor for the page background
+  const col = (c: string | undefined, opacity = 1): string => rgba(c ? adaptColor(c, bgColor) : c, opacity)
   const clean = scene.theme === 'clean'
   const paint = (obj: CanvasObject) => {
     ctx.save()
     if (obj.type === 'arrow') {
       ctx.transform(z, 0, 0, z, -camera.x * z, -camera.y * z)
-      const { start, end } = resolveArrowEndpoints(obj, scene.resolve)
-      const g = geo.arrow(obj, start, end, scene.theme)
-      drawGeometry(ctx, g, rgba(obj.style.strokeColor, obj.style.opacity), null)
+      const path = arrowPath(obj, scene.resolve)
+      const g = geo.arrow(obj, path, scene.theme)
+      drawGeometry(ctx, g, col(obj.style.strokeColor, obj.style.opacity), null)
       if (obj.label) {
         const l = labelLayout(obj.label, 160, clean, true)
-        const mx = (start.x + end.x) / 2 - l.width / 2
-        const my = (start.y + end.y) / 2 - l.height / 2
-        ctx.fillStyle = rgba(scene.page.background.color, 0.85)
+        const mid = pathMidpoint(path)
+        const mx = mid.x - l.width / 2
+        const my = mid.y - l.height / 2
+        ctx.fillStyle = rgba(bgColor, 0.85)
         ctx.fillRect(mx - 3, my - 1, l.width + 6, l.height + 2)
-        drawTextLayout(ctx, l, obj.style.strokeColor, 'center', mx, my)
+        drawTextLayout(ctx, l, adaptColor(obj.style.strokeColor, bgColor), 'center', mx, my)
       }
       ctx.restore()
       return
@@ -236,7 +267,7 @@ export function paintScene(
       case 'ink': {
         const o = geo.outline(obj, scene.theme)
         if (o.length > 2) {
-          ctx.fillStyle = rgba(obj.style.color, obj.style.opacity)
+          ctx.fillStyle = col(obj.style.color, obj.style.opacity)
           ctx.beginPath()
           ctx.moveTo(o[0].x, o[0].y)
           for (let i = 1; i < o.length; i++) ctx.lineTo(o[i].x, o[i].y)
@@ -247,15 +278,16 @@ export function paintScene(
       }
       case 'shape': {
         const s = obj.style
-        drawGeometry(ctx, geo.shape(obj, scene.theme), rgba(s.strokeColor, s.opacity), s.fillColor ? rgba(s.fillColor, s.opacity) : null)
+        drawGeometry(ctx, geo.shape(obj, scene.theme), col(s.strokeColor, s.opacity), s.fillColor ? col(s.fillColor, s.opacity) : null)
         if (obj.label) {
           const l = labelLayout(obj.label, obj.width, clean)
-          drawTextLayout(ctx, l, s.strokeColor, 'center', (obj.width - l.width) / 2, (obj.height - l.height) / 2)
+          drawTextLayout(ctx, l, adaptColor(s.strokeColor, bgColor), 'center', (obj.width - l.width) / 2, (obj.height - l.height) / 2)
         }
         break
       }
       case 'text':
-        drawTextLayout(ctx, layoutText(obj), obj.color, obj.align)
+        if (obj.opacity !== undefined && obj.opacity < 1) ctx.globalAlpha = Math.max(0, obj.opacity)
+        drawTextLayout(ctx, layoutText(obj), adaptColor(obj.color, bgColor), obj.align)
         break
       case 'image':
         drawImageObject(ctx, obj, images)
@@ -267,6 +299,22 @@ export function paintScene(
   for (const obj of scene.objects) if (isRenderable(obj, scene.hiddenIds)) paint(obj)
   if (scene.previews) for (const obj of scene.previews) paint(obj)
   if (opts.overlay) drawOverlay(ctx, scene, camera)
+}
+
+/** Point halfway along a polyline (by length). */
+export function pathMidpoint(path: Vec2[]): Vec2 {
+  let total = 0
+  for (let i = 1; i < path.length; i++) total += Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y)
+  let acc = 0
+  for (let i = 1; i < path.length; i++) {
+    const d = Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y)
+    if (acc + d >= total / 2 && d > 0) {
+      const t = (total / 2 - acc) / d
+      return { x: path[i - 1].x + (path[i].x - path[i - 1].x) * t, y: path[i - 1].y + (path[i].y - path[i - 1].y) * t }
+    }
+    acc += d
+  }
+  return path[0] ?? { x: 0, y: 0 }
 }
 
 function drawOverlay(ctx: Ctx2D, scene: Scene, camera: Camera): void {
