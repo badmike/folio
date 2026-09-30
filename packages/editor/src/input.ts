@@ -798,9 +798,16 @@ class ArrowInteraction implements Interaction {
     if (s.shift) end = snapAngle(this.start, end)
     const target = this.ed.findBindingTarget(end)
     const endTarget = target && target.id !== this.startTarget ? target.id : undefined
+    const arrowType = this.ed.itemStyle.arrowType
+    // new curved arrows get a gentle default bend (drag the handles to reshape)
+    const dx = end.x - this.start.x, dy = end.y - this.start.y
+    const dist = Math.hypot(dx, dy) || 1
+    const waypoints = arrowType === 'curved' && dist > 1
+      ? [{ x: this.start.x + dx / 2 + (dy / dist) * dist * 0.18, y: this.start.y + dy / 2 - (dx / dist) * dist * 0.18 }]
+      : undefined
     return {
       arrow: buildArrow(this.id, this.start, end, {
-        style: this.ed.arrowStyle(), arrowType: this.ed.itemStyle.arrowType, startHead: o.startHead, endHead: o.endHead, startTarget: this.startTarget, endTarget, z: this.ed.nextZ(),
+        style: this.ed.arrowStyle(), arrowType, waypoints, startHead: o.startHead, endHead: o.endHead, startTarget: this.startTarget, endTarget, z: this.ed.nextZ(),
       }),
       endTarget,
     }

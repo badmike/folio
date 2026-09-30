@@ -15,6 +15,8 @@ describe('arrow tool uses itemStyle', () => {
     drag(h, [100, 100], [300, 200])
     const a = objs(h).find((o) => o.type === 'arrow') as ArrowObject
     expect(a.arrowType).toBe('curved')
+    expect(a.waypoints).toHaveLength(1) // default gentle bend
+    expect(a.waypoints![0].y).toBeLessThan(150 - 5) // bulges away from the chord (upwards for a left-to-right arrow)
     expect(a.endHead).toBe('triangle')
     expect(a.startHead).toBe('dot')
     expect(a.style).toMatchObject({ strokeStyle: 'dashed', strokeColor: '#e03131' })
