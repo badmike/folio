@@ -1,5 +1,6 @@
 export * from './types'
 export * from './api'
+export * from './colors'
 export * from './factories'
 export * from './geometry'
 export * from './notebook'

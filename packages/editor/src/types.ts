@@ -1,5 +1,5 @@
 import type {
-  CanvasObject, DocChangeEvent, FontFamily, InkStroke, NotebookDocumentApi, ObjectId, Operation, PageId, Rect, ShapeKind,
+  ArrowType, Arrowhead, CanvasObject, DocChangeEvent, FillStyle, FontFamily, InkStroke, StrokeLineStyle, NotebookDocumentApi, ObjectId, Operation, PageId, Rect, ShapeKind,
   ShapeObject, ArrowObject, TextObject, StrokeStyle,
 } from '@folio/document'
 import type { Camera, LiveInkLayer, Renderer, VisualTheme } from '@folio/renderer'
@@ -28,8 +28,8 @@ export interface ToolOptionsMap {
     strokeWidth: number
     opacity: number
     roughness: number
-    startHead: 'none' | 'arrow'
-    endHead: 'none' | 'arrow'
+    startHead: Arrowhead
+    endHead: Arrowhead
   }
   text: { fontSize: number; fontFamily: FontFamily; color: string }
 }
@@ -102,4 +102,59 @@ export interface SelectionStylePatch {
   color?: string
   width?: number
   opacity?: number
+}
+
+// ---------------------------------------------------------------------------
+// Excalidraw-style shared "current item" style + properties panel contract
+// ---------------------------------------------------------------------------
+
+/** Font size presets (world units) shown as S / M / L / XL. */
+export const FONT_SIZE_PRESETS = { S: 16, M: 20, L: 28, XL: 36 } as const
+/** Stroke width presets for shapes/arrows (thin / bold / extra bold). */
+export const STROKE_WIDTH_PRESETS = [1, 2, 4] as const
+/** Pen width presets (fine / medium / bold) and highlighter presets. */
+export const PEN_WIDTH_PRESETS = [1.5, 2.5, 4.5] as const
+export const HIGHLIGHTER_WIDTH_PRESETS = [12, 18, 28] as const
+
+/**
+ * The style used for NEW shapes/arrows/text (shared across those tools, like
+ * Excalidraw's currentItem*). Pen & highlighter keep their own colour/width in
+ * ToolOptionsMap because ink is usually drawn with a different pen than shapes.
+ */
+export interface ItemStyle {
+  strokeColor: string
+  /** 'transparent' = no fill */
+  backgroundColor: string
+  fillStyle: FillStyle
+  strokeWidth: number
+  strokeStyle: StrokeLineStyle
+  /** 0 architect / 1 artist / 2 cartoonist */
+  roughness: number
+  /** 0..1 */
+  opacity: number
+  fontFamily: FontFamily
+  fontSize: number
+  textAlign: 'left' | 'center' | 'right'
+  arrowType: ArrowType
+  startHead: Arrowhead
+  endHead: Arrowhead
+}
+
+export type StyleProp = keyof ItemStyle
+/** Patch applied by setStyle(); also accepted: ink-only props for pen/highlighter. */
+export type StylePatch = Partial<ItemStyle>
+
+/**
+ * What the properties panel should show for the current context (selection if
+ * non-empty, else the active tool). `values[p]` is the common value or 'mixed'.
+ */
+export interface StyleContext {
+  source: 'selection' | 'tool'
+  /** Properties that make sense for the selected object types / active tool. */
+  applicable: StyleProp[]
+  values: { [K in StyleProp]?: ItemStyle[K] | 'mixed' }
+  /** Selected object types (empty when source === 'tool'). */
+  types: CanvasObject['type'][]
+  /** Page background colour — the panel previews swatches adapted to it. */
+  canvasBackground: string
 }

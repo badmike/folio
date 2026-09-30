@@ -128,6 +128,8 @@ export interface TextObject extends BaseObject {
   /** Wrap width in local units; undefined = no wrapping. */
   width?: number
   align?: 'left' | 'center' | 'right'
+  /** 0..1, default 1. */
+  opacity?: number
   semanticType?: SemanticTextType
   /** Ink strokes this text was derived from (Clean Up). */
   sourceStrokeIds?: ObjectId[]
@@ -139,10 +141,18 @@ export interface TextObject extends BaseObject {
 
 export type ShapeKind = 'rectangle' | 'ellipse' | 'triangle' | 'diamond' | 'line'
 
+export type StrokeLineStyle = 'solid' | 'dashed' | 'dotted'
+export type FillStyle = 'hachure' | 'cross-hatch' | 'solid'
+
 export interface ShapeStyle {
   strokeColor: string
   strokeWidth: number
+  /** Background/fill colour; undefined or 'transparent' = no fill. */
   fillColor?: string
+  /** How the fill is painted (default 'hachure' in rough theme, 'solid' in clean). */
+  fillStyle?: FillStyle
+  /** Outline dash pattern (default 'solid'). */
+  strokeStyle?: StrokeLineStyle
   opacity: number
   /** 0 = clean geometric, 1..3 = hand-drawn (rough) intensity. */
   roughness: number
@@ -174,15 +184,28 @@ export interface ArrowBinding {
  * object's bounds (edge intersection towards the other endpoint), so moving
  * the target automatically updates the arrow. transform is identity for arrows.
  */
+export type ArrowType = 'straight' | 'curved' | 'elbow'
+export type Arrowhead = 'none' | 'arrow' | 'triangle' | 'dot' | 'bar'
+
 export interface ArrowObject extends BaseObject {
   type: 'arrow'
   start: Vec2
   end: Vec2
+  /** Path routing (default 'straight'). */
+  arrowType?: ArrowType
+  /**
+   * WORLD-space intermediate points the path passes through, in order.
+   * curved: smooth curve (Catmull-Rom) through start → waypoints → end; a curved
+   * arrow without waypoints gets one implicit bend handle at the midpoint.
+   * elbow: orthogonal route; waypoints (if any) are user-fixed corner hints,
+   * otherwise the route is computed from the (resolved) endpoints.
+   */
+  waypoints?: Vec2[]
   startBinding?: ArrowBinding
   endBinding?: ArrowBinding
   style: ShapeStyle
-  startHead: 'none' | 'arrow'
-  endHead: 'none' | 'arrow'
+  startHead: Arrowhead
+  endHead: Arrowhead
   label?: string
   sourceStrokeIds?: ObjectId[]
 }
@@ -281,6 +304,17 @@ export interface PageBackground {
   color: string
   /** Pattern line/dot color. */
   lineColor: string
+  /**
+   * 'fixed': pattern spacing is constant in world units.
+   * 'dynamic': the pattern adapts to zoom like a design tool grid — when lines get
+   * too dense on screen spacing multiplies by `subdivisions`, when too sparse it
+   * subdivides; adjacent levels cross-fade so zooming is smooth. Default 'fixed'.
+   */
+  scaling?: 'fixed' | 'dynamic'
+  /** Subdivision factor for dynamic scaling and for major grid lines (default 5). */
+  subdivisions?: number
+  /** Emphasise every Nth line (grid/ruled) — 0/undefined = off. */
+  majorEvery?: number
 }
 
 export interface Page {
