@@ -10,3 +10,4 @@ export {
   handlePosition, rotationHandlePosition, HANDLE_IDS,
 } from './manipulate'
 export type { ObjectPatchEntry, SelectionFrame, ScaleSpec, HandleId, CloneResult } from './manipulate'
+export { defaultItemStyle, applicableFor, selectionContext, patchForObject } from './style'

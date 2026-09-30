@@ -732,10 +732,9 @@ class ArrowInteraction implements Interaction {
     if (s.shift) end = snapAngle(this.start, end)
     const target = this.ed.findBindingTarget(end)
     const endTarget = target && target.id !== this.startTarget ? target.id : undefined
-    const style = { ...this.ed.shapeStyle(), strokeColor: o.strokeColor, strokeWidth: o.strokeWidth, opacity: o.opacity, roughness: o.roughness, fillColor: undefined }
     return {
       arrow: buildArrow(this.id, this.start, end, {
-        style, startHead: o.startHead, endHead: o.endHead, startTarget: this.startTarget, endTarget, z: this.ed.nextZ(),
+        style: this.ed.arrowStyle(), arrowType: this.ed.itemStyle.arrowType, startHead: o.startHead, endHead: o.endHead, startTarget: this.startTarget, endTarget, z: this.ed.nextZ(),
       }),
       endTarget,
     }

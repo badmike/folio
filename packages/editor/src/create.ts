@@ -56,7 +56,7 @@ export function buildShape(
 
 export function buildArrow(
   id: ObjectId, start: Vec2, end: Vec2, o: {
-    style: ShapeStyle; startHead: ArrowObject['startHead']; endHead: ArrowObject['endHead']
+    style: ShapeStyle; arrowType?: ArrowObject['arrowType']; startHead: ArrowObject['startHead']; endHead: ArrowObject['endHead']
     startTarget?: ObjectId; endTarget?: ObjectId; z: number; now?: number
   },
 ): ArrowObject {
@@ -65,6 +65,7 @@ export function buildArrow(
     id, type: 'arrow', transform: { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 }, z: o.z, createdAt: now, updatedAt: now,
     start, end, style: o.style, startHead: o.startHead, endHead: o.endHead,
   }
+  if (o.arrowType && o.arrowType !== 'straight') a.arrowType = o.arrowType
   if (o.startTarget) a.startBinding = { objectId: o.startTarget }
   if (o.endTarget) a.endBinding = { objectId: o.endTarget }
   return a

@@ -17,9 +17,13 @@ import { HANDLE_IDS, applyPatch, cloneObjects, computeFrame, computeMovePatches 
 import type { ObjectPatchEntry, SelectionFrame } from './manipulate'
 import { SpatialIndex } from './spatial-index'
 import { TextEditor } from './text-edit'
+import {
+  applicableFor, defaultItemStyle, derivedToolOptions, itemPatchFromToolOptions, patchForObject, selectionContext,
+  strokeToInkWidth, toolContext,
+} from './style'
 import type {
-  CleanupPlan, ClipboardPayload, EditorEvents, SelectionStylePatch, EditorOptions, ExecuteOptions, ExportImageOptions, PenMode, Tool,
-  ToolOptionsMap,
+  CleanupPlan, ClipboardPayload, EditorEvents, EditorOptions, ExecuteOptions, ExportImageOptions, ItemStyle, PenMode,
+  SelectionStylePatch, StyleContext, StylePatch, Tool, ToolOptionsMap,
 } from './types'
 
 const HISTORY_LIMIT = 500
@@ -45,9 +49,7 @@ export function defaultToolOptions(): ToolOptionsMap {
     highlighter: { color: '#ffd43b', width: 18, opacity: 0.35, pressureSensitive: false },
     eraser: { size: 20 },
     select: { mode: 'auto' },
-    shape: { kind: 'rectangle', strokeColor: '#1e1e1e', strokeWidth: 2, opacity: 1, roughness: 1 },
-    arrow: { strokeColor: '#1e1e1e', strokeWidth: 2, opacity: 1, roughness: 1, startHead: 'none', endHead: 'arrow' },
-    text: { fontSize: 24, fontFamily: 'hand', color: '#1e1e1e' },
+    ...derivedToolOptions(defaultItemStyle(), 'rectangle'),
   }
 }
 
@@ -76,7 +78,10 @@ export class Editor {
   private viewport: Size = { width: 0, height: 0, dpr: 1 }
   private needsInitialFit = true
   private _tool: Tool
+  /** pen / highlighter / eraser / select / shape.kind live here; shape/arrow/text are derived from _itemStyle. */
   private _toolOptions = defaultToolOptions()
+  private _itemStyle: ItemStyle = defaultItemStyle()
+  private _toolOptionsView: ToolOptionsMap | undefined
   private _theme: VisualTheme
   private _readOnly: boolean
   private _penMode: PenMode
@@ -171,7 +176,14 @@ export class Editor {
   get page(): Page | undefined { return this.document.page(this._pageId) }
   get camera(): Readonly<Camera> { return this._camera }
   get tool(): Tool { return this._tool }
-  get toolOptions(): Readonly<ToolOptionsMap> { return this._toolOptions }
+  get toolOptions(): Readonly<ToolOptionsMap> {
+    if (!this._toolOptionsView) {
+      this._toolOptionsView = { ...this._toolOptions, ...derivedToolOptions(this._itemStyle, this._toolOptions.shape.kind) }
+    }
+    return this._toolOptionsView
+  }
+  /** Style used for NEW shapes / arrows / text (shared, Excalidraw "current item" style). */
+  get itemStyle(): Readonly<ItemStyle> { return this._itemStyle }
   get theme(): VisualTheme { return this._theme }
   get readOnly(): boolean { return this._readOnly }
   get penMode(): PenMode { return this._penMode }
@@ -201,12 +213,93 @@ export class Editor {
     this.commitTextEdit()
     this._tool = tool
     this.events.emit('tool', tool)
+    this.emitStyle()
     this.requestRender()
   }
 
   setToolOptions<T extends Tool>(tool: T, patch: Partial<ToolOptionsMap[T]>): void {
-    this._toolOptions = { ...this._toolOptions, [tool]: { ...this._toolOptions[tool], ...patch } }
+    if (tool === 'shape' || tool === 'arrow' || tool === 'text') {
+      // shape / arrow / text options are a view over the shared item style
+      const p = patch as Record<string, unknown>
+      if (tool === 'shape' && p.kind !== undefined) {
+        this._toolOptions = { ...this._toolOptions, shape: { ...this._toolOptions.shape, kind: p.kind as ToolOptionsMap['shape']['kind'] } }
+      }
+      this.mergeItemStyle(itemPatchFromToolOptions(tool, p))
+    } else {
+      this._toolOptions = { ...this._toolOptions, [tool]: { ...this._toolOptions[tool], ...patch } }
+    }
+    this._toolOptionsView = undefined
     this.events.emit('tool', this._tool)
+    this.emitStyle()
+  }
+
+  // ---------------------------------------------------------------------------
+  // style (Excalidraw-like properties panel API)
+  // ---------------------------------------------------------------------------
+
+  private mergeItemStyle(patch: StylePatch): void {
+    const next = { ...this._itemStyle }
+    for (const [k, v] of Object.entries(patch)) if (v !== undefined) (next as Record<string, unknown>)[k] = v
+    this._itemStyle = next
+    this._toolOptionsView = undefined
+  }
+
+  /** Restore a persisted item style without touching the selection. */
+  setItemStyle(style: Partial<ItemStyle>): void {
+    this.mergeItemStyle(style)
+    this.events.emit('tool', this._tool)
+    this.emitStyle()
+  }
+
+  /** What the properties panel should show: the selection if any, else the active tool. */
+  styleContext(): StyleContext {
+    const bg = this.page?.background.color ?? '#ffffff'
+    const leaves = this.leavesOfSelection().filter((o) => !o.supersededBy && applicableFor(o).length)
+    if (leaves.length) return selectionContext(leaves, bg)
+    return toolContext(this._tool, this._itemStyle, this._toolOptions, bg)
+  }
+
+  private emitStyle(): void {
+    if (this.destroyed) return
+    this.events.emit('style', this.styleContext())
+  }
+
+  /**
+   * Apply a style patch. With a selection: restyles every applicable selected
+   * object as ONE undo step (pass `coalesceKey` while a slider drags) and also
+   * merges into itemStyle (like Excalidraw). Without a selection and with the
+   * pen / highlighter active, updates that tool's options; otherwise updates
+   * itemStyle for future shapes / arrows / text. Returns the number of objects changed.
+   */
+  setStyle(patch: StylePatch, o?: ExecuteOptions): number {
+    const leaves = this.leavesOfSelection().filter((x) => !x.supersededBy)
+    let changed = 0
+    if (leaves.length && !this._readOnly) {
+      const entries: ObjectPatchEntry[] = []
+      for (const l of leaves) {
+        const p = patchForObject(l, patch)
+        if (p) entries.push({ id: l.id, patch: p })
+      }
+      this.updateObjects(entries, o)
+      changed = entries.length
+      this.mergeItemStyle(patch)
+    } else if (!leaves.length && (this._tool === 'pen' || this._tool === 'highlighter')) {
+      const t = this._tool
+      const cur = this._toolOptions[t]
+      const next = { ...cur }
+      if (patch.strokeColor !== undefined) next.color = patch.strokeColor
+      if (patch.strokeWidth !== undefined) next.width = strokeToInkWidth(t, patch.strokeWidth)
+      if (patch.opacity !== undefined) next.opacity = patch.opacity
+      this._toolOptions = { ...this._toolOptions, [t]: next }
+      this._toolOptionsView = undefined
+      this.events.emit('tool', this._tool)
+    } else {
+      this.mergeItemStyle(patch)
+      this.events.emit('tool', this._tool)
+    }
+    this._toolOptionsView = undefined
+    this.emitStyle()
+    return changed
   }
 
   setPage(pageId: PageId): void {
@@ -221,6 +314,7 @@ export class Editor {
     this.needsInitialFit = true
     this.applyInitialCamera()
     this.events.emit('selection', [])
+    this.emitStyle()
     this.events.emit('history', { canUndo: this.canUndo, canRedo: this.canRedo })
     this.events.emit('change', { origin: 'load', pageIds: new Set([pageId]), pagesChanged: false, metaChanged: false })
     this.requestRender()
@@ -412,7 +506,17 @@ export class Editor {
     }
     this.pruneSelection()
     this.events.emit('change', e)
+    if (this._selection.length && (!e.objectIds || this.selectionTouchedBy(e.objectIds))) this.emitStyle()
+    else if (e.pagesChanged) this.emitStyle()
     this.requestRender()
+  }
+
+  private selectionTouchedBy(ids: Iterable<ObjectId>): boolean {
+    const sel = new Set<ObjectId>()
+    for (const l of this.leavesOfSelection()) sel.add(l.id)
+    for (const s of this._selection) sel.add(s)
+    for (const id of ids) if (sel.has(id)) return true
+    return false
   }
 
   /** Objects (not superseded, non-group) whose bounds intersect the world rect. */
@@ -783,6 +887,7 @@ export class Editor {
     if (next.length === this._selection.length && next.every((v, i) => v === this._selection[i])) return
     this._selection = next
     this.events.emit('selection', next)
+    this.emitStyle()
     this.requestRender()
   }
 
@@ -800,6 +905,7 @@ export class Editor {
     if (keep.length !== this._selection.length) {
       this._selection = keep
       this.events.emit('selection', keep)
+      this.emitStyle()
     }
   }
 
@@ -878,26 +984,16 @@ export class Editor {
    */
   setSelectionStyle(patch: SelectionStylePatch, o?: ExecuteOptions): number {
     if (this.readOnly) return 0
+    const sp: StylePatch = {}
+    if (patch.color !== undefined) sp.strokeColor = patch.color
+    if (patch.width !== undefined) sp.strokeWidth = patch.width
+    if (patch.opacity !== undefined) sp.opacity = patch.opacity
     const entries: ObjectPatchEntry[] = []
-    for (const o of this.leavesOfSelection()) {
-      if (o.supersededBy) continue
-      let p: ObjectPatch | null = null
-      if (o.type === 'ink') {
-        const style = { ...o.style }
-        if (patch.color !== undefined) style.color = patch.color
-        if (patch.width !== undefined) style.width = patch.width
-        if (patch.opacity !== undefined) style.opacity = patch.opacity
-        if (!sameStyle(style, o.style)) p = { style } as ObjectPatch
-      } else if (o.type === 'shape' || o.type === 'arrow') {
-        const style = { ...o.style }
-        if (patch.color !== undefined) style.strokeColor = patch.color
-        if (patch.width !== undefined) style.strokeWidth = patch.width
-        if (patch.opacity !== undefined) style.opacity = patch.opacity
-        if (!sameStyle(style, o.style)) p = { style } as ObjectPatch
-      } else if (o.type === 'text') {
-        if (patch.color !== undefined && patch.color !== o.color) p = { color: patch.color }
-      }
-      if (p) entries.push({ id: o.id, patch: p })
+    for (const l of this.leavesOfSelection()) {
+      if (l.supersededBy) continue
+      // legacy semantics: ink width is the raw world width; text has no width
+      const p = patchForObject(l, l.type === 'text' ? { ...sp, strokeWidth: undefined } : sp, true)
+      if (p) entries.push({ id: l.id, patch: p })
     }
     this.updateObjects(entries, o)
     return entries.length
@@ -946,12 +1042,13 @@ export class Editor {
   /** Paste plain text (e.g. from the system clipboard) as a text object at the viewport center. */
   pasteText(text: string): ObjectId | undefined {
     if (this._readOnly || !text.trim()) return undefined
-    const t = this._toolOptions.text
+    const t = this._itemStyle
     const c = this.screenToWorld({ x: this.viewport.width / 2, y: this.viewport.height / 2 })
     const now = Date.now()
     const obj: TextObject = {
       id: createId(), type: 'text', transform: { x: c.x, y: c.y, rotation: 0, scaleX: 1, scaleY: 1 }, z: this.nextZ(),
-      createdAt: now, updatedAt: now, text, fontSize: t.fontSize, fontFamily: t.fontFamily, color: t.color,
+      createdAt: now, updatedAt: now, text, fontSize: t.fontSize, fontFamily: t.fontFamily, color: t.strokeColor,
+      align: t.textAlign, opacity: t.opacity,
     }
     this.addObjects([obj])
     this.select([obj.id])
@@ -1020,6 +1117,36 @@ export class Editor {
     this.updateObjects(leaves.map((o, i) => ({ id: o.id, patch: { z: base + i } })))
   }
 
+  /** Move the selection one step up in z-order (past the next unselected object). */
+  bringForward(): void { this.stepZ(1) }
+  /** Move the selection one step down in z-order. */
+  sendBackward(): void { this.stepZ(-1) }
+
+  private stepZ(dir: 1 | -1): void {
+    const sel = new Set(this.leavesOfSelection().map((o) => o.id))
+    if (!sel.size) return
+    const list = [...this.objs.values()].filter((o) => o.type !== 'group' && !o.supersededBy).sort((a, b) => a.z - b.z || (a.id < b.id ? -1 : 1))
+    const zs = list.map((o) => o.z)
+    // make z values distinct so swaps are meaningful
+    for (let i = 1; i < zs.length; i++) if (zs[i] <= zs[i - 1]) zs[i] = zs[i - 1] + 1e-6
+    const order = list.map((o) => o.id)
+    if (dir > 0) {
+      for (let i = order.length - 2; i >= 0; i--) {
+        if (sel.has(order[i]) && !sel.has(order[i + 1])) [order[i], order[i + 1]] = [order[i + 1], order[i]]
+      }
+    } else {
+      for (let i = 1; i < order.length; i++) {
+        if (sel.has(order[i]) && !sel.has(order[i - 1])) [order[i], order[i - 1]] = [order[i - 1], order[i]]
+      }
+    }
+    const entries: ObjectPatchEntry[] = []
+    order.forEach((id, i) => {
+      const o = this.objs.get(id)!
+      if (o.z !== zs[i]) entries.push({ id, patch: { z: zs[i] } })
+    })
+    this.updateObjects(entries)
+  }
+
   /** Nudge the selection (screen-independent world units); consecutive nudges coalesce. */
   nudgeSelection(dx: number, dy: number): void {
     const leaves = this.leavesOfSelection()
@@ -1069,7 +1196,7 @@ export class Editor {
 
   private buildDerived(plan: CleanupPlan, base: Pick<CanvasObject, 'id' | 'z' | 'createdAt' | 'updatedAt' | 'transform'>, sources: ObjectId[]): CanvasObject | undefined {
     const raw = JSON.parse(JSON.stringify(plan.object)) as Record<string, unknown>
-    const t = this._toolOptions
+    const t = this.toolOptions
     switch (plan.kind) {
       case 'text':
         return {
@@ -1083,18 +1210,27 @@ export class Editor {
         } as ShapeObject
       case 'arrow':
         return {
-          start: { x: 0, y: 0 }, end: { x: 100, y: 0 }, style: this.shapeStyle(), startHead: 'none', endHead: 'arrow',
+          start: { x: 0, y: 0 }, end: { x: 100, y: 0 }, style: this.arrowStyle(), startHead: 'none', endHead: 'arrow',
           sourceStrokeIds: sources, ...raw, ...base, type: 'arrow',
         } as ArrowObject
     }
   }
 
+  /** ShapeStyle for a NEW shape built from itemStyle (fill = backgroundColor, 'transparent' = none). */
   shapeStyle(seed?: number): ShapeObject['style'] {
-    const s = this._toolOptions.shape
-    return {
-      strokeColor: s.strokeColor, strokeWidth: s.strokeWidth, fillColor: s.fillColor, opacity: s.opacity,
-      roughness: s.roughness, seed: seed ?? Math.floor(Math.random() * 2 ** 31),
+    const s = this._itemStyle
+    const style: ShapeObject['style'] = {
+      strokeColor: s.strokeColor, strokeWidth: s.strokeWidth, opacity: s.opacity, roughness: s.roughness,
+      fillStyle: s.fillStyle, strokeStyle: s.strokeStyle, seed: seed ?? Math.floor(Math.random() * 2 ** 31),
     }
+    if (s.backgroundColor && s.backgroundColor !== 'transparent') style.fillColor = s.backgroundColor
+    return style
+  }
+
+  /** ShapeStyle for a NEW arrow (no fill). */
+  arrowStyle(seed?: number): ShapeObject['style'] {
+    const { fillColor: _f, fillStyle: _fs, ...rest } = this.shapeStyle(seed)
+    return rest
   }
 
   /** Resolved (binding-aware) endpoints of an arrow. */
