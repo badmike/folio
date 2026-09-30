@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import type { BackgroundPattern, PageFormat } from '@folio/document'
+import type { PageFormat } from '@folio/document'
 import { computed, inject } from 'vue'
 import { NOTEBOOK_KEY, type NotebookController } from '../notebook'
 import { confirmDialog, promptDialog } from '../services/dialogs'
 import Icon from './Icon.vue'
+import BackgroundSection from './BackgroundSection.vue'
 import Menu from './Menu.vue'
 import Sheet from './Sheet.vue'
 
@@ -11,9 +12,6 @@ defineEmits<{ (e: 'close'): void }>()
 const ctl = inject<NotebookController>(NOTEBOOK_KEY)!
 const pages = ctl.pages
 const cur = computed(() => pages.value.find((p) => p.id === ctl.pageId.value))
-const PATTERNS: { v: BackgroundPattern; label: string }[] = [
-  { v: 'blank', label: 'Blank' }, { v: 'ruled', label: 'Ruled' }, { v: 'grid', label: 'Grid' }, { v: 'dot', label: 'Dots' },
-]
 const label = (i: number) => pages.value[i].title || `Page ${i + 1}`
 const kindLabel = (i: number) => {
   const p = pages.value[i]
@@ -52,22 +50,7 @@ const addItems = (['infinite', 'A4', 'Letter', 'iPad'] as const).map((k) => ({
       <button class="btn add" data-testid="add-page"><Icon name="plus" :size="18" /> Add page</button>
     </Menu>
 
-    <div v-if="cur" class="bg">
-      <h4>Background of this page</h4>
-      <div class="seg">
-        <button v-for="p in PATTERNS" :key="p.v" :class="{ on: cur.background.pattern === p.v }" :data-testid="`bg-${p.v}`" @click="ctl.setBackground({ pattern: p.v })">{{ p.label }}</button>
-      </div>
-      <label class="slider"><span>Spacing</span>
-        <input type="range" min="12" max="96" step="2" :value="cur.background.spacing" @input="ctl.setBackground({ spacing: Number(($event.target as HTMLInputElement).value) })" />
-        <b>{{ cur.background.spacing }}</b></label>
-      <label class="slider"><span>Line opacity</span>
-        <input type="range" min="0.1" max="1" step="0.05" :value="cur.background.opacity" @input="ctl.setBackground({ opacity: Number(($event.target as HTMLInputElement).value) })" />
-        <b>{{ Math.round(cur.background.opacity * 100) }}%</b></label>
-      <label class="slider"><span>Paper color</span>
-        <input type="color" class="color" :value="cur.background.color" @input="ctl.setBackground({ color: ($event.target as HTMLInputElement).value })" />
-        <span />
-      </label>
-    </div>
+    <BackgroundSection v-if="cur" :page="cur" />
   </Sheet>
 </template>
 
@@ -80,9 +63,4 @@ const addItems = (['infinite', 'A4', 'Letter', 'iPad'] as const).map((k) => ({
 .name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mini { width: 36px; height: 36px; }
 .add { width: 100%; }
-.bg { margin-top: 20px; display: flex; flex-direction: column; gap: 10px; }
-h4 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
-.slider { display: grid; grid-template-columns: 84px 1fr 42px; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
-.slider b { color: var(--text); text-align: right; font-size: 12.5px; }
-.color { width: 44px; height: 34px; padding: 0; border: 1px solid var(--border); border-radius: 8px; background: none; }
 </style>

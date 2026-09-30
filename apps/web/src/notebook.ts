@@ -2,7 +2,9 @@ import {
   createPage, worldBounds,
   type NotebookMeta, type Operation, type Page, type PageBackground, type PageFormat, type PageId, type Rect, type ToolSettings,
 } from '@folio/document'
-import { createEditor, type Editor, type PenMode, type SelectionStylePatch, type Tool, type ToolOptionsMap } from '@folio/editor'
+import {
+  createEditor, type Editor, type ExecuteOptions, type ItemStyle, type PenMode, type SelectionStylePatch, type StyleContext, type StylePatch, type Tool, type ToolOptionsMap,
+} from '@folio/editor'
 import { ref, shallowRef } from 'vue'
 import { exportBounds, thumbnailDataUrl } from './services/export'
 import { whenFontsReady } from './services/fonts'
@@ -16,8 +18,27 @@ export interface SelectionInfo {
   derived: boolean
   text: boolean
   group: boolean
+  /** Every selected ink stroke is a highlighter stroke (selects the highlighter presets in the panel). */
+  highlighter: boolean
 }
-const NO_SELECTION: SelectionInfo = { count: 0, ink: false, derived: false, text: false, group: false }
+const NO_SELECTION: SelectionInfo = { count: 0, ink: false, derived: false, text: false, group: false, highlighter: false }
+
+/** The editor's style API (Excalidraw-like properties); typed here so the UI only depends on this narrow surface. */
+export interface StyleEditor {
+  readonly itemStyle: Readonly<ItemStyle>
+  styleContext(): StyleContext
+  setStyle(patch: StylePatch, o?: ExecuteOptions): number
+  setItemStyle(style: Partial<ItemStyle>): void
+  bringForward(): void
+  sendBackward(): void
+}
+const styleApi = (e: Editor | null): StyleEditor | null => {
+  const s = e as unknown as StyleEditor | null
+  return s && typeof s.styleContext === 'function' ? s : null
+}
+
+/** Item style is stored beside the tool settings in the notebook meta (extra key, ignored by older builds). */
+type StoredToolSettings = ToolSettings & { item?: Partial<ItemStyle> }
 
 /** Injection key for child components. */
 export const NOTEBOOK_KEY = Symbol('notebook') as symbol & { __type?: NotebookController }
@@ -50,6 +71,10 @@ export class NotebookController {
   readonly pageId = ref('')
   readonly editingText = ref(false)
   readonly highlighted = ref(false)
+  /** Properties-panel state: what the current selection / tool can be styled with. */
+  readonly styleCtx = shallowRef<StyleContext | null>(null)
+  /** User asked for the tool options of the active tool (second click on the tool button). */
+  readonly showToolOptions = ref(false)
 
   private rec: AttachedRecognition | null = null
   private offs: (() => void)[] = []
@@ -57,6 +82,7 @@ export class NotebookController {
   private camTimer: ReturnType<typeof setTimeout> | undefined
   private thumbTimer: ReturnType<typeof setTimeout> | undefined
   private lastToolJson = ''
+  private styleQueued = false
   private destroyed = false
 
   constructor(
@@ -103,12 +129,14 @@ export class NotebookController {
     this.rec = this.recognition.attach(editor, this.session)
     this.restoreToolSettings(editor, doc.meta())
     this.syncTool(editor)
+    this.refreshStyle()
     this.canUndo.value = editor.canUndo
     this.canRedo.value = editor.canRedo
     this.zoom.value = editor.zoom
 
     this.offs.push(
       editor.on('tool', () => this.onTool(editor)),
+      editor.on('style', () => { this.queueStyleRefresh(); this.scheduleToolSave(editor) }),
       editor.on('history', (h) => { this.canUndo.value = h.canUndo; this.canRedo.value = h.canRedo }),
       editor.on('selection', () => this.onSelection(editor)),
       editor.on('camera', (c) => { this.zoom.value = c.zoom; this.scheduleCamSave() }),
@@ -125,8 +153,9 @@ export class NotebookController {
   // ---- restore ---------------------------------------------------------------
 
   private restoreToolSettings(editor: Editor, meta: NotebookMeta) {
-    const t = meta.toolSettings
+    const t = meta.toolSettings as StoredToolSettings | undefined
     if (!t) return
+    if (t.item) styleApi(editor)?.setItemStyle(t.item)
     const { tool: _p, ...pen } = t.pen
     const { tool: _h, ...hl } = t.highlighter
     editor.setToolOptions('pen', pen)
@@ -173,13 +202,30 @@ export class NotebookController {
 
   private onTool(editor: Editor) {
     this.syncTool(editor)
+    this.queueStyleRefresh()
+    this.scheduleToolSave(editor)
+  }
+
+  private scheduleToolSave(editor: Editor) {
     clearTimeout(this.toolTimer)
     this.toolTimer = setTimeout(() => this.persistToolSettings(editor), 800)
   }
 
-  private currentToolSettings(editor: Editor): ToolSettings {
+  /** Re-read the style context (coalesced to one read per microtask burst). */
+  private queueStyleRefresh() {
+    if (this.styleQueued) return
+    this.styleQueued = true
+    queueMicrotask(() => { this.styleQueued = false; this.refreshStyle() })
+  }
+  refreshStyle() {
+    const api = styleApi(this.editor.value)
+    if (api && !this.destroyed) this.styleCtx.value = api.styleContext()
+  }
+
+  private currentToolSettings(editor: Editor): StoredToolSettings {
     const o = editor.toolOptions
     return {
+      item: styleApi(editor)?.itemStyle ? { ...styleApi(editor)!.itemStyle } : undefined,
       pen: { tool: 'pen', ...o.pen },
       highlighter: { tool: 'highlighter', ...o.highlighter },
       shape: {
@@ -202,7 +248,7 @@ export class NotebookController {
 
   private onSelection(editor: Editor) {
     const ids = editor.selection
-    if (!ids.length) { this.selection.value = NO_SELECTION; return }
+    if (!ids.length) { this.selection.value = NO_SELECTION; this.queueStyleRefresh(); return }
     const leaves = editor.leavesOf(ids)
     this.selection.value = {
       count: ids.length,
@@ -210,7 +256,12 @@ export class NotebookController {
       derived: this.rec?.selectionHasDerived() ?? false,
       text: leaves.some((o) => o.type === 'ink' || o.type === 'text' || ((o.type === 'shape' || o.type === 'arrow') && !!o.label)),
       group: ids.some((id) => editor.getObject(id)?.type === 'group'),
+      highlighter: (() => {
+        const inks = leaves.filter((o) => o.type === 'ink' && !o.supersededBy)
+        return inks.length > 0 && inks.every((o) => o.type === 'ink' && o.style.tool === 'highlighter')
+      })(),
     }
+    this.queueStyleRefresh()
   }
 
   private onChange(editor: Editor, pagesChanged: boolean, metaChanged: boolean, origin: string) {
@@ -237,7 +288,22 @@ export class NotebookController {
       e.setSelectionStyle(style, { coalesceKey: `selstyle:${Object.keys(style).join(',')}` })
     }
   }
-  /** Restyle the current selection directly (select-tool popover). */
+  /**
+   * Excalidraw semantics: restyle the selection (one undo step; `coalesce` merges slider drags) and make the
+   * value the default for new elements. Persisted per notebook (debounced, not undoable).
+   */
+  setStyle(patch: StylePatch, coalesce?: string): void {
+    const e = this.editor.value
+    const api = styleApi(e)
+    if (!api) return
+    api.setStyle(patch, coalesce ? { coalesceKey: `style:${coalesce}` } : undefined)
+    this.refreshStyle()
+  }
+  bringToFront() { this.editor.value?.bringToFront() }
+  sendToBack() { this.editor.value?.sendToBack() }
+  bringForward() { styleApi(this.editor.value)?.bringForward() }
+  sendBackward() { styleApi(this.editor.value)?.sendBackward() }
+  /** Restyle the current selection directly (legacy). */
   styleSelection(patch: SelectionStylePatch) {
     this.editor.value?.setSelectionStyle(patch, { coalesceKey: `selstyle:${Object.keys(patch).join(',')}` })
   }

@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { requireServices } from '../app'
 import { exportDiagnostics } from '../services/diagnostics'
 import { offlineReady } from '../services/pwa'
-import { settings } from '../services/settings'
+import { settings, toggleZen } from '../services/settings'
 import { API_BASE } from '../services/sync'
 import AccountPanel from './AccountPanel.vue'
 import Modal from './Modal.vue'
@@ -80,6 +80,21 @@ const cloudDisabledReason = computed(() => {
           <button :class="{ on: settings.penMode === 'any' }" @click="settings.penMode = 'any'">Any pointer</button>
         </div>
       </div>
+      <div class="field">
+        <label class="check">
+          <input type="checkbox" v-model="settings.canvasFollowsTheme" data-testid="canvas-follows-theme" />
+          Canvas: follow app theme
+        </label>
+        <span class="muted hint">New notebooks and pages get a dark or light paper colour matching the app’s light/dark appearance. Ink colours adapt automatically so dark pages stay legible.</span>
+      </div>
+      <div class="field">
+        <label class="check">
+          <input type="checkbox" :checked="settings.zen" data-testid="settings-zen" @change="toggleZen(($event.target as HTMLInputElement).checked)" />
+          Zen mode
+          <kbd>Alt</kbd>+<kbd>Z</kbd>
+        </label>
+        <span class="muted hint">A minimal interface: only a translucent tool strip while you draw.</span>
+      </div>
       <div class="two">
         <div class="field">
           <label for="s-page">New notebooks</label>
@@ -122,6 +137,7 @@ h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: 
 .chip.big { min-height: 38px; padding: 0 16px; font-size: 14px; border: 1px solid var(--border); }
 .check { display: flex; align-items: center; gap: 10px; font-size: 15px; color: var(--text); }
 .check input { width: 20px; height: 20px; accent-color: var(--accent); }
+kbd { font: inherit; font-size: 12px; padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface-2); }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .line { margin: 0 0 10px; }
 @media (max-width: 480px) { .two { grid-template-columns: 1fr; } }

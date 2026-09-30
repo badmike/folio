@@ -1,12 +1,13 @@
 import {
   NotebookDocument, WorkspaceDocument, createId, createPage, defaultBackground, exportFolio, exportMarkdown,
   importFolio, searchDocsFor,
-  type AssetMap, type BackgroundPattern, type FolderEntry, type FolderId, type NotebookEntry, type NotebookId,
+  CANVAS_BACKGROUNDS_DARK, defaultLineColor,
+  type AssetMap, type BackgroundPattern, type PageBackground, type FolderEntry, type FolderId, type NotebookEntry, type NotebookId,
   type Operation, type Page,
 } from '@folio/document'
 import { DocPersister, type Diagnostics, type SearchHit, type Storage } from '@folio/persistence'
 import { welcomeOperations } from './welcome'
-import type { DefaultPageType } from './settings'
+import { settings, type DefaultPageType } from './settings'
 
 export const WORKSPACE_DOC_ID = 'workspace'
 const OPEN_CACHE_LIMIT = 6
@@ -25,9 +26,20 @@ export interface NewNotebookOptions {
   tags?: string[]
 }
 
+/** Default page background; follows the app's light/dark scheme when the setting is on. */
+export function themedBackground(pattern: BackgroundPattern): PageBackground {
+  const bg = defaultBackground(pattern)
+  const dark = typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches
+  if (settings.canvasFollowsTheme && dark) {
+    const color = CANVAS_BACKGROUNDS_DARK[0]
+    return { ...bg, color, lineColor: defaultLineColor(color) }
+  }
+  return bg
+}
+
 /** Build the first page for a new notebook. */
 export function pageFor(type: DefaultPageType, pattern: BackgroundPattern, order = 1): Page {
-  const background = defaultBackground(pattern)
+  const background = themedBackground(pattern)
   return type === 'infinite'
     ? createPage({ kind: 'infinite', order, background })
     : createPage({ kind: 'fixed', format: type, order, background })
@@ -379,6 +391,9 @@ export class Workspace {
       const first = doc.pages()[0]
       const page = pageFor(type, pattern)
       doc.apply([{ type: 'addPage', page }, { type: 'deletePage', pageId: first.id }])
+    } else {
+      const bg = themedBackground('blank')
+      if (bg.color !== doc.pages()[0].background.color) doc.apply([{ type: 'updatePage', pageId: doc.pages()[0].id, patch: { background: bg } }])
     }
     return (await this.register(doc, opts.folderId ?? null)).id
   }
