@@ -188,6 +188,22 @@ export interface ArrowHandleSpec {
   kind: 'end' | 'waypoint' | 'virtual'
 }
 
+/** Point halfway (by arc length) along path[from..to]. */
+function halfwayPoint(path: Vec2[], from: number, to: number): Vec2 {
+  let total = 0
+  for (let i = from + 1; i <= to; i++) total += Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y)
+  let acc = 0
+  for (let i = from + 1; i <= to; i++) {
+    const d = Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y)
+    if (d > 0 && acc + d >= total / 2) {
+      const t = (total / 2 - acc) / d
+      return { x: path[i - 1].x + (path[i].x - path[i - 1].x) * t, y: path[i - 1].y + (path[i].y - path[i - 1].y) * t }
+    }
+    acc += d
+  }
+  return { ...path[from] }
+}
+
 /**
  * Editing handles of a single selected arrow: 'start' / 'end'; for curved arrows
  * `wp:<i>` per waypoint and `v:<i>` (on the curve, halfway between control
@@ -206,8 +222,7 @@ export function arrowHandleSpecs(arrow: ArrowObject, resolve: Resolve): ArrowHan
     const curve = catmullRom([start, ...wps, end])
     wps.forEach((w, i) => out.push({ id: `wp:${i}`, world: { ...w }, kind: 'waypoint' }))
     for (let i = 0; i + 1 < curve.controlIndex.length; i++) {
-      const mid = curve.path[Math.floor((curve.controlIndex[i] + curve.controlIndex[i + 1]) / 2)]
-      out.push({ id: `v:${i}`, world: { ...mid }, kind: 'virtual' })
+      out.push({ id: `v:${i}`, world: halfwayPoint(curve.path, curve.controlIndex[i], curve.controlIndex[i + 1]), kind: 'virtual' })
     }
   } else if (type === 'elbow') {
     const p = elbowPath(arrow, resolve)

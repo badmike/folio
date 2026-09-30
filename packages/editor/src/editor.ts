@@ -2,7 +2,8 @@ import type {
   ArrowObject, CanvasObject, DocChangeEvent, GroupObject, InkStroke, NotebookDocumentApi, ObjectId, ObjectPatch,
   Operation, Page, PageId, Rect, ShapeObject, TextObject, Vec2,
 } from '@folio/document'
-import type { Camera, LiveInkLayer, Renderer, Scene, SelectionOverlay, Size, VisualTheme } from '@folio/renderer'
+import { arrowHandleSpecs } from '@folio/renderer'
+import type { ArrowHandleSpec, Camera, LiveInkLayer, Renderer, Scene, SelectionOverlay, Size, VisualTheme } from '@folio/renderer'
 import {
   MAX_ZOOM, MIN_ZOOM, cameraForRect, clampCameraToPage, clampZoom, screenToWorld as s2w, worldToScreen as w2s, zoomCameraAt,
 } from './camera'
@@ -599,6 +600,7 @@ export class Editor {
     this.dirty = false
     const page = this.page
     if (page && this.viewport.width > 0) {
+      this.live.setBackground?.(page.background.color)
       this.renderer.render(this.buildScene(page), this._camera)
     }
     if (this.pendingLiveClear) {
@@ -640,6 +642,8 @@ export class Editor {
     if (!this._selection.length && !marquee && !lasso && !bindingTargetId) return undefined
     const frame = this.selectionFrame()
     const onlyArrow = this.leavesOfSelection().length === 1 && this.leavesOfSelection()[0].type === 'arrow'
+    const arrowHandles = !this._readOnly && this._tool === 'select' && !this.hideHandles && !this.textEditor.editingId
+      ? this.selectedArrowHandles() : undefined
     return {
       ids: this._selection,
       bounds: frame?.rect,
@@ -648,7 +652,20 @@ export class Editor {
       marquee,
       lasso,
       bindingTargetId,
+      arrowHandles,
     }
+  }
+
+  /** The single selected arrow, if the selection is exactly one arrow. */
+  selectedArrow(): ArrowObject | undefined {
+    const leaves = this.leavesOfSelection()
+    return leaves.length === 1 && leaves[0].type === 'arrow' ? leaves[0] : undefined
+  }
+
+  /** Editing handles (ends, waypoints, virtual mid-segment handles) of the single selected arrow. */
+  selectedArrowHandles(): ArrowHandleSpec[] | undefined {
+    const a = this.selectedArrow()
+    return a ? arrowHandleSpecs(a, this.resolve) : undefined
   }
 
   // -- interaction state (used by the input controller) ---------------------------
