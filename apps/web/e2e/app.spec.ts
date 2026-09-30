@@ -1,6 +1,6 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
-import { countType, drawStroke, hostBox, inkCount, nonBackgroundPixels, openSettings, wave } from './helpers'
+import { backToLibrary, countType, drawStroke, hostBox, inkCount, nonBackgroundPixels, notebookTitle, openSettings, wave } from './helpers'
 
 /**
  * One serial user journey against `vite build && vite preview` in real Chromium
@@ -57,7 +57,7 @@ test('welcome notebook renders through WebGL', async () => {
   const hb = await hostBox(page)
   expect(await nonBackgroundPixels(page, { ...shaft, x: hb.x + shaft.x, y: hb.y + shaft.y })).toBeGreaterThan(20)
   await shot('02-welcome')
-  await page.getByTestId('back').click()
+  await backToLibrary(page)
   await expect(page.getByTestId('new-notebook')).toBeVisible()
 })
 
@@ -68,7 +68,8 @@ test('create a notebook and draw strokes (painted by WebGL)', async () => {
   await page.getByTestId('new-notebook').click()
   await page.getByTestId('new-title').fill('E2E Notes')
   await page.getByTestId('create-notebook').click()
-  await expect(page.getByTestId('title')).toHaveText('E2E Notes')
+  await page.getByTestId('toolbar').waitFor()
+  expect(await notebookTitle(page)).toBe('E2E Notes')
   await expect.poll(() => page.evaluate(() => !!(window as any).__folio?.editor)).toBe(true)
 
   const b = await hostBox(page)
@@ -121,7 +122,7 @@ test('text tool: type text', async () => {
 
 test('leaving the notebook and searching finds the text and navigates to it', async () => {
   await page.waitForTimeout(500)
-  await page.getByTestId('back').click()
+  await backToLibrary(page)
   await page.getByTestId('search-input').fill('photosynth')
   const hit = page.getByTestId('search-hit').first()
   await expect(hit).toBeVisible()
@@ -223,7 +224,7 @@ test('settings dialog and page panel', async () => {
 })
 
 test('works offline after the service worker is active', async () => {
-  await page.getByTestId('back').click()
+  await backToLibrary(page)
   await expect(page.getByTestId('offline-ready')).toBeVisible({ timeout: 60_000 })
   // make sure the SW controls the page and finished precaching
   await page.evaluate(async () => { await navigator.serviceWorker.ready })

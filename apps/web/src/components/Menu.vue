@@ -64,8 +64,9 @@ onBeforeUnmount(close)
     <slot :open="open" />
   </span>
   <Teleport to="body">
-    <div v-if="open" ref="menu" class="menu panel" role="menu" @click.stop
+    <div v-if="open" ref="menu" class="menu panel floating" role="menu" @click.stop
          :style="{ left: pos.left + 'px', ...(pos.up ? { bottom: pos.bottom + 'px' } : { top: pos.top + 'px' }) }">
+      <div v-if="$slots.header" class="header"><slot name="header" /></div>
       <template v-for="(it, i) in items" :key="i">
         <div v-if="it.divider" class="divider" />
         <button v-else class="item" :class="{ danger: it.danger }" :disabled="it.disabled" role="menuitem" @click="run(it)">
@@ -81,7 +82,8 @@ onBeforeUnmount(close)
 <style scoped>
 .menu-trigger { display: inline-flex; }
 .menu { position: fixed; z-index: 1000; min-width: 190px; padding: 6px; display: flex; flex-direction: column; }
-.item { display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 0 12px; border: 0; background: transparent; border-radius: 8px; text-align: left; }
+.header { border-bottom: 1px solid var(--border); margin: 0 0 4px; }
+.item { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border: 0; background: transparent; border-radius: 6px; text-align: left; }
 .item:hover:not(:disabled) { background: var(--surface-2); }
 .item:disabled { opacity: 0.4; }
 .item.danger { color: var(--danger); }

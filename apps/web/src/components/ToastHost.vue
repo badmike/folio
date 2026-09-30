@@ -5,12 +5,12 @@ import { recognitionPrompt } from '../services/prompt'
 
 <template>
   <div class="toasts" aria-live="polite">
-    <div v-for="t in toasts" :key="t.id" class="toast panel" :class="t.kind" role="status">
+    <div v-for="t in toasts" :key="t.id" class="toast panel floating" :class="t.kind" role="status">
       <span class="msg">{{ t.message }}</span>
       <button v-if="t.action" class="btn small primary" @click="t.action(); dismissToast(t.id)">{{ t.actionLabel }}</button>
       <button class="btn small ghost" aria-label="Dismiss" @click="dismissToast(t.id)">×</button>
     </div>
-    <div v-if="recognitionPrompt" class="toast panel" role="status" data-testid="cleanup-prompt">
+    <div v-if="recognitionPrompt" class="toast panel floating" role="status" data-testid="cleanup-prompt">
       <span class="msg">Clean up {{ recognitionPrompt.count }} item{{ recognitionPrompt.count === 1 ? '' : 's' }}?</span>
       <button class="btn small primary" data-testid="cleanup-apply" @click="recognitionPrompt.apply()">Apply</button>
       <button class="btn small ghost" aria-label="Dismiss" @click="recognitionPrompt.dismiss()">×</button>

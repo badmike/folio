@@ -60,7 +60,7 @@ test('device A creates a notebook and draws; device B receives notebook and stro
   await A.getByTestId('new-notebook').click()
   await A.getByTestId('new-title').fill('Shared notebook')
   await A.getByTestId('create-notebook').click()
-  await expect(A.getByTestId('title')).toHaveText('Shared notebook')
+  await A.getByTestId('toolbar').waitFor()
   await expect.poll(() => A.evaluate(() => !!(window as any).__folio?.editor)).toBe(true)
   await drawStroke(A, wave(240, 380))
   await drawStroke(A, wave(240, 440))

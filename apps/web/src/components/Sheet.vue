@@ -5,7 +5,7 @@ defineEmits<{ (e: 'close'): void }>()
 </script>
 
 <template>
-  <aside class="sheet panel" :aria-label="title" @pointerdown.stop>
+  <aside class="sheet panel floating" :aria-label="title" @pointerdown.stop>
     <header>
       <h3>{{ title }}</h3>
       <button class="icon-btn" aria-label="Close panel" @click="$emit('close')"><Icon name="x" /></button>

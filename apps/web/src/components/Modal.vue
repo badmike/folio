@@ -12,7 +12,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
 <template>
   <Teleport to="body">
     <div class="backdrop" @pointerdown.self="emit('close')">
-      <div class="modal panel" :class="{ wide }" role="dialog" aria-modal="true" :aria-label="title">
+      <div class="modal panel floating" :class="{ wide }" role="dialog" aria-modal="true" :aria-label="title">
         <header>
           <h2>{{ title }}</h2>
           <button class="icon-btn" aria-label="Close" @click="emit('close')"><Icon name="x" /></button>

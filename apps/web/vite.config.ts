@@ -52,9 +52,11 @@ export default defineConfig({
         start_url: '/',
         scope: '/',
         display: 'standalone',
+        // installed: no browser chrome at all where the platform allows it
+        display_override: ['fullscreen', 'standalone'],
         orientation: 'any',
-        background_color: '#ffffff',
-        theme_color: '#ffffff',
+        background_color: '#f6f6f8',
+        theme_color: '#f6f6f8',
         categories: ['productivity', 'education'],
         icons: [
           { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },

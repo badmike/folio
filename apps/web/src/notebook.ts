@@ -1,16 +1,20 @@
 import {
-  createPage, worldBounds,
-  type NotebookMeta, type Operation, type Page, type PageBackground, type PageFormat, type PageId, type Rect, type ToolSettings,
+  createPage, defaultQuickColors, importExcalidraw, isExcalidrawJson, worldBounds,
+  type BackgroundPattern, type NotebookMeta, type Operation, type Page, type PageBackground, type PageFormat, type PageId, type QuickColors, type Rect,
+  type ToolSettings,
 } from '@folio/document'
 import {
-  createEditor, type Editor, type ExecuteOptions, type ItemStyle, type PenMode, type SelectionStylePatch, type StyleContext, type StylePatch, type Tool, type ToolOptionsMap,
+  createEditor, type AlignMode, type DistributeAxis, type Editor, type ExecuteOptions, type ItemStyle, type PenMode, type SelectionStylePatch,
+  type StyleContext, type StylePatch, type Tool, type ToolColors, type ToolOptionsMap,
 } from '@folio/editor'
 import { ref, shallowRef } from 'vue'
+import { diagnostics } from './services/diagnostics'
 import { exportBounds, thumbnailDataUrl } from './services/export'
 import { whenFontsReady } from './services/fonts'
 import { AttachedRecognition, type RecognitionService } from './services/recognition'
 import { settings } from './services/settings'
-import type { NotebookSession, Workspace } from './services/workspace'
+import { toast } from './services/toast'
+import { storeExcalidrawAssets, type NotebookSession, type Workspace } from './services/workspace'
 
 export interface SelectionInfo {
   count: number
@@ -18,10 +22,12 @@ export interface SelectionInfo {
   derived: boolean
   text: boolean
   group: boolean
+  /** The selection contains a frame (offers "select content" / "remove frame"). */
+  frame: boolean
   /** Every selected ink stroke is a highlighter stroke (selects the highlighter presets in the panel). */
   highlighter: boolean
 }
-const NO_SELECTION: SelectionInfo = { count: 0, ink: false, derived: false, text: false, group: false, highlighter: false }
+const NO_SELECTION: SelectionInfo = { count: 0, ink: false, derived: false, text: false, group: false, frame: false, highlighter: false }
 
 /** The editor's style API (Excalidraw-like properties); typed here so the UI only depends on this narrow surface. */
 export interface StyleEditor {
@@ -38,7 +44,9 @@ const styleApi = (e: Editor | null): StyleEditor | null => {
 }
 
 /** Item style is stored beside the tool settings in the notebook meta (extra key, ignored by older builds). */
-type StoredToolSettings = ToolSettings & { item?: Partial<ItemStyle> }
+type StoredToolSettings = ToolSettings & { item?: Partial<ItemStyle>; toolColors?: ToolColors }
+
+export type QuickColorSet = keyof QuickColors
 
 /** Injection key for child components. */
 export const NOTEBOOK_KEY = Symbol('notebook') as symbol & { __type?: NotebookController }
@@ -51,6 +59,7 @@ function exposeDebugHandle(editor: Editor, ctl: NotebookController) {
 }
 
 const camKey = (nb: string, page: string) => `folio.cam.${nb}.${page}`
+const lockKey = (nb: string) => `folio.locked.${nb}`
 function lsGet(k: string): string | null { try { return localStorage.getItem(k) } catch { return null } }
 function lsSet(k: string, v: string) { try { localStorage.setItem(k, v) } catch { /* ignore */ } }
 
@@ -75,6 +84,11 @@ export class NotebookController {
   readonly styleCtx = shallowRef<StyleContext | null>(null)
   /** User asked for the tool options of the active tool (second click on the tool button). */
   readonly showToolOptions = ref(false)
+  /** Per-notebook quick swatches (long-press a swatch in the panel to change it). */
+  readonly quickColors = shallowRef<QuickColors>(cloneQuick(defaultQuickColors()))
+  /** Read-only (temporarily locked) on this device. */
+  readonly locked = ref(false)
+  readonly toolLock = ref(settings.toolLock)
 
   private rec: AttachedRecognition | null = null
   private offs: (() => void)[] = []
@@ -121,10 +135,14 @@ export class NotebookController {
       theme: settings.theme,
       penMode: settings.penMode as PenMode,
       initialTool: 'pen',
+      toolLock: settings.toolLock,
+      readOnly: lsGet(lockKey(this.id)) === '1',
       onOperations: (ops) => this.session.recorded(ops),
       onStrokeCommitted: (pid, stroke) => this.rec?.onStrokeCommitted(pid, stroke),
+      onPasteText: (text) => this.pasteExternal(text),
     })
     this.editor.value = editor
+    this.locked.value = editor.readOnly
     exposeDebugHandle(editor, this)
     this.rec = this.recognition.attach(editor, this.session)
     this.restoreToolSettings(editor, doc.meta())
@@ -142,6 +160,8 @@ export class NotebookController {
       editor.on('camera', (c) => { this.zoom.value = c.zoom; this.scheduleCamSave() }),
       editor.on('textedit', (t) => { this.editingText.value = t.editing }),
       editor.on('change', (e) => this.onChange(editor, e.pagesChanged, e.metaChanged, e.origin)),
+      editor.on('toollock', (v) => { this.toolLock.value = v; settings.toolLock = v }),
+      editor.on('readonly', (v) => { this.locked.value = v }),
     )
     // Caveat changes text metrics: once loaded, repaint with fresh measurements.
     void whenFontsReady().then(() => { if (!this.destroyed) editor.setTheme(editor.theme) })
@@ -156,6 +176,8 @@ export class NotebookController {
     const t = meta.toolSettings as StoredToolSettings | undefined
     if (!t) return
     if (t.item) styleApi(editor)?.setItemStyle(t.item)
+    if (t.toolColors) editor.setToolColors(t.toolColors)
+    if (t.quickColors) this.quickColors.value = sanitizeQuick(t.quickColors)
     const { tool: _p, ...pen } = t.pen
     const { tool: _h, ...hl } = t.highlighter
     editor.setToolOptions('pen', pen)
@@ -233,6 +255,8 @@ export class NotebookController {
         opacity: o.shape.opacity, roughness: o.shape.roughness, seed: 1,
       },
       eraserSize: o.eraser.size,
+      quickColors: cloneQuick(this.quickColors.value),
+      toolColors: { ...editor.toolColors },
     }
   }
 
@@ -256,6 +280,7 @@ export class NotebookController {
       derived: this.rec?.selectionHasDerived() ?? false,
       text: leaves.some((o) => o.type === 'ink' || o.type === 'text' || ((o.type === 'shape' || o.type === 'arrow') && !!o.label)),
       group: ids.some((id) => editor.getObject(id)?.type === 'group'),
+      frame: leaves.some((o) => o.type === 'shape' && o.kind === 'frame'),
       highlighter: (() => {
         const inks = leaves.filter((o) => o.type === 'ink' && !o.supersededBy)
         return inks.length > 0 && inks.every((o) => o.type === 'ink' && o.style.tool === 'highlighter')
@@ -278,6 +303,92 @@ export class NotebookController {
   // ---- commands --------------------------------------------------------------
 
   setTool(t: Tool) { this.editor.value?.setTool(t) }
+  setToolLock(v: boolean) { this.editor.value?.setToolLock(v) }
+
+  /** Temporarily lock the notebook (read-only on this device; remembered per notebook). */
+  setLocked(v: boolean) {
+    const e = this.editor.value
+    if (!e) return
+    e.setReadOnly(v)
+    if (v) e.setTool('hand')
+    else if (e.tool === 'hand') e.setTool('select')
+    lsSet(lockKey(this.id), v ? '1' : '0')
+  }
+
+  /** Replace one quick swatch of a set (long-press in the panel) and keep it with the notebook. */
+  setQuickColor(set: QuickColorSet, index: number, color: string) {
+    const q = cloneQuick(this.quickColors.value)
+    if (index < 0 || index >= q[set].length) return
+    q[set][index] = color
+    this.quickColors.value = q
+    const e = this.editor.value
+    if (e) this.scheduleToolSave(e)
+  }
+  resetQuickColors() {
+    this.quickColors.value = cloneQuick(defaultQuickColors())
+    const e = this.editor.value
+    if (e) this.scheduleToolSave(e)
+  }
+
+  alignSelection(mode: AlignMode) { this.editor.value?.alignSelection(mode) }
+  unframeSelection() { this.editor.value?.unframeSelection() }
+  selectFrameContent() { this.editor.value?.selectFrameContent() }
+  /** Re-measure the canvas (the installed iPad app resizes without a window resize event). */
+  remeasure() { this.editor.value?.measure() }
+  distributeSelection(axis: DistributeAxis) { this.editor.value?.distributeSelection(axis) }
+
+  /** Cmd+': hide the page pattern, or bring the last one (default grid) back. */
+  toggleGrid() {
+    const p = this.page
+    if (!p) return
+    if (p.background.pattern !== 'blank') {
+      this.lastPattern = p.background.pattern
+      this.setBackground({ pattern: 'blank' })
+    } else this.setBackground({ pattern: this.lastPattern ?? 'grid' })
+  }
+  private lastPattern: BackgroundPattern | undefined
+  get gridShown(): boolean { return (this.page?.background.pattern ?? 'blank') !== 'blank' }
+
+  /** Excalidraw JSON pasted from the clipboard: converted and inserted at the view centre. */
+  async pasteExternal(text: string): Promise<boolean> {
+    if (!isExcalidrawJson(text)) return false
+    try {
+      await this.insertExcalidraw(JSON.parse(text))
+      return true
+    } catch (e) {
+      diagnostics.log('paste.excalidraw', e)
+      toast('Could not read the Excalidraw data.', { kind: 'error' })
+      return true
+    }
+  }
+
+  /** Import Excalidraw content (file or clipboard payload) onto the current page, centred in the view. */
+  async insertExcalidraw(input: unknown): Promise<number> {
+    const e = this.editor.value
+    if (!e) return 0
+    const { objects, assets, bounds } = importExcalidraw(input)
+    if (!objects.length) return 0
+    await storeExcalidrawAssets(this.ws, assets)
+    const vs = e.viewportSize
+    const at = e.screenToWorld({ x: vs.width / 2, y: vs.height / 2 })
+    // keep the source layout, but put its centre where the user is looking
+    if (bounds) {
+      const dx = at.x - (bounds.x + bounds.width / 2), dy = at.y - (bounds.y + bounds.height / 2)
+      for (const o of objects) {
+        if (o.type === 'arrow') {
+          o.start = { x: o.start.x + dx, y: o.start.y + dy }
+          o.end = { x: o.end.x + dx, y: o.end.y + dy }
+          if (o.waypoints) o.waypoints = o.waypoints.map((w) => ({ x: w.x + dx, y: w.y + dy }))
+        } else if (o.type !== 'group') o.transform = { ...o.transform, x: o.transform.x + dx, y: o.transform.y + dy }
+      }
+    }
+    const base = e.nextZ()
+    objects.forEach((o) => { o.z += base })
+    e.addObjects(objects)
+    e.setTool('select')
+    e.select(objects.filter((o) => !o.groupId && !o.frameId).map((o) => o.id))
+    return objects.length
+  }
   setOption<T extends Tool>(tool: T, patch: Partial<ToolOptionsMap[T]>) {
     const e = this.editor.value
     if (!e) return
@@ -460,6 +571,18 @@ export class NotebookController {
     await this.saveThumbnail()
     await this.ws.release(this.id)
   }
+}
+
+function cloneQuick(q: { stroke: readonly string[]; background: readonly string[]; highlighter: readonly string[] }): QuickColors {
+  return { stroke: [...q.stroke], background: [...q.background], highlighter: [...q.highlighter] }
+}
+
+/** Stored swatch rows may come from another device: keep only well-formed 5-colour rows. */
+function sanitizeQuick(raw: Partial<QuickColors>): QuickColors {
+  const d = defaultQuickColors()
+  const row = (v: unknown, fallback: readonly string[]) =>
+    Array.isArray(v) && v.length === fallback.length && v.every((c) => typeof c === 'string') ? [...(v as string[])] : [...fallback]
+  return { stroke: row(raw.stroke, d.stroke), background: row(raw.background, d.background), highlighter: row(raw.highlighter, d.highlighter) }
 }
 
 /** Map a tool-options patch to the style fields that apply to already drawn objects. */

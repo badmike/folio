@@ -12,7 +12,7 @@ import NotebookCard from '../components/NotebookCard.vue'
 import SettingsDialog from '../components/SettingsDialog.vue'
 import { renderSnippet, useLibrary } from '../composables'
 import { chooseDialog, confirmDialog, promptDialog } from '../services/dialogs'
-import { exportFolioFile, exportMarkdownFor, importFolioFile } from '../services/export'
+import { exportFolioFile, exportMarkdownFor, importNotebookFile } from '../services/export'
 import { offlineReady, isIosSafariNotInstalled } from '../services/pwa'
 import type { DefaultPageType } from '../services/settings'
 import { toast, toastError } from '../services/toast'
@@ -170,7 +170,7 @@ async function onImport(e: Event) {
   input.value = ''
   for (const f of files) {
     try {
-      await importFolioFile(ws, f, selected.value === 'all' ? null : selected.value)
+      await importNotebookFile(ws, f, selected.value === 'all' ? null : selected.value)
       toast(`Imported “${f.name}”`, { kind: 'success' })
     } catch (err) {
       diagnostics.log('import', err)
@@ -251,7 +251,7 @@ function dismissHint() { showIosHint.value = false; try { sessionStorage.setItem
               <button class="btn small ghost" aria-label="Sort"><Icon name="sort" :size="18" /> <span class="hide-narrow">Sort</span></button>
             </Menu>
             <button class="btn small" data-testid="import-folio" @click="fileInput?.click()"><Icon name="upload" :size="18" /> <span class="hide-narrow">Import</span></button>
-            <input ref="fileInput" type="file" accept=".folio,application/zip" multiple hidden data-testid="import-input" @change="onImport" />
+            <input ref="fileInput" type="file" accept=".folio,.excalidraw,application/zip,application/json" multiple hidden data-testid="import-input" @change="onImport" />
             <button class="btn primary" data-testid="new-notebook" @click="showNew = true"><Icon name="plus" :size="18" /> New notebook</button>
           </div>
           <div v-if="!visible.length" class="empty muted">
