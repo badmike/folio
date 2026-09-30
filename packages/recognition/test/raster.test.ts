@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { encodePng, planRaster, rasterize, rasterizeToPng, zlibStored } from '../src/raster'
 import { makeStroke, polyline } from './helpers'
+import { rotatePts } from './synth'
 import { inflateSync } from 'node:zlib'
 
 const line = (x0: number, y0: number, x1: number, y1: number, id = 's') => makeStroke(polyline([{ x: x0, y: y0 }, { x: x1, y: y1 }], false, 2), { id })
@@ -41,6 +42,42 @@ describe('rasterize', () => {
     const s = makeStroke(polyline([{ x: 0, y: 0 }, { x: 50, y: 0 }], false), { transform: { x: 500, y: 500 } })
     const plan = planRaster([s])
     expect(plan.polylines[0][0].x).toBe(plan.padding)
+  })
+})
+
+/** A line of `n` inverted-V letters (24 high, baseline at y = 24) rotated by `angle` about the origin. */
+const slantedLine = (n: number, angle: number) =>
+  Array.from({ length: n }, (_, i) => {
+    const x = i * 14
+    const letter = polyline([{ x, y: 24 }, { x: x + 5, y: 0 }, { x: x + 10, y: 24 }], false, 2)
+    return makeStroke(rotatePts(letter, angle, { x: 0, y: 0 }))
+  })
+
+/** Height of the inked rows in world units (scale independent). */
+const inkHeight = (strokes: ReturnType<typeof slantedLine>, deskew: boolean) => {
+  const bmp = rasterize(strokes, { deskew })
+  let rows = 0
+  for (let y = 0; y < bmp.height; y++) if (bmp.data.subarray(y * bmp.width, (y + 1) * bmp.width).some((v) => v < 128)) rows++
+  return rows / bmp.scale
+}
+
+describe('deskew', () => {
+  it('rotates a slanted line so its ink rows are tighter', () => {
+    const strokes = slantedLine(12, (10 * Math.PI) / 180)
+    expect(planRaster(strokes).skew).toBeCloseTo((10 * Math.PI) / 180, 2)
+    expect(inkHeight(strokes, true)).toBeLessThan(0.6 * inkHeight(strokes, false))
+  })
+
+  it('skips lines below the angle threshold', () => {
+    expect(planRaster(slantedLine(12, (1 * Math.PI) / 180)).skew).toBe(0)
+  })
+
+  it('skips a single short stroke', () => {
+    expect(planRaster(slantedLine(1, (10 * Math.PI) / 180)).skew).toBe(0)
+  })
+
+  it('can be turned off', () => {
+    expect(planRaster(slantedLine(12, (10 * Math.PI) / 180), { deskew: false }).skew).toBe(0)
   })
 })
 

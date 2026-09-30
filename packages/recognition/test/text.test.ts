@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { detectLanguage, guessSemanticType, recognitionId } from '../src/text'
+import { cleanRecognizedText, detectLanguage, guessSemanticType, recognitionId } from '../src/text'
 
 describe('detectLanguage', () => {
   it('detects German by umlauts and stop words', () => {
@@ -36,5 +36,26 @@ describe('guessSemanticType', () => {
     expect(guessSemanticType('Big Title', { height: 70 }, 30)).toBe('heading')
     expect(guessSemanticType('normal text', { height: 32 }, 30)).toBeUndefined()
     expect(guessSemanticType('3.14 is pi', { height: 30 }, 30)).toBeUndefined()
+  })
+})
+
+describe('cleanRecognizedText', () => {
+  it('strips OCR noise and collapses whitespace', () => {
+    expect(cleanRecognizedText('| hello  ~world_ .')).toBe('hello world')
+    expect(cleanRecognizedText('"Einkaufen\n morgen\' -')).toBe('Einkaufen morgen')
+    expect(cleanRecognizedText('^todo `')).toBe('todo')
+  })
+  it('keeps real punctuation, bullets and inner apostrophes', () => {
+    expect(cleanRecognizedText('Done. Why? Yes!')).toBe('Done. Why? Yes!')
+    expect(cleanRecognizedText('Note: milk, eggs')).toBe('Note: milk, eggs')
+    expect(cleanRecognizedText('- milk')).toBe('- milk')
+    expect(cleanRecognizedText('Berlin - Paris')).toBe('Berlin - Paris')
+  })
+  it('normalises quote and dash variants', () => {
+    expect(cleanRecognizedText('don´t – it’s „gut“')).toBe('don\'t - it\'s "gut"')
+  })
+  it('returns empty text for symbol-only results', () => {
+    expect(cleanRecognizedText(' |~ . -- \' ')).toBe('')
+    expect(cleanRecognizedText('')).toBe('')
   })
 })

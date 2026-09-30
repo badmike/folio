@@ -5,7 +5,7 @@ import type { GroupingOptions } from './grouping'
 import { median, strokeWorldPoints, boundsOf } from './geometry'
 import { recognizeShape, SHAPE_RECOGNIZER_ID } from './shape'
 import type { HandwritingResultEx } from './recognizers/types'
-import { detectLanguage, guessSemanticType, recognitionId } from './text'
+import { cleanRecognizedText, detectLanguage, guessSemanticType, recognitionId } from './text'
 
 /** A text line waiting for handwriting recognition. */
 export interface LineJob {
@@ -117,9 +117,9 @@ export class RecognitionEngine {
       } catch {
         res = null // one bad line must not lose the others
       }
-      if (!res || !res.text.trim()) continue
-      if (res.confidence < (this.cfg.minTextConfidence ?? 0.2)) continue
-      const text = res.text.trim()
+      if (!res || res.confidence < (this.cfg.minTextConfidence ?? 0.2)) continue
+      const text = cleanRecognizedText(res.text)
+      if (!text) continue
       out.push({
         id: recognitionId(line.strokeIds),
         kind: 'text',

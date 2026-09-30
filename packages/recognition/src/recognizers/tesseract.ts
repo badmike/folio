@@ -2,15 +2,35 @@ import type { InkStroke } from '@folio/document'
 import { rasterizeToPng } from '../raster'
 import type { RasterOptions } from '../raster'
 import { tesseractPaths } from '../assets'
+import { cleanRecognizedText } from '../text'
 import { absoluteUrl, toTesseractLang } from './types'
 import type { HandwritingResultEx, LocalRecognizer, RecognizeOpts } from './types'
 
 export const TESSERACT_RECOGNIZER_ID = 'tesseract@7'
 
+/** Glyphs that never stand alone in handwritten notes but show up as OCR noise. */
+const CHAR_BLACKLIST = '|¦~^'
+/** Words below this confidence (0..1) are dropped when they are just one or two symbols. */
+const MIN_SYMBOL_WORD_CONFIDENCE = 0.15
+
+export interface TesseractWord {
+  text: string
+  /** 0..100 */
+  confidence: number
+}
+
+/** The part of a tesseract.js page result we read. `blocks` is only filled when requested. */
+export interface TesseractPage {
+  text: string
+  /** 0..100 */
+  confidence: number
+  blocks?: { paragraphs: { lines: { words: TesseractWord[] }[] }[] }[] | null
+}
+
 /** Subset of the tesseract.js worker API that we use (keeps tests/fakes simple). */
 export interface TesseractWorkerLike {
   setParameters(p: Record<string, string>): Promise<unknown>
-  recognize(image: unknown): Promise<{ data: { text: string; confidence: number } }>
+  recognize(image: unknown, options?: Record<string, unknown>, output?: { blocks?: boolean }): Promise<{ data: TesseractPage }>
   reinitialize?(langs: string, oem?: number): Promise<unknown>
   terminate(): Promise<unknown>
 }
@@ -80,7 +100,9 @@ export class TesseractRecognizer implements LocalRecognizer {
             return (await T.createWorker(l, 1, o as never)) as unknown as TesseractWorkerLike
           })
         const w = await create(langs, opts)
-        await w.setParameters({ preserve_interword_spaces: '1', user_defined_dpi: '150' })
+        // The dictionaries (load_system_dawg / load_freq_dawg) stay on: they help with
+        // handwriting, and they are init-only parameters anyway.
+        await w.setParameters({ preserve_interword_spaces: '1', user_defined_dpi: '150', tessedit_char_blacklist: CHAR_BLACKLIST })
         return w
       })()
       this.worker.catch(() => {
@@ -112,10 +134,11 @@ export class TesseractRecognizer implements LocalRecognizer {
       await w.setParameters({ tessedit_pageseg_mode: psm })
       this.currentPsm = psm
     }
-    const { data } = await w.recognize(png)
-    const text = (data.text ?? '').replace(/\s*\n+\s*/g, ' ').trim()
+    const { data } = await w.recognize(png, {}, { blocks: true })
+    const { text: raw, confidence } = readPage(data)
+    const text = cleanRecognizedText(raw)
     if (!text) return null
-    return { text, confidence: Math.max(0, Math.min(1, (data.confidence ?? 0) / 100)), recognizer: this.id }
+    return { text, confidence: Math.max(0, Math.min(1, confidence)), recognizer: this.id }
   }
 
   dispose(): void {
@@ -123,4 +146,25 @@ export class TesseractRecognizer implements LocalRecognizer {
     this.worker = null
     if (w) void w.then((x) => x.terminate()).catch(() => undefined)
   }
+}
+
+/**
+ * Text and 0..1 confidence of a page. With word results, low-confidence symbol words are
+ * dropped and the confidence is the length-weighted mean of the remaining words, which
+ * tracks what the user sees better than the block confidence.
+ */
+function readPage(data: TesseractPage): { text: string; confidence: number } {
+  const words = (data.blocks ?? []).flatMap((b) => b.paragraphs.flatMap((p) => p.lines.flatMap((l) => l.words)))
+  if (words.length === 0) return { text: data.text ?? '', confidence: (data.confidence ?? 0) / 100 }
+  const kept = words.filter(
+    (w) => !(w.confidence / 100 < MIN_SYMBOL_WORD_CONFIDENCE && /^[^\p{L}\p{N}]{1,2}$/u.test(w.text.trim())),
+  )
+  let sum = 0
+  let weight = 0
+  for (const w of kept) {
+    const len = Math.max(1, w.text.trim().length)
+    sum += (w.confidence / 100) * len
+    weight += len
+  }
+  return { text: kept.map((w) => w.text).join(' '), confidence: weight ? sum / weight : 0 }
 }

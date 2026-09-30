@@ -1,5 +1,5 @@
 import type { InkStroke, Vec2 } from '@folio/document'
-import { boundsOf, distToSegment, percentile, strokeWorldPoints } from './geometry'
+import { boundsOf, distToSegment, median, percentile, strokeWorldPoints } from './geometry'
 
 /**
  * Deterministic software rasterizer: strokes -> grayscale bitmap (black ink on white),
@@ -8,14 +8,19 @@ import { boundsOf, distToSegment, percentile, strokeWorldPoints } from './geomet
  */
 
 export interface RasterOptions {
-  /** Target height (px) of the ink bounding box / text height. Default 80. */
+  /**
+   * Target height (px) of the ink bounding box, ascender to descender. Default 100, which
+   * gives Tesseract's LSTM roughly the 30 to 40 px x-height it reads best.
+   */
   targetHeight?: number
-  /** White padding around the ink in px. Default 24. */
+  /** White padding around the ink in px. Default 32. */
   padding?: number
   /** Upper bound for the bitmap width (px); the scale is reduced to fit. Default 3200. */
   maxWidth?: number
   /** Ink line width in px; default derived from the target height (~7% of it, 3..9 px). */
   lineWidth?: number
+  /** Rotate a slanted line so its baseline is horizontal. Default true. */
+  deskew?: boolean
 }
 
 export interface Bitmap {
@@ -33,15 +38,74 @@ export interface RasterPlan {
   height: number
   padding: number
   lineWidth: number
+  /** Baseline angle (radians, y down) that was rotated away; 0 when not deskewed. */
+  skew: number
   /** Polylines in pixel space. */
   polylines: Vec2[][]
 }
 
+const MIN_SKEW = (1.5 * Math.PI) / 180
+const MAX_SKEW = (25 * Math.PI) / 180
+const ENVELOPE_BINS = 24
+
+/**
+ * Baseline angle (radians, y down, positive = falling to the right) of a line of ink.
+ * Takes the lowest point in each of a few vertical slices (the lower envelope) and fits
+ * a Theil-Sen line through them: the median of pairwise slopes ignores descenders.
+ */
+export function estimateSkew(polys: Vec2[][]): number {
+  const all = polys.flat()
+  const bb = boundsOf(all)
+  if (bb.width <= 0) return 0
+  const low: Vec2[] = []
+  for (const p of all) {
+    const i = Math.min(ENVELOPE_BINS - 1, Math.floor(((p.x - bb.x) / bb.width) * ENVELOPE_BINS))
+    if (!low[i] || p.y > low[i].y) low[i] = p
+  }
+  const pts = low.filter(Boolean)
+  const slopes: number[] = []
+  for (let i = 0; i < pts.length; i++) {
+    for (let j = i + 1; j < pts.length; j++) {
+      const dx = pts[j].x - pts[i].x
+      if (dx !== 0) slopes.push((pts[j].y - pts[i].y) / dx)
+    }
+  }
+  return slopes.length < 3 ? 0 : Math.atan(median(slopes))
+}
+
+/** Rotate by -angle about the centre of the ink so a baseline at `angle` becomes horizontal. */
+function unrotate(polys: Vec2[][], angle: number): Vec2[][] {
+  const bb = boundsOf(polys.flat())
+  const cx = bb.x + bb.width / 2
+  const cy = bb.y + bb.height / 2
+  const c = Math.cos(angle)
+  const s = Math.sin(angle)
+  return polys.map((p) =>
+    p.map((q) => {
+      const dx = q.x - cx
+      const dy = q.y - cy
+      return { x: cx + dx * c + dy * s, y: cy - dx * s + dy * c }
+    }),
+  )
+}
+
 export function planRaster(strokes: InkStroke[], opts: RasterOptions = {}): RasterPlan {
-  const targetHeight = opts.targetHeight ?? 80
-  const padding = opts.padding ?? 24
+  const targetHeight = opts.targetHeight ?? 100
+  const padding = opts.padding ?? 32
   const maxWidth = opts.maxWidth ?? 3200
-  const worldPolys = strokes.map(strokeWorldPoints).filter((p) => p.length > 0)
+  let worldPolys = strokes.map(strokeWorldPoints).filter((p) => p.length > 0)
+  let skew = 0
+  if (opts.deskew ?? true) {
+    const raw = boundsOf(worldPolys.flat())
+    // Short words have too little baseline to measure; leave them alone.
+    if (worldPolys.length >= 3 || raw.width >= 2 * raw.height) {
+      const angle = estimateSkew(worldPolys)
+      if (Math.abs(angle) >= MIN_SKEW && Math.abs(angle) <= MAX_SKEW) {
+        worldPolys = unrotate(worldPolys, angle)
+        skew = angle
+      }
+    }
+  }
   const all = worldPolys.flat()
   const bb = boundsOf(all)
   // Reference height: the ink box, but never smaller than a typical stroke height
@@ -54,7 +118,7 @@ export function planRaster(strokes: InkStroke[], opts: RasterOptions = {}): Rast
   const width = Math.max(1, Math.ceil(bb.width * scale + 2 * padding))
   const height = Math.max(1, Math.ceil(bb.height * scale + 2 * padding))
   const polylines = worldPolys.map((p) => p.map((q) => ({ x: (q.x - bb.x) * scale + padding, y: (q.y - bb.y) * scale + padding })))
-  return { scale, width, height, padding, lineWidth, polylines }
+  return { scale, width, height, padding, lineWidth, skew, polylines }
 }
 
 export function rasterize(strokes: InkStroke[], opts: RasterOptions = {}): Bitmap {
