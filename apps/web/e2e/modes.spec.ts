@@ -1,20 +1,10 @@
 import { expect, test, type Page } from '@playwright/test'
-import { countType, drawStroke, hostBox, inkCount } from './helpers'
+import { countType, drawStroke, hostBox, inkCount, newNotebook, openSettings } from './helpers'
 
 /** Cleanup modes ('keep' / 'auto') and restyling the selection, each on a fresh profile. */
 
-async function newNotebook(page: Page, title: string) {
-  await page.addInitScript(() => localStorage.setItem('folio.debug', '1'))
-  await page.goto('/')
-  await page.getByTestId('new-notebook').click()
-  await page.getByTestId('new-title').fill(title)
-  await page.getByTestId('create-notebook').click()
-  await expect(page.getByTestId('title')).toHaveText(title)
-  await expect.poll(() => page.evaluate(() => !!(window as any).__folio?.editor)).toBe(true)
-}
-
 async function setCleanupMode(page: Page, label: 'Keep my ink' | 'Ask' | 'Automatic') {
-  await page.getByRole('button', { name: 'Settings' }).click()
+  await openSettings(page)
   await page.getByRole('button', { name: label, exact: true }).click()
   await page.keyboard.press('Escape')
 }
@@ -58,29 +48,24 @@ test.describe('cleanup modes', () => {
 })
 
 test.describe('selection style', () => {
-  test('changing colour and width with a selection restyles it as one undo step', async ({ page }) => {
+  test('changing colour and width with a selection restyles it as separate undo steps', async ({ page }) => {
     await newNotebook(page, 'Style')
     await drawStroke(page, [[400, 400], [500, 460], [600, 400]], 6)
     await expect.poll(() => inkCount(page)).toBe(1)
     await page.getByTestId('tool-select').click()
     await drawStroke(page, [[350, 350], [650, 520]]) // marquee
     await expect.poll(() => page.evaluate(() => (window as any).__folio.editor.selection.length)).toBe(1)
-    await page.getByTestId('tool-select').click() // open the options popover
-    const swatch = page.getByLabel('Selection color #e03131')
-    await swatch.click()
-    const color = () => page.evaluate(() => {
+    await page.getByLabel('Stroke #e03131').click()
+    const ink = () => page.evaluate(() => {
       const f = (window as any).__folio
-      return f.doc.objects(f.editor.pageId).find((o: any) => o.type === 'ink')?.style.color
+      return f.doc.objects(f.editor.pageId).find((o: any) => o.type === 'ink')?.style
     })
-    await expect.poll(color).toBe('#e03131')
-    await page.getByLabel('Selection width').fill('9')
-    await expect.poll(() => page.evaluate(() => {
-      const f = (window as any).__folio
-      return f.doc.objects(f.editor.pageId).find((o: any) => o.type === 'ink')?.style.width
-    })).toBe(9)
-    // undo reverts the width step first, then the colour
+    await expect.poll(async () => (await ink()).color).toBe('#e03131')
+    await page.getByTestId('stroke-width-4').click() // bold pen preset
+    await expect.poll(async () => (await ink()).width).toBe(4.5)
     await page.evaluate(() => (window as any).__folio.editor.undo())
+    await expect.poll(async () => (await ink()).width).not.toBe(4.5)
     await page.evaluate(() => (window as any).__folio.editor.undo())
-    await expect.poll(color).not.toBe('#e03131')
+    await expect.poll(async () => (await ink()).color).not.toBe('#e03131')
   })
 })

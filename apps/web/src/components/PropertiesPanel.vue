@@ -4,7 +4,7 @@ import {
   type Arrowhead, type ArrowType, type FillStyle, type FontFamily, type ShapeKind, type StrokeLineStyle,
 } from '@folio/document'
 import {
-  FONT_SIZE_PRESETS, HIGHLIGHTER_WIDTH_PRESETS, PEN_WIDTH_PRESETS, STROKE_WIDTH_PRESETS, type StyleProp,
+  FONT_SIZE_PRESETS, STROKE_WIDTH_PRESETS, type StyleProp,
 } from '@folio/editor'
 import { computed, inject, ref } from 'vue'
 import { NOTEBOOK_KEY, type NotebookController } from '../notebook'
@@ -49,10 +49,10 @@ const bg = computed(() => ctx.value?.canvasBackground ?? '#ffffff')
 const str = (p: StyleProp) => val(p) as string | undefined
 
 const isHighlighter = computed(() => (ctx.value?.source === 'selection' ? sel.value.highlighter : tool.value === 'highlighter'))
-const isInkOnly = computed(() => (ctx.value?.source === 'selection' ? ctx.value.types.length > 0 && ctx.value.types.every((t) => t === 'ink') : tool.value === 'pen' || tool.value === 'highlighter'))
 const strokeQuick = computed(() => (isHighlighter.value ? QUICK_HIGHLIGHTER_COLORS : QUICK_STROKE_COLORS))
-const widthPresets = computed<readonly number[]>(() => (isHighlighter.value ? HIGHLIGHTER_WIDTH_PRESETS : isInkOnly.value ? PEN_WIDTH_PRESETS : STROKE_WIDTH_PRESETS))
-const widthOptions = computed<Option<number>[]>(() => widthPresets.value.map((w, i) => ({ value: w, glyph: `w-${i}`, label: ['Thin', 'Bold', 'Extra bold'][i] })))
+// The editor exposes strokeWidth in one shared preset space (1 / 2 / 4); it maps to the pen / highlighter
+// preset widths (PEN_WIDTH_PRESETS / HIGHLIGHTER_WIDTH_PRESETS) internally for ink.
+const widthOptions: Option<number>[] = STROKE_WIDTH_PRESETS.map((w, i) => ({ value: w, glyph: `w-${i}`, label: ['Thin', 'Bold', 'Extra bold'][i] }))
 const showFill = computed(() => has('fillStyle') && val('backgroundColor') !== 'transparent')
 
 const STROKE_STYLES: Option<StrokeLineStyle>[] = [

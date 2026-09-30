@@ -51,3 +51,26 @@ export async function nonBackgroundPixels(page: Page, clip: { x: number; y: numb
     return n
   }, png.toString('base64'))
 }
+
+export async function openSettings(page: Page) {
+  await page.getByTestId('main-menu').click()
+  await page.getByRole('menuitem', { name: 'Settings' }).click()
+}
+
+export async function newNotebook(page: Page, title: string) {
+  await page.addInitScript(() => localStorage.setItem('folio.debug', '1'))
+  await page.goto('/')
+  await page.getByTestId('new-notebook').click()
+  await page.getByTestId('new-title').fill(title)
+  await page.getByTestId('create-notebook').click()
+  await page.getByTestId('title').waitFor()
+  await page.waitForFunction(() => !!(window as any).__folio?.editor)
+}
+
+/** Objects of a type on the current page (not superseded). */
+export async function objectsOf(page: Page, type: string): Promise<any[]> {
+  return page.evaluate((t) => {
+    const f = (window as any).__folio
+    return JSON.parse(JSON.stringify(f.doc.objects(f.editor.pageId).filter((o: any) => o.type === t && !o.supersededBy)))
+  }, type)
+}
