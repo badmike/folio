@@ -5,8 +5,8 @@
  * pointerup → build InkStroke → commit AFTER the frame. Nothing in here runs
  * recognition, persistence or sync.
  */
-import type { CanvasObject, InkPoint, ObjectId, ObjectPatch, ShapeObject, Vec2 } from '@folio/document'
-import { ROTATE_HANDLE_OFFSET } from '@folio/renderer'
+import type { ArrowObject, CanvasObject, InkPoint, ObjectId, ObjectPatch, ShapeObject, Vec2 } from '@folio/document'
+import { ROTATE_HANDLE_OFFSET, arrowPath, elbowWaypointsAfterDrag } from '@folio/renderer'
 import { buildArrow, buildShape, shapeGeometry, snapAngle } from './create'
 import type { Editor } from './editor'
 import { createId, rectFromPoints, segmentTouchesObject } from './geometry'
@@ -380,6 +380,7 @@ class StrokeInteraction implements Interaction {
     this.minDist2 = d * d
     this.lastX = s.wx
     this.lastY = s.wy
+    ed.live.setBackground?.(ed.page?.background.color ?? '#ffffff')
     ed.live.begin(this.style)
     this.push(s)
     this.flush()
@@ -460,7 +461,7 @@ class EraserInteraction implements Interaction {
   }
 }
 
-type SelectMode = 'none' | 'move' | 'resize' | 'rotate' | 'endpoint' | 'marquee' | 'lasso'
+type SelectMode = 'none' | 'move' | 'resize' | 'rotate' | 'endpoint' | 'waypoint' | 'segment' | 'marquee' | 'lasso'
 
 class SelectInteraction implements Interaction {
   private mode: SelectMode = 'none'
@@ -480,6 +481,10 @@ class SelectInteraction implements Interaction {
   private hitId?: ObjectId
   private wasSelected = false
   private endpoint?: 'start' | 'end'
+  private wpBase: Vec2[] = []
+  private handleIndex = 0
+  private insertWaypoint = false
+  private pathSnapshot: Vec2[] = []
   private lastBindTarget?: ObjectId
 
   constructor(private ed: Editor, public pointerId: number, s: Sample, private onTap: (s: Sample, hit: CanvasObject | undefined) => void) {
@@ -495,10 +500,16 @@ class SelectInteraction implements Interaction {
       const leaves = ed.leavesOf(ed.selection)
       if (leaves.length === 1 && leaves[0].type === 'arrow') {
         const a = leaves[0]
-        const ends = ed.arrowEnds(a)
         const near = (p: Vec2): boolean => Math.hypot((p.x - ed.camera.x) * zoom - s.x, (p.y - ed.camera.y) * zoom - s.y) < hitR
-        if (near(ends.start)) this.beginEndpoint('start', leaves)
-        else if (near(ends.end)) this.beginEndpoint('end', leaves)
+        const handles = ed.selectedArrowHandles() ?? []
+        // ends win over waypoints, waypoints over virtual (create-bend) handles
+        for (const kind of ['end', 'waypoint', 'virtual'] as const) {
+          const h = handles.find((x) => x.kind === kind && near(x.world))
+          if (!h) continue
+          if (h.id === 'start' || h.id === 'end') this.beginEndpoint(h.id, leaves)
+          else this.beginArrowHandle(a as ArrowObject, h.id, kind === 'waypoint' ? 'waypoint' : 'virtual')
+          break
+        }
       } else {
         const frame = ed.selectionFrame()
         if (frame) {
@@ -560,6 +571,22 @@ class SelectInteraction implements Interaction {
     this.snapshot(leaves)
   }
 
+  /** Waypoint move (`wp:i`), bend creation (curved `v:i`) or elbow segment drag (elbow `v:i`). */
+  private beginArrowHandle(a: ArrowObject, id: string, kind: 'waypoint' | 'virtual'): void {
+    const idx = Number(id.split(':')[1])
+    this.leaves = [a]
+    this.snapshot(this.leaves)
+    this.wpBase = [...(a.waypoints ?? [])]
+    this.handleIndex = idx
+    if (a.arrowType === 'elbow') {
+      this.mode = 'segment'
+      this.pathSnapshot = arrowPath(a, this.resolveSnap)
+    } else {
+      this.mode = 'waypoint'
+      this.insertWaypoint = kind === 'virtual'
+    }
+  }
+
   private beginEndpoint(which: 'start' | 'end', leaves: CanvasObject[]): void {
     this.mode = 'endpoint'
     this.endpoint = which
@@ -614,6 +641,23 @@ class SelectInteraction implements Interaction {
         ed.setOverlayExtra({ bindingTargetId: target?.id })
         break
       }
+      case 'waypoint':
+      case 'segment': {
+        if (!this.moved && dscreen < 3) return
+        this.moved = true
+        const arrow = this.leaves[0]
+        const pos = { x: s.wx, y: s.wy }
+        let wps: Vec2[]
+        if (this.mode === 'segment') wps = elbowWaypointsAfterDrag(this.pathSnapshot, this.handleIndex, pos)
+        else {
+          wps = [...this.wpBase]
+          if (this.insertWaypoint) wps.splice(this.handleIndex, 0, pos)
+          else wps[this.handleIndex] = pos
+        }
+        this.patches = [{ id: arrow.id, patch: { waypoints: wps, updatedAt: Date.now() } as ObjectPatch }]
+        ed.setPreview(this.patches)
+        break
+      }
       case 'marquee':
         ed.setOverlayExtra({ marquee: rectFromPoints(this.startW, { x: s.wx, y: s.wy }) })
         this.moved = dscreen >= 3
@@ -636,11 +680,14 @@ class SelectInteraction implements Interaction {
       case 'move':
       case 'resize':
       case 'rotate':
-      case 'endpoint': {
+      case 'endpoint':
+      case 'waypoint':
+      case 'segment': {
         const patches = this.patches
         ed.setPreview(null)
         ed.setOverlayExtra({})
         if (this.moved && patches) ed.updateObjects(patches) // single commit = one undo step
+        else if (this.mode === 'waypoint' && !this.insertWaypoint) this.tapWaypoint(s)
         else if (this.mode === 'move') {
           // a plain tap on a member of a multi-selection selects just that object
           if (!this.shift && this.wasSelected && this.hitId && ed.selection.length > 1) ed.select([this.hitId])
@@ -669,11 +716,30 @@ class SelectInteraction implements Interaction {
     }
   }
 
+  /** Double-tap on an existing waypoint removes it (one undo step). */
+  private tapWaypoint(s: Sample): void {
+    const now = s.time || Date.now()
+    const key = `${this.leaves[0].id}:${this.handleIndex}`
+    const prev = lastWaypointTap.get(this.ed)
+    if (prev && prev.key === key && now - prev.t < DOUBLE_TAP_MS) {
+      lastWaypointTap.delete(this.ed)
+      const wps = this.wpBase.filter((_, i) => i !== this.handleIndex)
+      const patch: ObjectPatch = { updatedAt: Date.now() }
+      if (wps.length) (patch as Record<string, unknown>).waypoints = wps
+      else patch.$unset = ['waypoints']
+      this.ed.updateObjects([{ id: this.leaves[0].id, patch }])
+      return
+    }
+    lastWaypointTap.set(this.ed, { key, t: now })
+  }
+
   cancel(): void {
     this.ed.setPreview(null)
     this.ed.setOverlayExtra({})
   }
 }
+
+const lastWaypointTap = new WeakMap<Editor, { key: string; t: number }>()
 
 class ShapeInteraction implements Interaction {
   private start: Vec2
