@@ -63,8 +63,22 @@ export async function newNotebook(page: Page, title: string) {
   await page.getByTestId('new-notebook').click()
   await page.getByTestId('new-title').fill(title)
   await page.getByTestId('create-notebook').click()
-  await page.getByTestId('title').waitFor()
+  await page.getByTestId('toolbar').waitFor()
   await page.waitForFunction(() => !!(window as any).__folio?.editor)
+}
+
+/** The notebook title is the header of the main menu. */
+export async function notebookTitle(page: Page): Promise<string> {
+  await page.getByTestId('main-menu').click()
+  const t = await page.getByTestId('title').textContent()
+  await page.keyboard.press('Escape')
+  return t ?? ''
+}
+
+/** Back to the library via the main menu. */
+export async function backToLibrary(page: Page) {
+  await page.getByTestId('main-menu').click()
+  await page.getByRole('menuitem', { name: 'Library' }).click()
 }
 
 /** Objects of a type on the current page (not superseded). */

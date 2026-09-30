@@ -90,6 +90,7 @@ test.describe('properties panel', () => {
     await expect(page.getByTestId('sec-fontSize')).toBeVisible()
     await page.getByTestId('font-size-36').click()
     await expect.poll(async () => (await objectsOf(page, 'text'))[0].fontSize).toBe(36)
+    await page.getByTestId('font-family-btn').click()
     await page.getByTestId('font-family-mono').click()
     await expect.poll(async () => (await objectsOf(page, 'text'))[0].fontFamily).toBe('mono')
     await page.getByTestId('text-align-center').click()
@@ -160,15 +161,15 @@ test.describe('canvas colour schemes and backgrounds', () => {
 test.describe('zen mode', () => {
   test('Alt+Z hides the chrome, keeps a tool strip and restores', async ({ page }) => {
     await newNotebook(page, 'Zen')
-    await expect(page.getByTestId('back')).toBeVisible()
+    await expect(page.getByTestId('main-menu')).toBeVisible()
     await page.keyboard.press('Alt+z')
-    await expect(page.getByTestId('back')).toHaveCount(0)
+    await expect(page.getByTestId('main-menu')).toHaveCount(0)
     await expect(page.getByTestId('zoom-pct')).toHaveCount(0)
     await expect(page.getByTestId('open-pages')).toHaveCount(0)
     await expect(page.getByTestId('zen-exit')).toBeVisible()
     await expect(page.getByTestId('tool-pen')).toBeVisible()
     await expect(page.getByTestId('tool-shape')).toHaveCount(0)
-    await expect(page.getByTestId('properties-panel')).toHaveCount(0) // properties only with a selection
+    await expect(page.getByTestId('props-quick')).toBeVisible() // ink tools keep the quick colour bar
     // still draws; the strip fades after drawing and wakes on hover
     await drawStroke(page, [[400, 400], [500, 450], [600, 400]], 8)
     await expect.poll(async () => (await objectsOf(page, 'ink')).length).toBe(1)
@@ -180,13 +181,13 @@ test.describe('zen mode', () => {
     await selectAll(page)
     await expect(page.getByTestId('properties-panel')).toBeVisible()
     await page.keyboard.press('Alt+z')
-    await expect(page.getByTestId('back')).toBeVisible()
+    await expect(page.getByTestId('main-menu')).toBeVisible()
     await expect(page.getByTestId('zen-exit')).toHaveCount(0)
     // persisted setting: exit pill also works
     await page.getByTestId('main-menu').click()
     await page.getByRole('menuitem', { name: 'Zen mode' }).click()
     await expect(page.getByTestId('zen-exit')).toBeVisible()
     await page.getByTestId('zen-exit').click()
-    await expect(page.getByTestId('back')).toBeVisible()
+    await expect(page.getByTestId('main-menu')).toBeVisible()
   })
 })

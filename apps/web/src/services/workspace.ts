@@ -1,6 +1,6 @@
 import {
   NotebookDocument, WorkspaceDocument, createId, createPage, defaultBackground, exportFolio, exportMarkdown,
-  importFolio, searchDocsFor,
+  importExcalidraw, importFolio, searchDocsFor, type ExcalidrawAsset,
   CANVAS_BACKGROUNDS_DARK, defaultLineColor,
   type AssetMap, type BackgroundPattern, type PageBackground, type FolderEntry, type FolderId, type NotebookEntry, type NotebookId,
   type Operation, type Page,
@@ -516,6 +516,18 @@ export class Workspace {
     return this.withSession(id, (s) => exportMarkdown(s.doc))
   }
 
+  /** Import a parsed .excalidraw file as a new infinite-canvas notebook. */
+  async importExcalidraw(input: unknown, title: string, folderId: FolderId | null = null): Promise<NotebookId> {
+    const { objects, assets } = importExcalidraw(input)
+    await storeExcalidrawAssets(this, assets)
+    const now = Date.now()
+    const doc = NotebookDocument.create({ title: title.trim() || 'Untitled', tags: [], createdAt: now, updatedAt: now }, { peerId: this.peerId, now })
+    const pageId = doc.pages()[0].id
+    const bg = themedBackground('blank')
+    doc.apply([{ type: 'updatePage', pageId, patch: { background: bg } }, ...(objects.length ? [{ type: 'addObjects' as const, pageId, objects }] : [])])
+    return (await this.register(doc, folderId)).id
+  }
+
   /** Import a .folio archive as a new notebook (fresh id). */
   async importFolioBytes(bytes: Uint8Array, folderId: FolderId | null = null): Promise<NotebookId> {
     const { doc, assets } = importFolio(bytes, { newId: true })
@@ -536,5 +548,17 @@ export class Workspace {
     await this.wsPersister.dispose()
     this.changeListeners.clear()
     this.localListeners.clear()
+  }
+}
+
+/** Decode data-URL assets from an Excalidraw import into the asset store. */
+export async function storeExcalidrawAssets(ws: Workspace, assets: ExcalidrawAsset[]): Promise<void> {
+  for (const a of assets) {
+    const comma = a.dataUrl.indexOf(',')
+    if (comma < 0) continue
+    const bin = atob(a.dataUrl.slice(comma + 1))
+    const bytes = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+    await ws.storage.putAsset(a.id, bytes, a.mimeType)
   }
 }

@@ -1,4 +1,4 @@
-import { PALETTE, QUICK_HIGHLIGHTER_COLORS, adaptColor } from '@folio/document'
+import { PALETTE, QUICK_HIGHLIGHTER_COLORS, adaptColor, defaultQuickColors } from '@folio/document'
 import type { StyleContext } from '@folio/editor'
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -118,7 +118,11 @@ function fakeController(ctx: StyleContext, over: Record<string, unknown> = {}) {
   const setStyle = vi.fn()
   const ctl = {
     styleCtx: shallowRef(ctx),
-    selection: shallowRef({ count: ctx.source === 'selection' ? 1 : 0, ink: false, derived: false, text: false, group: false, highlighter: false }),
+    selection: shallowRef({ count: ctx.source === 'selection' ? 1 : 0, ink: false, derived: false, text: false, group: false, frame: false, highlighter: false }),
+    quickColors: shallowRef(defaultQuickColors()),
+    locked: ref(false),
+    toolLock: ref(false),
+    setQuickColor: vi.fn(), alignSelection: vi.fn(), distributeSelection: vi.fn(), setToolLock: vi.fn(), setLocked: vi.fn(),
     tool: ref('shape'),
     options: shallowRef({ shape: { kind: 'rectangle' }, select: { mode: 'auto' }, eraser: { size: 20 }, pen: { pressureSensitive: true }, highlighter: { pressureSensitive: false } }),
     editingText: ref(false),
@@ -183,7 +187,11 @@ describe('PropertiesPanel', () => {
     })
     const w = mountPanel(ctl)
     expect(w.get('[data-testid="font-size-28"]').classes()).toContain('on')
+    expect(w.get('[data-testid="font-family-btn"]').text()).toBe('Normal')
+    await w.get('[data-testid="font-family-btn"]').trigger('click')
     expect(w.get('[data-testid="font-family-sans"]').classes()).toContain('on')
+    await w.get('[data-testid="font-family-kalam"]').trigger('click')
+    expect(setStyle).toHaveBeenLastCalledWith({ fontFamily: 'kalam' })
     expect(w.get('[data-testid="text-align-center"]').classes()).toContain('on')
     await w.get('[data-testid="font-size-36"]').trigger('click')
     expect(setStyle).toHaveBeenLastCalledWith({ fontSize: 36 })
@@ -213,17 +221,84 @@ describe('PropertiesPanel', () => {
     expect(mountPanel(ctl).find('[data-testid="properties-panel"]').exists()).toBe(false)
     const drawing = fakeController({ source: 'tool', types: [], canvasBackground: '#fff', values: { strokeColor: '#1e1e1e', opacity: 1 }, applicable: ['strokeColor', 'opacity'] }, { tool: ref('pen') })
     expect(mountPanel(drawing.ctl).find('[data-testid="properties-panel"]').exists()).toBe(true)
-    expect(mountPanel(drawing.ctl, { zen: true }).find('[data-testid="properties-panel"]').exists()).toBe(false)
+    // zen: ink tools keep the quick bar, other tools show nothing
+    expect(mountPanel(drawing.ctl, { zen: true }).find('[data-testid="props-quick"]').exists()).toBe(true)
+    const shapeTool = fakeController({ source: 'tool', types: [], canvasBackground: '#fff', values: { strokeColor: '#1e1e1e' }, applicable: ['strokeColor'] }, { tool: ref('shape') })
+    expect(mountPanel(shapeTool.ctl, { zen: true }).find('[data-testid="properties-panel"]').exists()).toBe(false)
     const selected = fakeController({ source: 'selection', types: ['ink'], canvasBackground: '#fff', values: { strokeColor: '#1e1e1e', opacity: 1 }, applicable: ['strokeColor', 'opacity'] })
     expect(mountPanel(selected.ctl, { zen: true }).find('[data-testid="properties-panel"]').exists()).toBe(true)
   })
 
-  it('can be collapsed', async () => {
-    const { ctl } = fakeController({ source: 'tool', types: [], canvasBackground: '#fff', values: { strokeColor: '#1e1e1e' }, applicable: ['strokeColor'] })
+  it('collapses into a quick bar with colours and widths', async () => {
+    const { ctl, setStyle } = fakeController({ source: 'tool', types: [], canvasBackground: '#fff', values: { strokeColor: '#1e1e1e', strokeWidth: 2 }, applicable: ['strokeColor', 'strokeWidth'] }, { tool: ref('pen') })
     const w = mountPanel(ctl)
     await w.get('[data-testid="props-collapse"]').trigger('click')
-    expect((w.get('.body').element as HTMLElement).style.display).toBe('none')
+    expect(w.find('.body').exists()).toBe(false)
+    expect(w.find('[data-testid="props-quick"]').exists()).toBe(true)
+    await w.get('[data-testid="stroke-width-4"]').trigger('click')
+    expect(setStyle).toHaveBeenLastCalledWith({ strokeWidth: 4 })
+    expect(w.find('[data-testid="stroke-color-btn"]').exists()).toBe(false) // swatches only
     await w.get('[data-testid="props-collapse"]').trigger('click')
+    expect(w.find('.body').exists()).toBe(true)
+  })
+
+  it('shows highlighter edges, corners, pixel size and label size when applicable', async () => {
+    const { ctl, setStyle } = fakeController({
+      source: 'selection', types: ['ink', 'shape'], canvasBackground: '#fff',
+      values: { strokeColor: '#1e1e1e', cap: 'flat', roundness: 'sharp', blurMode: 'pixelate', blurSize: 12, fontSize: 20 },
+      applicable: ['strokeColor', 'cap', 'roundness', 'blurMode', 'blurSize', 'fontSize'],
+    })
+    const w = mountPanel(ctl)
+    await w.get('[data-testid="edges-curvy"]').trigger('click')
+    expect(setStyle).toHaveBeenLastCalledWith({ cap: 'curvy' })
+    await w.get('[data-testid="corners-round"]').trigger('click')
+    expect(setStyle).toHaveBeenLastCalledWith({ roundness: 'round' })
+    await w.get('[data-testid="blur-size"]').setValue('24')
+    expect(setStyle).toHaveBeenLastCalledWith({ blurSize: 24 }, 'blurSize')
+    await w.get('[data-testid="blur-mode-gaussian"]').trigger('click')
+    expect(setStyle).toHaveBeenLastCalledWith({ blurMode: 'gaussian' })
+    expect(w.find('[data-testid="sec-fontSize"]').exists()).toBe(true)
+  })
+
+  it('offers align (2+) and distribute (3+) for multi-selections', async () => {
+    const two = fakeController({ source: 'selection', types: ['shape'], canvasBackground: '#fff', values: {}, applicable: [] })
+    two.ctl.selection.value = { ...two.ctl.selection.value, count: 2 }
+    const w = mountPanel(two.ctl)
+    await w.get('[data-testid="align-centerX"]').trigger('click')
+    expect(two.ctl.alignSelection).toHaveBeenCalledWith('centerX')
+    expect(w.find('[data-testid="distribute-horizontal"]').exists()).toBe(false)
+    two.ctl.selection.value = { ...two.ctl.selection.value, count: 3 }
+    await flushPromises()
+    await w.get('[data-testid="distribute-horizontal"]').trigger('click')
+    expect(two.ctl.distributeSelection).toHaveBeenCalledWith('horizontal')
+  })
+
+  it('a long press on a quick swatch opens the picker to change that swatch', async () => {
+    vi.useFakeTimers()
+    const { ctl, setStyle } = fakeController({ source: 'tool', types: [], canvasBackground: '#fff', values: { strokeColor: '#1e1e1e' }, applicable: ['strokeColor'] }, { tool: ref('pen') })
+    const w = mountPanel(ctl)
+    const sw = w.get('[data-testid="stroke-quick-#e03131"]')
+    await sw.trigger('pointerdown')
+    vi.advanceTimersByTime(500)
+    await flushPromises()
+    await sw.trigger('pointerup')
+    await sw.trigger('click')
+    expect(setStyle).not.toHaveBeenCalled()
+    expect(w.find('[data-testid="color-picker"]').exists()).toBe(true)
+    await w.get('[data-testid="hue-blue"]').trigger('click')
+    // the swatch was red shade 5, so blue keeps that shade
+    expect(ctl.setQuickColor).toHaveBeenCalledWith('stroke', 1, PALETTE.find((h) => h.name === 'blue')!.shades[4])
+    vi.useRealTimers()
+  })
+
+  it('a short tap on a quick swatch applies it', async () => {
+    const { ctl, setStyle } = fakeController({ source: 'tool', types: [], canvasBackground: '#fff', values: { strokeColor: '#1e1e1e' }, applicable: ['strokeColor'] }, { tool: ref('pen') })
+    const w = mountPanel(ctl)
+    const sw = w.get('[data-testid="stroke-quick-#e03131"]')
+    await sw.trigger('pointerdown')
+    await sw.trigger('pointerup')
+    await sw.trigger('click')
+    expect(setStyle).toHaveBeenLastCalledWith({ strokeColor: '#e03131' })
   })
 })
 
@@ -244,13 +319,13 @@ describe('zen mode', () => {
       canUndo: ref(false), canRedo: ref(false), undo: vi.fn(), redo: vi.fn(), setTool: vi.fn(),
     })
     const w = mount(Toolbar, { props: { placement: 'top', zen: true, faded: true }, global: { provide: { [NOTEBOOK_KEY as symbol]: ctl } } })
-    expect(w.findAll('[data-testid^="tool-"]').map((b) => b.attributes('data-testid'))).toEqual(['tool-select', 'tool-pen', 'tool-highlighter', 'tool-eraser'])
+    expect(w.findAll('[data-testid^="tool-"]').map((b) => b.attributes('data-testid'))).toEqual(['tool-lock', 'tool-select', 'tool-pen', 'tool-highlighter', 'tool-eraser'])
     expect(w.find('[data-testid="redo"]').exists()).toBe(false)
     expect(w.classes()).toContain('faded')
     await w.trigger('pointerenter')
     expect(w.emitted('wake')).toBeTruthy()
     await w.get('[data-testid="zen-more"]').trigger('click')
-    expect(w.findAll('[data-testid^="tool-"]')).toHaveLength(7)
+    expect(w.findAll('[data-testid^="tool-"]')).toHaveLength(11)
     await flushPromises()
   })
 })

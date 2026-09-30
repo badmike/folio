@@ -95,6 +95,13 @@ const cloudDisabledReason = computed(() => {
         </label>
         <span class="muted hint">A minimal interface: only a translucent tool strip while you draw.</span>
       </div>
+      <div class="field">
+        <label class="check">
+          <input type="checkbox" v-model="settings.autoHideHud" data-testid="settings-autohide" />
+          Hide the interface while drawing
+        </label>
+        <span class="muted hint">Menus, toolbar and zoom controls disappear while the pen is down and come back shortly after; only the compact colour bar stays.</span>
+      </div>
       <div class="two">
         <div class="field">
           <label for="s-page">New notebooks</label>

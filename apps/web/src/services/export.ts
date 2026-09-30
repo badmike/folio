@@ -86,6 +86,21 @@ export async function importFolioFile(ws: Workspace, file: File, folderId: strin
   return ws.importFolioBytes(new Uint8Array(await file.arrayBuffer()), folderId)
 }
 
+export function isExcalidrawFile(file: File): boolean {
+  return /\.excalidraw(\.json)?$/i.test(file.name)
+}
+
+/** Import an .excalidraw file as a new notebook named after the file. */
+export async function importExcalidrawFile(ws: Workspace, file: File, folderId: string | null = null): Promise<string> {
+  const json: unknown = JSON.parse(await file.text())
+  return ws.importExcalidraw(json, file.name.replace(/\.excalidraw(\.json)?$/i, ''), folderId)
+}
+
+/** Import a notebook file of either supported format. */
+export function importNotebookFile(ws: Workspace, file: File, folderId: string | null = null): Promise<string> {
+  return isExcalidrawFile(file) ? importExcalidrawFile(ws, file, folderId) : importFolioFile(ws, file, folderId)
+}
+
 export async function copyText(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text)

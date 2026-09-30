@@ -1,66 +1,131 @@
+/*
+ * Design tokens follow the Coder's Cantina kit (resources/js/assets/css/app.css): an oklch gray
+ * ramp with an elevation ladder (frame < canvas < card < popover), one saturated accent (blue),
+ * soft two-layer shadows and an 8px radius. Names kept from the previous theme where the app
+ * already used them (--bg, --surface, --surface-2, --text, --muted, --accent ...).
+ */
 :root {
   color-scheme: light dark;
-  --bg: #f6f6f9;
-  --surface: #ffffff;
-  --surface-2: #f1f1f6;
-  --surface-3: #e8e8f0;
-  --text: #1e1e1e;
-  --muted: #6b6b7a;
-  --border: #dedee8;
-  --accent: #6965db;
-  --accent-strong: #5751c9;
-  --accent-soft: #e6e5ff;
+  --gray-25: oklch(98.3% 0.003 278.6);
+  --gray-50: oklch(96.6% 0.004 278.6);
+  --gray-75: oklch(94.9% 0.006 278.6);
+  --gray-100: oklch(93.2% 0.008 278.6);
+  --gray-150: oklch(89.8% 0.01 279.2);
+  --gray-175: oklch(88.1% 0.011 279.2);
+  --gray-200: oklch(86.4% 0.012 279);
+  --gray-300: oklch(74.2% 0.024 278.9);
+  --gray-400: oklch(65.24% 0.032 278.37);
+  --gray-500: oklch(55.99% 0.04 277.73);
+  --gray-600: oklch(47.78% 0.032 277.85);
+  --gray-700: oklch(39.21% 0.024 278.04);
+  --gray-750: oklch(34.38% 0.024 277.9);
+  --gray-800: oklch(31.63% 0.02 277.7);
+  --gray-825: oklch(28.88% 0.017 277.7);
+  --gray-850: oklch(26.13% 0.014 277.75);
+  --gray-875: oklch(23.38% 0.011 277.8);
+  --gray-900: oklch(20.63% 0.008 277.83);
+  --gray-925: oklch(17.89% 0.006 281);
+  --gray-950: oklch(15.15% 0.004 285.34);
+  --blue-100: oklch(95.25% 0.023 237.64);
+  --blue-200: oklch(89.37% 0.053 237.01);
+  --blue-400: oklch(75.76% 0.121 240.02);
+  --blue-500: oklch(66.71% 0.161 245.54);
+  --blue-700: oklch(56.55% 0.143 246.33);
+  --blue-800: oklch(49.47% 0.123 246.18);
+  --blue-950: oklch(30.91% 0.071 243.7);
+
+  /* elevation ladder */
+  --bg: var(--gray-50);            /* canvas (L1) */
+  --sidebar: var(--gray-100);      /* frame (L0) */
+  --surface: #ffffff;              /* card / popover (L2, L3) */
+  --surface-2: var(--gray-100);    /* a control at rest */
+  --surface-3: var(--gray-150);    /* its hover */
+  --text: var(--gray-700);
+  --text-strong: var(--gray-900);
+  --muted: var(--gray-600);
+  --border: var(--gray-150);
+  --border-strong: var(--gray-200);
+  --popover-border: var(--gray-100);
+  --accent: var(--blue-700);
+  --accent-strong: var(--blue-800);
+  --accent-soft: var(--blue-100);
   --accent-text: #ffffff;
-  --danger: #e03131;
-  --ok: #2f9e44;
-  --warn: #f08c00;
-  --shadow: 0 2px 8px rgba(20, 20, 40, 0.12), 0 8px 24px rgba(20, 20, 40, 0.1);
-  --radius: 12px;
+  --danger: oklch(57.7% 0.245 27.325);
+  --ok: oklch(62.7% 0.194 149.214);
+  --warn: oklch(68.1% 0.162 75.834);
+  --ai: oklch(55.8% 0.288 302.321);
+  --shadow-sm: 0 1px 2px rgba(3, 7, 18, 0.04), 0 2px 6px rgba(3, 7, 18, 0.05);
+  --shadow: 0 1px 1px rgba(3, 7, 18, 0.02), 0 4px 6px rgba(3, 7, 18, 0.03), 0 9px 14px rgba(3, 7, 18, 0.04), 0 16px 24px rgba(3, 7, 18, 0.04);
+  --radius: 8px;
+  --radius-lg: 12px;
   --target: 44px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
-  --font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'Fira Code', ui-monospace, Menlo, monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #131318;
-    --surface: #1e1e25;
-    --surface-2: #272730;
-    --surface-3: #33333e;
-    --text: #ececf1;
-    --muted: #9a9aab;
-    --border: #363642;
-    --accent: #8f8bff;
-    --accent-strong: #a6a3ff;
-    --accent-soft: #34335a;
-    --accent-text: #14141c;
-    --shadow: 0 2px 8px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.4);
+    --bg: var(--gray-900);
+    --sidebar: var(--gray-925);
+    --surface: var(--gray-875);
+    --surface-2: var(--gray-800);
+    --surface-3: var(--gray-750);
+    --text: var(--gray-300);
+    --text-strong: var(--gray-50);
+    --muted: var(--gray-400);
+    --border: var(--gray-825);
+    --border-strong: var(--gray-750);
+    --popover-border: var(--gray-800);
+    --accent: var(--blue-500);
+    --accent-strong: var(--blue-400);
+    --accent-soft: var(--blue-950);
+    --accent-text: var(--gray-950);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow: 0 2px 6px rgba(0, 0, 0, 0.35), 0 10px 20px rgba(0, 0, 0, 0.3);
   }
 }
 
+/* ---- self-hosted web fonts (OFL), precached by the service worker ------- */
+@font-face { font-family: 'Kalam'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/kalam-latin-400.woff2') format('woff2'); }
+@font-face { font-family: 'Patrick Hand'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/patrick-hand-latin-400.woff2') format('woff2'); }
+@font-face { font-family: 'Indie Flower'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/indie-flower-latin-400.woff2') format('woff2'); }
+@font-face { font-family: 'Architects Daughter'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/architects-daughter-latin-400.woff2') format('woff2'); }
+@font-face { font-family: 'Shadows Into Light'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/shadows-into-light-latin-400.woff2') format('woff2'); }
+@font-face { font-family: 'Gloria Hallelujah'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/gloria-hallelujah-latin-400.woff2') format('woff2'); }
+@font-face { font-family: 'Fira Code'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/fira-code-latin-400.woff2') format('woff2'); }
+
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body, #app { height: 100%; margin: 0; }
+/* Installed on iPad: no rubber-banding into a gap below the app. */
+html, body { overscroll-behavior: none; position: fixed; inset: 0; width: 100%; }
 body {
   background: var(--bg);
   color: var(--text);
   font: 15px/1.4 var(--font);
   overscroll-behavior: none;
   -webkit-text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
 }
+/* The interface is not a document: no text selection or long-press callouts on the chrome. */
+#app { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+input, textarea, [contenteditable], .selectable, .selectable * { user-select: text; -webkit-user-select: text; }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
-h1, h2, h3 { margin: 0; font-weight: 650; }
+h1, h2, h3 { margin: 0; font-weight: 650; color: var(--text-strong); }
 a { color: var(--accent); }
+code, kbd, .mono { font-family: var(--font-mono); }
 [hidden] { display: none !important; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* ---- buttons --------------------------------------------------------- */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  min-height: var(--target); padding: 0 16px; border-radius: 10px;
+  min-height: var(--target); padding: 0 16px; border-radius: var(--radius);
   border: 1px solid var(--border); background: var(--surface); color: var(--text);
-  font-weight: 550; white-space: nowrap; user-select: none;
+  font-weight: 550; white-space: nowrap;
 }
 .btn:hover { background: var(--surface-2); }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
@@ -73,7 +138,7 @@ a { color: var(--accent); }
 .btn.small { min-height: 34px; padding: 0 12px; font-size: 14px; }
 .icon-btn {
   display: inline-flex; align-items: center; justify-content: center;
-  width: var(--target); height: var(--target); border-radius: 10px; border: 0;
+  width: var(--target); height: var(--target); border-radius: var(--radius); border: 0;
   background: transparent; color: var(--text); position: relative; flex: none;
 }
 .icon-btn:hover { background: var(--surface-2); }
@@ -85,15 +150,16 @@ a { color: var(--accent); }
 .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
 .field > label, .label { font-size: 13px; color: var(--muted); font-weight: 550; }
 .input, select.input {
-  min-height: var(--target); padding: 0 12px; border-radius: 10px; border: 1px solid var(--border);
+  min-height: var(--target); padding: 0 12px; border-radius: var(--radius); border: 1px solid var(--gray-175);
   background: var(--surface); width: 100%; outline: none;
 }
+@media (prefers-color-scheme: dark) { .input, select.input { border-color: var(--gray-800); background: var(--gray-850); } }
 .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 input[type='range'] { width: 100%; accent-color: var(--accent); height: 28px; }
 .row { display: flex; align-items: center; gap: 8px; }
 .spacer { flex: 1; }
 .muted { color: var(--muted); }
-.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
 .seg button { border: 0; background: var(--surface); min-height: 38px; padding: 0 12px; border-right: 1px solid var(--border); }
 .seg button:last-child { border-right: 0; }
 .seg button.on { background: var(--accent-soft); color: var(--accent-strong); font-weight: 650; }
@@ -101,7 +167,9 @@ input[type='range'] { width: 100%; accent-color: var(--accent); height: 28px; }
 .chip.on { background: var(--accent-soft); color: var(--accent-strong); }
 mark { background: #ffe066; color: #1e1e1e; border-radius: 3px; padding: 0 1px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+kbd { font: inherit; font-family: var(--font-mono); font-size: 12px; padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface-2); }
 
-.panel {
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow);
-}
+/* A boxed block sits one rung above the canvas: hairline plus a shadow that settles it. */
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); }
+/* What floats (menus, popovers, sheets) gets the big shadow and the lighter hairline. */
+.panel.floating { box-shadow: var(--shadow); border-color: var(--popover-border); border-radius: var(--radius-lg); }

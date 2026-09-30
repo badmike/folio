@@ -40,6 +40,14 @@ const G: Record<string, Part[]> = {
   'ly-backward': [{ d: 'M12 5v13|M6 12l6 6 6-6', sw: 1.9 }],
   'ly-forward': [{ d: 'M12 19V6|M6 12l6-6 6 6', sw: 1.9 }],
   'ly-front': [{ d: 'M12 20V9|M7 14l5-5 5 5|M5 4h14', sw: 1.9 }],
+  'cap-flat': [{ d: 'M5 8h14v8H5z', sw: 1.5, fill: true }],
+  'cap-round': [{ d: 'M9 8h6a4 4 0 010 8H9a4 4 0 010-8z', sw: 1.5, fill: true }],
+  'cap-slanted': [{ d: 'M7 8h13l-3 8H4z', sw: 1.5, fill: true }],
+  'cap-curvy': [{ d: 'M3 12c4-5 8-5 9-4s5 1 9 4c-4 5-8 5-9 4s-5-1-9-4z', sw: 1.5, fill: true }],
+  'corner-sharp': [{ d: 'M5 19V5h14', sw: 2 }],
+  'corner-round': [{ d: 'M5 19v-8a6 6 0 016-6h8', sw: 2 }],
+  'blur-pixelate': [{ d: 'M4 4h5v5H4z|M14 4h6v6h-6z|M9 9h5v5H9z|M4 14h5v6H4z|M14 14h6v6h-6z', sw: 1.4, fill: true }],
+  'blur-gaussian': [{ circle: [12, 12, 7], sw: 0, fill: true }, { circle: [12, 12, 4], sw: 3 }],
 }
 const parts = computed(() => (G[props.name] ?? []).flatMap((p) => (p.d ? p.d.split('|').map((d) => ({ ...p, d })) : [p])))
 </script>

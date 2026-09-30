@@ -19,6 +19,10 @@ export interface AppSettings {
   canvasFollowsTheme: boolean
   /** Zen mode: minimal UI. */
   zen: boolean
+  /** Keep shape / arrow / text / frame tools active after creating an object (Excalidraw "Q"). */
+  toolLock: boolean
+  /** Hide the interface while drawing; only the compact tool options stay. */
+  autoHideHud: boolean
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -31,6 +35,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultPattern: 'blank',
   canvasFollowsTheme: true,
   zen: false,
+  toolLock: false,
+  autoHideHud: false,
 }
 
 const KEY = 'settings'
@@ -51,6 +57,8 @@ export function sanitizeSettings(raw: unknown): AppSettings {
   out.defaultPattern = oneOf(r.defaultPattern, ['blank', 'ruled', 'grid', 'dot'], out.defaultPattern)
   if (typeof r.canvasFollowsTheme === 'boolean') out.canvasFollowsTheme = r.canvasFollowsTheme
   if (typeof r.zen === 'boolean') out.zen = r.zen
+  if (typeof r.toolLock === 'boolean') out.toolLock = r.toolLock
+  if (typeof r.autoHideHud === 'boolean') out.autoHideHud = r.autoHideHud
   if (typeof r.cloudRefinement === 'boolean') out.cloudRefinement = r.cloudRefinement
   if (Array.isArray(r.languages)) {
     const langs = r.languages.filter((l): l is string => typeof l === 'string' && /^[a-z]{2,3}$/.test(l))
