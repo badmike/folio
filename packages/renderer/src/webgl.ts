@@ -1,6 +1,8 @@
+import { adaptColor, isDarkColor } from '@folio/document'
 import type { ArrowObject, CanvasObject, ImageObject, InkStroke, ShapeObject, TextObject, Vec2 } from '@folio/document'
-import { resolveArrowEndpoints } from './arrows'
-import { DESK_COLOR, pageRect, patternKind } from './background'
+import { arrowPath } from './arrows'
+import { DESK_COLOR, DESK_COLOR_DARK, MINOR_WEIGHT, backgroundLevels, pageRect, patternColor, patternKind } from './background'
+import { pathMidpoint } from './canvas2d'
 import { parseColor, premultiplied } from './color'
 import type { Camera, Renderer, Scene, Size, VisualTheme } from './contract'
 import { buildArrowMesh, buildInkMesh, buildShapeMesh, addPolygon, addPolyline, MeshBuilder, VERTEX_FLOATS } from './geometry/mesh'
@@ -55,9 +57,10 @@ varying vec2 v_uv;
 uniform sampler2D u_tex;
 uniform vec4 u_tint;      // premultiplied colour used when u_useTex == 0
 uniform float u_useTex;
+uniform float u_alpha;    // extra opacity for textured quads
 void main() {
   vec4 t = texture2D(u_tex, v_uv);
-  FRAG_OUT = u_useTex > 0.5 ? t : u_tint;
+  FRAG_OUT = u_useTex > 0.5 ? t * u_alpha : u_tint;
 }`
 
 const VERT_BG = `
@@ -70,7 +73,7 @@ void main() {
   v_px = vec2(uv.x, 1.0 - uv.y) * u_view;
 }`
 
-// Keep pattern math in sync with patternCoverage() in background.ts.
+// Keep pattern math in sync with patternCoverageLevels() in background.ts.
 const FRAG_BG = `
 #ifdef GL_FRAGMENT_PRECISION_HIGH
 precision highp float;
@@ -80,7 +83,8 @@ uniform vec4 u_cam;
 uniform vec3 u_pageColor;
 uniform vec3 u_lineColor;
 uniform vec3 u_desk;
-uniform vec4 u_pat;   // kind, spacing, opacity, unused
+uniform vec4 u_pat;   // kind, opacity, majorEvery, minorWeight
+uniform vec4 u_lv;    // spacing0, alpha0, spacing1, alpha1 (pattern levels, coarse first)
 uniform vec4 u_page;  // x, y, w, h (world)
 uniform float u_hasPage;
 
@@ -91,17 +95,27 @@ float sdBox(vec2 p, vec2 c, vec2 hs) {
   return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
 }
 
+float levelCov(vec2 w, float s, float a) {
+  if (s <= 0.0 || a <= 0.0) return 0.0;
+  vec2 m = mod(w, s);
+  vec2 dd = min(m, s - m) * u_cam.z;
+  vec2 wt = vec2(1.0);
+  if (u_pat.z > 1.5) {
+    vec2 idx = floor(w / s + 0.5);
+    wt = vec2(mod(idx.x, u_pat.z) < 0.5 ? 1.0 : u_pat.w, mod(idx.y, u_pat.z) < 0.5 ? 1.0 : u_pat.w);
+  }
+  float c = 0.0;
+  if (u_pat.x < 1.5) c = cov(dd.y) * wt.y;
+  else if (u_pat.x < 2.5) c = max(cov(dd.x) * wt.x, cov(dd.y) * wt.y);
+  else { float r = max(1.25, u_cam.z); c = clamp(r + 0.5 - length(dd), 0.0, 1.0) * min(wt.x, wt.y); }
+  return c * a;
+}
+
 void main() {
   vec2 w = u_cam.xy + v_px / u_cam.z;
   float pat = 0.0;
-  if (u_pat.x > 0.5 && u_pat.y > 0.0) {
-    float s = u_pat.y;
-    vec2 m = mod(w, s);
-    vec2 dd = min(m, s - m) * u_cam.z;
-    if (u_pat.x < 1.5) pat = cov(dd.y);
-    else if (u_pat.x < 2.5) pat = max(cov(dd.x), cov(dd.y));
-    else { float r = max(1.25, u_cam.z); pat = clamp(r + 0.5 - length(dd), 0.0, 1.0); }
-    pat *= clamp((s * u_cam.z - 3.0) / 5.0, 0.0, 1.0) * u_pat.z;
+  if (u_pat.x > 0.5) {
+    pat = max(levelCov(w, u_lv.x, u_lv.y), levelCov(w, u_lv.z, u_lv.w)) * u_pat.y;
   }
   vec3 pageCol = mix(u_pageColor, u_lineColor, pat);
   vec3 col = pageCol;
@@ -289,9 +303,9 @@ export class WebGLRenderer implements Renderer {
   private initGL(): void {
     const gl = this.gl
     this.meshProg = this.link(VERT_MESH, FRAG_MESH, ['u_model', 'u_cam', 'u_view'])
-    this.quadProg = this.link(VERT_QUAD, FRAG_QUAD, ['u_model', 'u_cam', 'u_view', 'u_tex', 'u_tint', 'u_useTex'])
+    this.quadProg = this.link(VERT_QUAD, FRAG_QUAD, ['u_model', 'u_cam', 'u_view', 'u_tex', 'u_tint', 'u_useTex', 'u_alpha'])
     this.bgProg = this.link(VERT_BG, FRAG_BG, [
-      'u_view', 'u_cam', 'u_pageColor', 'u_lineColor', 'u_desk', 'u_pat', 'u_page', 'u_hasPage',
+      'u_view', 'u_cam', 'u_pageColor', 'u_lineColor', 'u_desk', 'u_pat', 'u_lv', 'u_page', 'u_hasPage',
     ])
     this.unitQuad = gl.createBuffer()
     gl.bindBuffer(gl.ARRAY_BUFFER, this.unitQuad)
@@ -404,12 +418,15 @@ export class WebGLRenderer implements Renderer {
     gl.uniform2f(p.u.u_view, this.viewport.width, this.viewport.height)
     gl.uniform4f(p.u.u_cam, camera.x, camera.y, camera.zoom, 0)
     const pc = hex(bg.color)
-    const lc = hex(bg.lineColor)
-    const desk = hex(DESK_COLOR)
+    const lc = hex(patternColor(bg))
+    const desk = hex(isDarkColor(bg.color) ? DESK_COLOR_DARK : DESK_COLOR)
     gl.uniform3f(p.u.u_pageColor, pc[0], pc[1], pc[2])
     gl.uniform3f(p.u.u_lineColor, lc[0], lc[1], lc[2])
     gl.uniform3f(p.u.u_desk, desk[0], desk[1], desk[2])
-    gl.uniform4f(p.u.u_pat, patternKind(bg.pattern), bg.spacing, bg.opacity, 0)
+    const levels = backgroundLevels(bg, camera.zoom)
+    const major = bg.majorEvery && bg.majorEvery > 1 ? Math.round(bg.majorEvery) : 0
+    gl.uniform4f(p.u.u_pat, levels.length ? patternKind(bg.pattern) : 0, Math.max(0, Math.min(1, bg.opacity)), major, MINOR_WEIGHT)
+    gl.uniform4f(p.u.u_lv, levels[0]?.spacing ?? 0, levels[0]?.alpha ?? 0, levels[1]?.spacing ?? 0, levels[1]?.alpha ?? 0)
     const pr = pageRect(scene.page)
     if (pr) {
       gl.uniform4f(p.u.u_page, pr.x, pr.y, pr.width, pr.height)
@@ -483,20 +500,22 @@ export class WebGLRenderer implements Renderer {
 
   private drawObject(obj: CanvasObject, scene: Scene, camera: Camera, theme: VisualTheme, cache: boolean): void {
     const clean = theme === 'clean'
+    const bgc = scene.page.background.color
     switch (obj.type) {
       case 'ink':
-        this.drawCachedMesh(obj.id, objectKey(obj, theme), transformMatrix(obj.transform), camera, (mb) => buildInkMesh(mb, obj as InkStroke), cache)
+        this.drawCachedMesh(obj.id, objectKey(obj, theme, bgc), transformMatrix(obj.transform), camera, (mb) => buildInkMesh(mb, obj as InkStroke, bgc), cache)
         break
       case 'shape': {
         const s = obj as ShapeObject
         const m = transformMatrix(s.transform)
-        this.drawCachedMesh(s.id, objectKey(s, theme), m, camera, (mb) => buildShapeMesh(mb, s, theme), cache)
+        this.drawCachedMesh(s.id, objectKey(s, theme, bgc), m, camera, (mb) => buildShapeMesh(mb, s, theme, bgc), cache)
         if (s.label) {
           const l = labelLayout(s.label, s.width, clean)
+          const lc = adaptColor(s.style.strokeColor, bgc)
           this.drawText(
             cache ? s.id + '#label' : null,
-            `${s.label}|${s.style.strokeColor}|${theme}`,
-            l, s.style.strokeColor, 'center', null,
+            `${s.label}|${lc}|${theme}`,
+            l, lc, 'center', null,
             multiply(m, [1, 0, 0, 1, (s.width - l.width) / 2, (s.height - l.height) / 2]),
             Math.max(Math.abs(s.transform.scaleX), Math.abs(s.transform.scaleY)), camera,
           )
@@ -505,16 +524,17 @@ export class WebGLRenderer implements Renderer {
       }
       case 'arrow': {
         const a = obj as ArrowObject
-        const { start, end } = resolveArrowEndpoints(a, scene.resolve)
-        this.drawCachedMesh(a.id, arrowKey(a, start, end, theme), IDENTITY, camera, (mb) => buildArrowMesh(mb, a, start, end, theme), cache)
+        const path = arrowPath(a, scene.resolve)
+        this.drawCachedMesh(a.id, arrowKey(a, path, theme, bgc), IDENTITY, camera, (mb) => buildArrowMesh(mb, a, path, theme, bgc), cache)
         if (a.label) {
           const l = labelLayout(a.label, 160, clean, true)
-          const bg = scene.page.background.color
+          const lc = adaptColor(a.style.strokeColor, bgc)
+          const mid = pathMidpoint(path)
           this.drawText(
             cache ? a.id + '#label' : null,
-            `${a.label}|${a.style.strokeColor}|${theme}|${bg}`,
-            l, a.style.strokeColor, 'center', bg,
-            [1, 0, 0, 1, (start.x + end.x) / 2 - l.width / 2, (start.y + end.y) / 2 - l.height / 2],
+            `${a.label}|${lc}|${theme}|${bgc}`,
+            l, lc, 'center', bgc,
+            [1, 0, 0, 1, mid.x - l.width / 2, mid.y - l.height / 2],
             1, camera,
           )
         }
@@ -523,10 +543,11 @@ export class WebGLRenderer implements Renderer {
       case 'text': {
         const t = obj as TextObject
         const l = layoutText(t)
+        const tc = adaptColor(t.color, bgc)
         this.drawText(
-          cache ? t.id : null, `${t.updatedAt}|${t.text}|${t.color}|${t.fontSize}|${t.fontFamily}|${t.width ?? ''}|${t.align ?? ''}`,
-          l, t.color, t.align, null, transformMatrix(t.transform),
-          Math.max(Math.abs(t.transform.scaleX), Math.abs(t.transform.scaleY)), camera,
+          cache ? t.id : null, `${t.updatedAt}|${t.text}|${tc}|${t.fontSize}|${t.fontFamily}|${t.width ?? ''}|${t.align ?? ''}`,
+          l, tc, t.align, null, transformMatrix(t.transform),
+          Math.max(Math.abs(t.transform.scaleX), Math.abs(t.transform.scaleY)), camera, t.opacity ?? 1,
         )
         break
       }
@@ -539,7 +560,7 @@ export class WebGLRenderer implements Renderer {
 
   // --- textured quads ---------------------------------------------------------
 
-  private drawQuad(model: Mat, camera: Camera, tex: WebGLTexture | null, tint: [number, number, number, number]): void {
+  private drawQuad(model: Mat, camera: Camera, tex: WebGLTexture | null, tint: [number, number, number, number], alpha = 1): void {
     const gl = this.gl
     const p = this.quadProg
     gl.useProgram(p.program)
@@ -548,6 +569,7 @@ export class WebGLRenderer implements Renderer {
     gl.uniform2f(p.u.u_view, this.viewport.width, this.viewport.height)
     gl.uniform4f(p.u.u_tint, tint[0], tint[1], tint[2], tint[3])
     gl.uniform1f(p.u.u_useTex, tex ? 1 : 0)
+    gl.uniform1f(p.u.u_alpha, alpha)
     if (tex) {
       gl.activeTexture(gl.TEXTURE0)
       gl.bindTexture(gl.TEXTURE_2D, tex)
@@ -605,6 +627,7 @@ export class WebGLRenderer implements Renderer {
     model: Mat,
     objScale: number,
     camera: Camera,
+    alpha = 1,
   ): void {
     if (layout.width <= 0 || layout.height <= 0) return
     const gl = this.gl
@@ -639,7 +662,7 @@ export class WebGLRenderer implements Renderer {
     entry.used = this.frame
     // unit quad → padded layout box → world
     const m = multiply(model, [entry.width, 0, 0, entry.height, -entry.pad, -entry.pad])
-    this.drawQuad(m, camera, entry.tex, [0, 0, 0, 0])
+    this.drawQuad(m, camera, entry.tex, [0, 0, 0, 0], alpha)
     if (!cacheId) gl.deleteTexture(entry.tex)
   }
 

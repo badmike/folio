@@ -1,6 +1,6 @@
 import type { ArrowObject, CanvasObject, InkStroke, Rect, ShapeObject, Vec2 } from '@folio/document'
 import type { ResolveArrow } from './contract'
-import { resolveArrowEndpoints } from './arrows'
+import { arrowPath, resolveArrowEndpoints } from './arrows'
 import { inkLocalPoints, localBounds, localOutline, objectWorldBounds, type Resolve } from './bounds'
 import {
   applyMat, distToSegment, invert, meanScale, pointInPolygon, pointInRect, rectCorners, rectsOverlap,
@@ -39,8 +39,7 @@ function arrowEnds(a: ArrowObject, resolve: Resolve, resolver: ResolveArrow = re
 export function hitTestObject(obj: CanvasObject, world: Vec2, tolerance: number, resolve: Resolve): boolean {
   switch (obj.type) {
     case 'arrow': {
-      const { start, end } = arrowEnds(obj, resolve)
-      return distToSegment(world, start, end) <= obj.style.strokeWidth / 2 + tolerance
+      return polylineDistance(world, arrowPath(obj, resolve), false) <= obj.style.strokeWidth / 2 + tolerance
     }
     case 'group':
       return obj.childIds.some((id) => {
@@ -77,13 +76,29 @@ export function hitTestObject(obj: CanvasObject, world: Vec2, tolerance: number,
   }
 }
 
+/** Roughly evenly spaced points along a polyline (>= 2, includes both ends and every vertex of short paths). */
+function resamplePath(path: Vec2[], perUnit: number): Vec2[] {
+  if (path.length < 3) {
+    const a = path[0], b = path[path.length - 1]
+    const out: Vec2[] = []
+    for (let i = 0; i <= 10; i++) out.push({ x: a.x + ((b.x - a.x) * i) / 10, y: a.y + ((b.y - a.y) * i) / 10 })
+    return out
+  }
+  void perUnit
+  const out: Vec2[] = []
+  for (let i = 0; i + 1 < path.length; i++) {
+    const a = path[i], b = path[i + 1]
+    const n = Math.max(1, Math.min(6, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 30)))
+    for (let k = 0; k < n; k++) out.push({ x: a.x + ((b.x - a.x) * k) / n, y: a.y + ((b.y - a.y) * k) / n })
+  }
+  out.push(path[path.length - 1])
+  return out
+}
+
 /** World-space polyline(s) approximating the object's geometry (for rect / lasso tests). */
 function worldSamples(obj: CanvasObject, resolve: Resolve, maxPts = 200): Vec2[] {
   if (obj.type === 'arrow') {
-    const { start, end } = arrowEnds(obj, resolve)
-    const pts: Vec2[] = []
-    for (let i = 0; i <= 10; i++) pts.push({ x: start.x + ((end.x - start.x) * i) / 10, y: start.y + ((end.y - start.y) * i) / 10 })
-    return pts
+    return resamplePath(arrowPath(obj, resolve), 12)
   }
   if (obj.type === 'group') return obj.childIds.flatMap((id) => {
     const c = resolve(id)
@@ -121,8 +136,9 @@ export function objectIntersectsRect(obj: CanvasObject, rect: Rect, resolve: Res
   })
   const m = transformMatrix(obj.transform)
   if (obj.type === 'arrow') {
-    const { start, end } = arrowEnds(obj, resolve)
-    return segmentIntersectsRect(start, end, rect)
+    const path = arrowPath(obj, resolve)
+    for (let i = 0; i + 1 < path.length; i++) if (segmentIntersectsRect(path[i], path[i + 1], rect)) return true
+    return false
   }
   if (obj.type === 'ink') {
     const pts = inkLocalPoints(obj).map((q) => applyMat(m, q.x, q.y))

@@ -202,7 +202,14 @@ export function localBounds(obj: CanvasObject, resolve?: ObjectResolver, depth =
       return { x: 0, y: 0, width: obj.width, height: obj.height }
     case 'arrow': {
       const { start, end } = resolve ? resolveArrowEndpoints(obj, resolve, depth) : obj
-      return rectFromPoints(start, end)
+      const wps = obj.waypoints
+      if (!wps?.length && obj.arrowType !== 'elbow') return rectFromPoints(start, end)
+      // curved / elbow arrows bulge beyond their end points: include waypoints and a route margin
+      const xs = [start.x, end.x, ...(wps ?? []).map((p) => p.x)]
+      const ys = [start.y, end.y, ...(wps ?? []).map((p) => p.y)]
+      const m = obj.arrowType === 'elbow' ? 24 : 8
+      const x0 = Math.min(...xs) - m, y0 = Math.min(...ys) - m
+      return { x: x0, y: y0, width: Math.max(...xs) + m - x0, height: Math.max(...ys) + m - y0 }
     }
     case 'group': {
       if (!resolve || depth > 4) return { x: 0, y: 0, width: 0, height: 0 }
