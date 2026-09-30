@@ -1,4 +1,4 @@
-import type { ArrowBinding, ArrowObject, CanvasObject, ObjectId, Rect, Vec2 } from '@folio/document'
+import type { ArrowBinding, ArrowObject, CanvasObject, ObjectId, Rect, ShapeObject, Vec2 } from '@folio/document'
 import type { ArrowGeometry, ResolveArrow } from './contract'
 import { applyMat, boundsOfPoints, invert, pointInPolygon, segmentIntersection, transformMatrix } from './math'
 import { localBounds, localOutline, worldCorners } from './bounds'
@@ -187,6 +187,8 @@ export interface ArrowHandleSpec {
   world: Vec2
   kind: 'end' | 'waypoint' | 'virtual'
 }
+/** Same handle shape for subdivided lines (ShapeObject kind 'line'). */
+export type PathHandleSpec = ArrowHandleSpec
 
 /** Point halfway (by arc length) along path[from..to]. */
 function halfwayPoint(path: Vec2[], from: number, to: number): Vec2 {
@@ -225,8 +227,10 @@ export function arrowHandleSpecs(arrow: ArrowObject, resolve: Resolve): ArrowHan
       out.push({ id: `v:${i}`, world: halfwayPoint(curve.path, curve.controlIndex[i], curve.controlIndex[i + 1]), kind: 'virtual' })
     }
   } else if (type === 'elbow') {
+    // every segment gets a handle; dragging an end segment splits it (see elbowWaypointsAfterDrag)
     const p = elbowPath(arrow, resolve)
-    for (let i = 1; i + 2 < p.length; i++) {
+    for (let i = 0; i + 1 < p.length; i++) {
+      if (Math.hypot(p[i + 1].x - p[i].x, p[i + 1].y - p[i].y) < 12) continue
       out.push({ id: `v:${i}`, world: { x: (p[i].x + p[i + 1].x) / 2, y: (p[i].y + p[i + 1].y) / 2 }, kind: 'virtual' })
     }
   }
@@ -236,13 +240,79 @@ export function arrowHandleSpecs(arrow: ArrowObject, resolve: Resolve): ArrowHan
 /**
  * New waypoints after dragging elbow route segment `seg` (between route points
  * seg and seg+1) to `to`, perpendicular to the segment. `path` is the current
- * arrowPath(); the interior corners become the waypoints.
+ * arrowPath(); the interior corners become the waypoints. The first and last
+ * segment keep their end point fixed, so dragging them subdivides the route:
+ * the end stays, a short perpendicular leg joins the moved segment.
  */
 export function elbowWaypointsAfterDrag(path: Vec2[], seg: number, to: Vec2): Vec2[] {
   const pts = path.map((p) => ({ ...p }))
   const a = pts[seg], b = pts[seg + 1]
   if (!a || !b) return pts.slice(1, -1)
-  if (Math.abs(a.y - b.y) < 1e-6) { a.y = to.y; b.y = to.y } // horizontal segment moves vertically
-  else { a.x = to.x; b.x = to.x }
-  return simplifyOrthogonal(pts).slice(1, -1)
+  const horizontal = Math.abs(a.y - b.y) < 1e-6
+  const moved = (p: Vec2): Vec2 => (horizontal ? { x: p.x, y: to.y } : { x: to.x, y: p.y })
+  const first = seg === 0
+  const last = seg + 2 === pts.length
+  const out: Vec2[] = [...pts.slice(0, seg)]
+  if (first) out.push(a, moved(a)); else out.push(moved(a))
+  if (last) out.push(moved(b), b); else out.push(moved(b))
+  out.push(...pts.slice(seg + 2))
+  return simplifyOrthogonal(out).slice(1, -1)
+}
+
+// ---------------------------------------------------------------------------
+// Subdivided lines (ShapeObject kind 'line' with local `points`)
+// ---------------------------------------------------------------------------
+
+/** Local polyline of a line shape (its diagonal when not subdivided). */
+export function linePoints(s: ShapeObject): Vec2[] {
+  return s.points && s.points.length >= 2 ? s.points : [{ x: 0, y: 0 }, { x: s.width, y: s.height }]
+}
+
+/** Editing handles of a single selected line: 'start' / 'end', `wp:<i>` per interior point, `v:<i>` per segment middle. */
+export function lineHandleSpecs(s: ShapeObject): PathHandleSpec[] {
+  const m = transformMatrix(s.transform)
+  const pts = linePoints(s).map((p) => applyMat(m, p.x, p.y))
+  const out: PathHandleSpec[] = [
+    { id: 'start', world: pts[0], kind: 'end' },
+    { id: 'end', world: pts[pts.length - 1], kind: 'end' },
+  ]
+  for (let i = 1; i + 1 < pts.length; i++) out.push({ id: `wp:${i}`, world: pts[i], kind: 'waypoint' })
+  for (let i = 0; i + 1 < pts.length; i++) {
+    out.push({ id: `v:${i}`, world: { x: (pts[i].x + pts[i + 1].x) / 2, y: (pts[i].y + pts[i + 1].y) / 2 }, kind: 'virtual' })
+  }
+  return out
+}
+
+/**
+ * Geometry patch for a line after one of its points moved (or a segment middle was
+ * dragged, which inserts a point). `index` is the point index (0 = start), `insertAfter`
+ * the segment index for a new point. The result is normalised: points start at (0,0)
+ * in a unit-scale, unrotated-by-drag box, width/height is the bounding box.
+ */
+export function linePointsAfterDrag(
+  s: ShapeObject, edit: { index: number } | { insertAfter: number } | { remove: number }, world?: Vec2,
+): Pick<ShapeObject, 'points' | 'width' | 'height' | 'transform'> {
+  const m = transformMatrix(s.transform)
+  const inv = invert(m)
+  const pts = linePoints(s).map((p) => applyMat(m, p.x, p.y))
+  if ('remove' in edit) {
+    if (pts.length > 2) pts.splice(edit.remove, 1)
+  } else if (world) {
+    if ('index' in edit) pts[edit.index] = world
+    else pts.splice(edit.insertAfter + 1, 0, world)
+  }
+  // keep the rotation, drop mirroring scales: express points in a unit-scale local frame
+  const rot = s.transform.rotation
+  const c = Math.cos(-rot), sn = Math.sin(-rot)
+  const local = pts.map((p) => ({ x: p.x * c - p.y * sn, y: p.x * sn + p.y * c }))
+  const b = boundsOfPoints(local)
+  const points = local.map((p) => ({ x: p.x - b.x, y: p.y - b.y }))
+  const cr = Math.cos(rot), sr = Math.sin(rot)
+  void inv
+  return {
+    points,
+    width: b.width,
+    height: b.height,
+    transform: { x: b.x * cr - b.y * sr, y: b.x * sr + b.y * cr, rotation: rot, scaleX: 1, scaleY: 1 },
+  }
 }

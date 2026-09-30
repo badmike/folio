@@ -1,6 +1,6 @@
 export * from './contract'
 export { createLiveInkLayer, pressureFactor } from './live-ink'
-export { strokeOutline, triangulate, freehandOptions } from './geometry/ink'
+export { strokeOutline, triangulate, freehandOptions, highlighterOutline } from './geometry/ink'
 export {
   buildShapeGeometry, buildArrowGeometry, opsetToPolylines, arrowHeadPoints, arrowHeadLength, effectiveRoughness,
   arrowheadParts, pathEndTangent, wobblePath, type HeadParts,
@@ -8,16 +8,17 @@ export {
 } from './geometry/rough'
 export { MeshBuilder, addPolyline, addPolygon, addGeometry, buildInkMesh, buildShapeMesh, buildArrowMesh, VERTEX_FLOATS } from './geometry/mesh'
 export {
-  resolveArrowEndpoints, arrowPath, arrowHandleSpecs, elbowWaypointsAfterDrag, arrowTypeOf, ELBOW_GAP, type ArrowHandleSpec,
+  resolveArrowEndpoints, arrowPath, arrowHandleSpecs, elbowWaypointsAfterDrag, arrowTypeOf, ELBOW_GAP, lineHandleSpecs, linePointsAfterDrag,
+  type ArrowHandleSpec, type PathHandleSpec,
 } from './arrows'
 export { catmullRom, orthogonalRoute, simplifyOrthogonal, dashPattern, dashPolyline, type FlatCurve } from './geometry/curves'
-export { hitTestObject, objectIntersectsRect, objectIntersectsLasso, pointInPolygon } from './hit'
+export { hitTestObject, objectIntersectsRect, objectIntersectsLasso, pointInPolygon, frameLabelRect, FRAME_LABEL_SIZE } from './hit'
 export { localBounds, localOutline, worldCorners, objectWorldBounds, inkLocalPoints, type Resolve } from './bounds'
-export { FONT_FAMILIES, fontString, measureText, layoutText, setTextMeasurer, resetTextMetrics, type TextLayout, type TextLike } from './text'
-export { shapeOutline } from './shapes'
+export { FONT_FAMILIES, FONT_LABELS, WEB_FONT_NAMES, fontString, measureText, layoutText, setTextMeasurer, resetTextMetrics, type TextLayout, type TextLike } from './text'
+export { shapeOutline, shapeVertices, roundedPolygon, cornerRadius } from './shapes'
 export {
   patternCoverage, patternCoverageLevels, patternFade, patternKind, pageRect, DESK_COLOR, DESK_COLOR_DARK, patternLevels,
-  backgroundLevels, patternColor, DYNAMIC_MIN_PX, MINOR_WEIGHT, type PatternLevel,
+  backgroundLevels, patternColor, frameColor, DYNAMIC_MIN_PX, MINOR_WEIGHT, type PatternLevel,
 } from './background'
 export {
   buildOverlay, selectionHandles, worldToScreen, ACCENT, HANDLE_SIZE, ROTATE_HANDLE_OFFSET,

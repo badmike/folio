@@ -1,4 +1,4 @@
-import { adaptColor, defaultLineColor } from '@folio/document'
+import { adaptColor, defaultLineColor, isDarkColor } from '@folio/document'
 import type { BackgroundPattern, Page, PageBackground } from '@folio/document'
 
 /** Surface colour around fixed pages. */
@@ -131,4 +131,9 @@ export function patternColor(bg: PageBackground): string {
 export function pageRect(page: Page): { x: number; y: number; width: number; height: number } | undefined {
   if (page.kind !== 'fixed') return undefined
   return { x: 0, y: 0, width: page.width ?? 794, height: page.height ?? 1123 }
+}
+
+/** Outline / name colour of frames on a page colour. */
+export function frameColor(background: string): string {
+  return isDarkColor(background) ? '#8a8f98' : '#9aa0a8'
 }

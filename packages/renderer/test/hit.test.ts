@@ -165,7 +165,7 @@ describe('bounds & text layout', () => {
   })
   it('font families', () => {
     expect(FONT_FAMILIES.hand).toContain('Caveat')
-    expect(FONT_FAMILIES.mono).toBe('monospace')
+    expect(FONT_FAMILIES.mono).toContain('Fira Code')
   })
 })
 

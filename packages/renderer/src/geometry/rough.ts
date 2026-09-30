@@ -2,6 +2,7 @@ import rough from 'roughjs'
 import type { Options, OpSet } from 'roughjs/bin/core'
 import type { ArrowObject, Arrowhead, ShapeObject, ShapeStyle, Vec2 } from '@folio/document'
 import { dashPattern, dashPolyline } from './curves'
+import { cornerRadius, roundedPolygon, shapeVertices } from '../shapes'
 import type { VisualTheme } from '../contract'
 
 /** Flattened, renderer-agnostic geometry for shapes and arrows. */
@@ -101,15 +102,34 @@ export function buildShapeGeometry(shape: ShapeObject, theme: VisualTheme): Path
     strokeWidth: style.strokeWidth,
     hatchWidth: Math.max(1, style.strokeWidth * 0.5),
   }
+  const r = cornerRadius(w, h, style.roundness)
   switch (shape.kind) {
-    case 'rectangle': collect(generator.rectangle(0, 0, w, h, o), geo); break
+    case 'rectangle':
+      if (r > 0) collect(generator.path(roundedPolygon(shapeVertices('rectangle', w, h)!, r).d, o), geo)
+      else collect(generator.rectangle(0, 0, w, h, o), geo)
+      break
     case 'ellipse': collect(generator.ellipse(w / 2, h / 2, w, h, o), geo); break
     case 'triangle':
-      collect(generator.polygon([[w / 2, 0], [w, h], [0, h]], o), geo); break
-    case 'diamond':
-      collect(generator.polygon([[w / 2, 0], [w, h / 2], [w / 2, h], [0, h / 2]], o), geo); break
+    case 'diamond': {
+      const v = shapeVertices(shape.kind, w, h)!
+      if (r > 0) collect(generator.path(roundedPolygon(v, r).d, o), geo)
+      else collect(generator.polygon(v.map((p) => [p.x, p.y] as [number, number]), o), geo)
+      break
+    }
     case 'line':
-      collect(generator.line(0, 0, w, h, { ...o, fill: undefined }), geo); break
+      if (shape.points && shape.points.length >= 2) {
+        collect(generator.linearPath(shape.points.map((p) => [p.x, p.y] as [number, number]), { ...o, fill: undefined }), geo)
+      } else collect(generator.line(0, 0, w, h, { ...o, fill: undefined }), geo)
+      break
+    case 'frame': {
+      // frames are always clean, thin and unfilled; the name is drawn by the painters
+      const d = roundedPolygon(shapeVertices('frame', w, h)!, Math.min(8, Math.min(w, h) / 4)).d
+      collect(generator.path(d, { ...o, roughness: 0, disableMultiStroke: true, fill: undefined, strokeWidth: 1, preserveVertices: true }), geo)
+      geo.strokeWidth = 1
+      return geo
+    }
+    case 'blur':
+      return geo // the effect is painted from the frame buffer
   }
   applyDashes(geo, style)
   return geo

@@ -1,10 +1,32 @@
-import type { FontFamily, TextObject } from '@folio/document'
+import { DEFAULT_LABEL_SIZE, type FontFamily, type TextObject } from '@folio/document'
 
 export const FONT_FAMILIES: Record<FontFamily, string> = {
   hand: "'Caveat', 'Comic Sans MS', cursive",
   sans: "system-ui, -apple-system, 'Segoe UI', sans-serif",
-  mono: 'monospace',
+  mono: "'Fira Code', ui-monospace, Menlo, monospace",
+  kalam: "'Kalam', 'Comic Sans MS', cursive",
+  patrick: "'Patrick Hand', 'Comic Sans MS', cursive",
+  indie: "'Indie Flower', 'Comic Sans MS', cursive",
+  architect: "'Architects Daughter', 'Comic Sans MS', cursive",
+  shadows: "'Shadows Into Light', 'Comic Sans MS', cursive",
+  gloria: "'Gloria Hallelujah', 'Comic Sans MS', cursive",
 }
+
+/** Human names of the font families, in menu order (hand-drawn fonts first). */
+export const FONT_LABELS: { family: FontFamily; label: string }[] = [
+  { family: 'hand', label: 'Caveat' },
+  { family: 'kalam', label: 'Kalam' },
+  { family: 'patrick', label: 'Patrick Hand' },
+  { family: 'indie', label: 'Indie Flower' },
+  { family: 'architect', label: 'Architects Daughter' },
+  { family: 'shadows', label: 'Shadows Into Light' },
+  { family: 'gloria', label: 'Gloria Hallelujah' },
+  { family: 'sans', label: 'Normal' },
+  { family: 'mono', label: 'Code' },
+]
+
+/** Web font faces to preload (family name as used in CSS). */
+export const WEB_FONT_NAMES = ['Caveat', 'Kalam', 'Patrick Hand', 'Indie Flower', 'Architects Daughter', 'Shadows Into Light', 'Gloria Hallelujah', 'Fira Code']
 
 export function fontString(size: number, family: FontFamily): string {
   return `${size}px ${FONT_FAMILIES[family] ?? FONT_FAMILIES.sans}`
@@ -59,7 +81,7 @@ export function resetTextMetrics(): void {
 function estimateWidth(font: string, text: string): number {
   const m = /(\d+(?:\.\d+)?)px/.exec(font)
   const size = m ? parseFloat(m[1]) : 16
-  const factor = font.includes('monospace') ? 0.6 : font.includes('Caveat') ? 0.42 : 0.55
+  const factor = font.includes('monospace') ? 0.6 : font.includes('Caveat') || font.includes('Shadows') ? 0.42 : font.includes('cursive') ? 0.5 : 0.55
   return text.length * size * factor
 }
 
@@ -103,7 +125,7 @@ export function layoutText(t: TextLike): TextLayout {
     lines.push(cur.trimEnd())
   }
   const lineWidths = lines.map((l) => measure(font, l))
-  const lineHeight = t.fontSize * (t.fontFamily === 'hand' ? 1.2 : 1.3)
+  const lineHeight = t.fontSize * (t.fontFamily === 'hand' || t.fontFamily === 'shadows' ? 1.2 : 1.3)
   const layout: TextLayout = {
     lines,
     lineWidths,
@@ -130,10 +152,10 @@ export function lineOffsetX(layout: TextLayout, lineIndex: number, align: TextLi
 }
 
 /** Label font for shapes/arrows. */
-export function labelLayout(label: string, boxWidth: number, clean: boolean, fit = false): TextLayout {
+export function labelLayout(label: string, boxWidth: number, clean: boolean, fit = false, fontSize = DEFAULT_LABEL_SIZE): TextLayout {
   const layout = layoutText({
     text: label,
-    fontSize: 18,
+    fontSize,
     fontFamily: clean ? 'sans' : 'hand',
     width: Math.max(20, boxWidth - 16),
     align: 'center',

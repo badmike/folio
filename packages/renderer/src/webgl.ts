@@ -1,8 +1,10 @@
-import { adaptColor, isDarkColor } from '@folio/document'
+import { DEFAULT_BLUR_SIZE, adaptColor, isDarkColor } from '@folio/document'
 import type { ArrowObject, CanvasObject, ImageObject, InkStroke, ShapeObject, TextObject, Vec2 } from '@folio/document'
 import { arrowPath } from './arrows'
-import { DESK_COLOR, DESK_COLOR_DARK, MINOR_WEIGHT, backgroundLevels, pageRect, patternColor, patternKind } from './background'
+import { DESK_COLOR, DESK_COLOR_DARK, MINOR_WEIGHT, backgroundLevels, frameColor, pageRect, patternColor, patternKind } from './background'
+import { worldCorners } from './bounds'
 import { pathMidpoint } from './canvas2d'
+import { FRAME_LABEL_SIZE } from './hit'
 import { parseColor, premultiplied } from './color'
 import type { Camera, Renderer, Scene, Size, VisualTheme } from './contract'
 import { buildArrowMesh, buildInkMesh, buildShapeMesh, addPolygon, addPolyline, MeshBuilder, VERTEX_FLOATS } from './geometry/mesh'
@@ -61,6 +63,34 @@ uniform float u_alpha;    // extra opacity for textured quads
 void main() {
   vec4 t = texture2D(u_tex, v_uv);
   FRAG_OUT = u_useTex > 0.5 ? t * u_alpha : u_tint;
+}`
+
+/** Draws a copy of the frame buffer region back with block-quantised texture coordinates. */
+const FRAG_PIXELATE = `
+varying vec2 v_uv;
+uniform sampler2D u_tex;
+uniform vec2 u_blocks;   // number of blocks across / down the quad
+uniform float u_alpha;
+void main() {
+  vec2 q = (floor(v_uv * u_blocks) + 0.5) / u_blocks;
+  vec4 t = texture2D(u_tex, vec2(q.x, 1.0 - q.y));
+  FRAG_OUT = vec4(t.rgb, 1.0) * u_alpha;
+}`
+
+/** Separable Gaussian: 9 taps along u_dir (texel step already scaled by the radius). */
+const FRAG_BLUR = `
+varying vec2 v_uv;
+uniform sampler2D u_tex;
+uniform vec2 u_dir;
+uniform float u_alpha;
+void main() {
+  vec2 uv = vec2(v_uv.x, 1.0 - v_uv.y);
+  vec3 c = texture2D(u_tex, uv).rgb * 0.2270;
+  c += (texture2D(u_tex, uv + u_dir * 1.0).rgb + texture2D(u_tex, uv - u_dir * 1.0).rgb) * 0.1946;
+  c += (texture2D(u_tex, uv + u_dir * 2.0).rgb + texture2D(u_tex, uv - u_dir * 2.0).rgb) * 0.1216;
+  c += (texture2D(u_tex, uv + u_dir * 3.0).rgb + texture2D(u_tex, uv - u_dir * 3.0).rgb) * 0.0541;
+  c += (texture2D(u_tex, uv + u_dir * 4.0).rgb + texture2D(u_tex, uv - u_dir * 4.0).rgb) * 0.0162;
+  FRAG_OUT = vec4(c, 1.0) * u_alpha;
 }`
 
 const VERT_BG = `
@@ -189,7 +219,12 @@ export class WebGLRenderer implements Renderer {
 
   private meshProg!: Prog
   private quadProg!: Prog
+  private pixProg!: Prog
+  private blurProg!: Prog
   private bgProg!: Prog
+  private pixTex: WebGLTexture | null = null
+  private blurTex: WebGLTexture | null = null
+  private blurFbo: WebGLFramebuffer | null = null
   private unitQuad: WebGLBuffer | null = null
   private bgTri: WebGLBuffer | null = null
   private stream: WebGLBuffer | null = null
@@ -304,6 +339,11 @@ export class WebGLRenderer implements Renderer {
     const gl = this.gl
     this.meshProg = this.link(VERT_MESH, FRAG_MESH, ['u_model', 'u_cam', 'u_view'])
     this.quadProg = this.link(VERT_QUAD, FRAG_QUAD, ['u_model', 'u_cam', 'u_view', 'u_tex', 'u_tint', 'u_useTex', 'u_alpha'])
+    this.pixProg = this.link(VERT_QUAD, FRAG_PIXELATE, ['u_model', 'u_cam', 'u_view', 'u_tex', 'u_blocks', 'u_alpha'])
+    this.blurProg = this.link(VERT_QUAD, FRAG_BLUR, ['u_model', 'u_cam', 'u_view', 'u_tex', 'u_dir', 'u_alpha'])
+    this.pixTex = null
+    this.blurTex = null
+    this.blurFbo = null
     this.bgProg = this.link(VERT_BG, FRAG_BG, [
       'u_view', 'u_cam', 'u_pageColor', 'u_lineColor', 'u_desk', 'u_pat', 'u_lv', 'u_page', 'u_hasPage',
     ])
@@ -377,7 +417,12 @@ export class WebGLRenderer implements Renderer {
       gl.deleteBuffer(this.stream)
       gl.deleteProgram(this.meshProg.program)
       gl.deleteProgram(this.quadProg.program)
+      gl.deleteProgram(this.pixProg.program)
+      gl.deleteProgram(this.blurProg.program)
       gl.deleteProgram(this.bgProg.program)
+      if (this.pixTex) gl.deleteTexture(this.pixTex)
+      if (this.blurTex) gl.deleteTexture(this.blurTex)
+      if (this.blurFbo) gl.deleteFramebuffer(this.blurFbo)
     }
     this.images.clear()
     this.lost = true
@@ -395,12 +440,135 @@ export class WebGLRenderer implements Renderer {
     gl.enable(gl.BLEND)
     const theme = scene.theme
     for (const obj of scene.objects) {
-      if (isRenderable(obj, scene.hiddenIds)) this.drawObject(obj, scene, camera, theme, true)
+      if (!isRenderable(obj, scene.hiddenIds)) continue
+      const clipped = this.clipToFrame(obj, scene, camera)
+      this.drawObject(obj, scene, camera, theme, true)
+      if (clipped) gl.disable(gl.SCISSOR_TEST)
     }
     if (scene.previews) for (const obj of scene.previews) this.drawObject(obj, scene, camera, theme, false)
     this.drawOverlay(scene, camera, width, height)
     gl.disable(gl.BLEND)
     this.evict()
+  }
+
+  /** Scissor to the object's frame (axis-aligned screen bounds). Returns true when a scissor was set. */
+  private clipToFrame(obj: CanvasObject, scene: Scene, camera: Camera): boolean {
+    if (!obj.frameId) return false
+    const f = scene.resolve(obj.frameId)
+    if (!f || f.type !== 'shape' || f.kind !== 'frame' || f.supersededBy) return false
+    const r = this.screenRect(f, camera)
+    if (!r) return false
+    const gl = this.gl
+    const dpr = this.viewport.dpr
+    gl.enable(gl.SCISSOR_TEST)
+    gl.scissor(Math.round(r.x * dpr), Math.round((this.viewport.height - r.y - r.h) * dpr), Math.round(r.w * dpr), Math.round(r.h * dpr))
+    return true
+  }
+
+  /** Axis-aligned screen rect (CSS px, clamped to the viewport) of an object's oriented box. */
+  private screenRect(o: CanvasObject, camera: Camera): { x: number; y: number; w: number; h: number } | null {
+    const corners = worldCorners(o)
+    if (!corners) return null
+    const z = camera.zoom
+    const xs = corners.map((c) => (c.x - camera.x) * z), ys = corners.map((c) => (c.y - camera.y) * z)
+    const x0 = Math.max(0, Math.floor(Math.min(...xs))), y0 = Math.max(0, Math.floor(Math.min(...ys)))
+    const x1 = Math.min(this.viewport.width, Math.ceil(Math.max(...xs))), y1 = Math.min(this.viewport.height, Math.ceil(Math.max(...ys)))
+    if (x1 - x0 < 1 || y1 - y0 < 1) return null
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
+  }
+
+  /** Copy the shape's screen rect out of the frame buffer and draw it back block-quantised. */
+  private drawBlur(s: ShapeObject, camera: Camera): void {
+    const r = this.screenRect(s, camera)
+    if (!r) return
+    const gl = this.gl
+    const dpr = this.viewport.dpr
+    const px = Math.round(r.x * dpr), py = Math.round((this.viewport.height - r.y - r.h) * dpr)
+    const pw = Math.max(1, Math.round(r.w * dpr)), ph = Math.max(1, Math.round(r.h * dpr))
+    this.pixTex ??= gl.createTexture()
+    if (!this.pixTex) return
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, this.pixTex)
+    // The context has alpha:false, so the drawing buffer is RGB: the copy must use RGB too (RGBA is rejected).
+    gl.copyTexImage2D(gl.TEXTURE_2D, 0, gl.RGB, px, py, pw, ph, 0)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+    const size = Math.max(2, (s.blurSize ?? DEFAULT_BLUR_SIZE) * camera.zoom)
+    // unit quad → the screen rect in world units
+    const wx = camera.x + r.x / camera.zoom, wy = camera.y + r.y / camera.zoom
+    const model: Mat = [r.w / camera.zoom, 0, 0, r.h / camera.zoom, wx, wy]
+    if (s.blurMode === 'gaussian') {
+      this.drawGaussian(pw, ph, size * dpr, model, camera, s.style.opacity)
+      return
+    }
+    const p = this.pixProg
+    gl.useProgram(p.program)
+    gl.uniformMatrix3fv(p.u.u_model, false, toMat3(model, this.m3) as Float32Array)
+    gl.uniform4f(p.u.u_cam, camera.x, camera.y, camera.zoom, 0)
+    gl.uniform2f(p.u.u_view, this.viewport.width, this.viewport.height)
+    gl.uniform2f(p.u.u_blocks, Math.max(1, Math.round(r.w / size)), Math.max(1, Math.round(r.h / size)))
+    gl.uniform1f(p.u.u_alpha, s.style.opacity)
+    gl.uniform1i(p.u.u_tex, 0)
+    this.drawUnitQuad()
+  }
+
+  private drawUnitQuad(): void {
+    const gl = this.gl
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.unitQuad)
+    gl.disableVertexAttribArray(1)
+    gl.enableVertexAttribArray(0)
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0)
+    gl.drawArrays(gl.TRIANGLES, 0, 6)
+  }
+
+  /**
+   * Two-pass Gaussian of the copied region (already bound on texture unit 0): horizontal into an
+   * intermediate texture, then vertical back onto the screen. `radius` is in device pixels.
+   */
+  private drawGaussian(pw: number, ph: number, radius: number, model: Mat, camera: Camera, alpha: number): void {
+    const gl = this.gl
+    const p = this.blurProg
+    const step = Math.max(0.5, radius / 4) // 9 taps span about two radii
+    this.blurTex ??= gl.createTexture()
+    this.blurFbo ??= gl.createFramebuffer()
+    if (!this.blurTex || !this.blurFbo) return
+    gl.activeTexture(gl.TEXTURE1)
+    gl.bindTexture(gl.TEXTURE_2D, this.blurTex)
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, pw, ph, 0, gl.RGB, gl.UNSIGNED_BYTE, null)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+    gl.activeTexture(gl.TEXTURE0)
+    // pass 1: source (unit 0) → intermediate, drawn over the whole framebuffer
+    const scissor = gl.isEnabled(gl.SCISSOR_TEST)
+    if (scissor) gl.disable(gl.SCISSOR_TEST)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurFbo)
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.blurTex, 0)
+    gl.viewport(0, 0, pw, ph)
+    gl.disable(gl.BLEND)
+    gl.useProgram(p.program)
+    gl.uniformMatrix3fv(p.u.u_model, false, toMat3([pw, 0, 0, ph, 0, 0], this.m3) as Float32Array)
+    gl.uniform4f(p.u.u_cam, 0, 0, 1, 0)
+    gl.uniform2f(p.u.u_view, pw, ph)
+    gl.uniform2f(p.u.u_dir, step / pw, 0)
+    gl.uniform1f(p.u.u_alpha, 1)
+    gl.uniform1i(p.u.u_tex, 0)
+    this.drawUnitQuad()
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+    gl.viewport(0, 0, this.canvas.width, this.canvas.height)
+    gl.enable(gl.BLEND)
+    if (scissor) gl.enable(gl.SCISSOR_TEST)
+    // pass 2: intermediate (unit 1) → screen
+    gl.uniformMatrix3fv(p.u.u_model, false, toMat3(model, this.m3) as Float32Array)
+    gl.uniform4f(p.u.u_cam, camera.x, camera.y, camera.zoom, 0)
+    gl.uniform2f(p.u.u_view, this.viewport.width, this.viewport.height)
+    gl.uniform2f(p.u.u_dir, 0, step / ph)
+    gl.uniform1f(p.u.u_alpha, alpha)
+    gl.uniform1i(p.u.u_tex, 1)
+    this.drawUnitQuad()
   }
 
   // --- background -----------------------------------------------------------
@@ -507,14 +675,26 @@ export class WebGLRenderer implements Renderer {
         break
       case 'shape': {
         const s = obj as ShapeObject
+        if (s.kind === 'blur') {
+          this.drawBlur(s, camera)
+          break
+        }
         const m = transformMatrix(s.transform)
         this.drawCachedMesh(s.id, objectKey(s, theme, bgc), m, camera, (mb) => buildShapeMesh(mb, s, theme, bgc), cache)
+        if (s.kind === 'frame') {
+          if (s.label) {
+            const l = layoutText({ text: s.label, fontSize: s.labelSize ?? FRAME_LABEL_SIZE, fontFamily: 'sans', align: 'left' })
+            const fc = frameColor(bgc)
+            this.drawText(cache ? s.id + '#label' : null, `${s.label}|${fc}|${s.labelSize ?? ''}`, l, fc, 'left', null, multiply(m, [1, 0, 0, 1, 0, -l.height - 2]), 1, camera)
+          }
+          break
+        }
         if (s.label) {
-          const l = labelLayout(s.label, s.width, clean)
+          const l = labelLayout(s.label, s.width, clean, false, s.labelSize)
           const lc = adaptColor(s.style.strokeColor, bgc)
           this.drawText(
             cache ? s.id + '#label' : null,
-            `${s.label}|${lc}|${theme}`,
+            `${s.label}|${lc}|${theme}|${s.labelSize ?? ''}`,
             l, lc, 'center', null,
             multiply(m, [1, 0, 0, 1, (s.width - l.width) / 2, (s.height - l.height) / 2]),
             Math.max(Math.abs(s.transform.scaleX), Math.abs(s.transform.scaleY)), camera,
@@ -527,12 +707,12 @@ export class WebGLRenderer implements Renderer {
         const path = arrowPath(a, scene.resolve)
         this.drawCachedMesh(a.id, arrowKey(a, path, theme, bgc), IDENTITY, camera, (mb) => buildArrowMesh(mb, a, path, theme, bgc), cache)
         if (a.label) {
-          const l = labelLayout(a.label, 160, clean, true)
+          const l = labelLayout(a.label, 160, clean, true, a.labelSize)
           const lc = adaptColor(a.style.strokeColor, bgc)
           const mid = pathMidpoint(path)
           this.drawText(
             cache ? a.id + '#label' : null,
-            `${a.label}|${lc}|${theme}|${bgc}`,
+            `${a.label}|${lc}|${theme}|${bgc}|${a.labelSize ?? ''}`,
             l, lc, 'center', bgc,
             [1, 0, 0, 1, mid.x - l.width / 2, mid.y - l.height / 2],
             1, camera,

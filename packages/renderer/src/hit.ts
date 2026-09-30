@@ -10,6 +10,15 @@ import { shapeOutline } from './shapes'
 
 export { pointInPolygon } from './math'
 
+/** Local rect of a frame's name label (drawn above the top-left corner). */
+export function frameLabelRect(s: ShapeObject): Rect {
+  const size = s.labelSize ?? FRAME_LABEL_SIZE
+  const w = Math.min(s.width, Math.max(40, (s.label?.length ?? 0) * size * 0.55))
+  return { x: 0, y: -size * 1.5, width: w, height: size * 1.5 }
+}
+/** Font size of frame names (world units). */
+export const FRAME_LABEL_SIZE = 16
+
 function toLocal(obj: CanvasObject, p: Vec2): Vec2 | null {
   const inv = invert(transformMatrix(obj.transform))
   return inv ? applyMat(inv, p.x, p.y) : null
@@ -60,8 +69,11 @@ export function hitTestObject(obj: CanvasObject, world: Vec2, tolerance: number,
     case 'shape': {
       const s: ShapeObject = obj
       const half = s.style.strokeWidth / 2 + tol
-      if (s.kind === 'line') return polylineDistance(p, shapeOutline('line', s.width, s.height), false) <= half
-      const outline = shapeOutline(s.kind, s.width, s.height)
+      if (s.kind === 'line') return polylineDistance(p, shapeOutline('line', s.width, s.height, { points: s.points }), false) <= half
+      const outline = shapeOutline(s.kind, s.width, s.height, { roundness: s.style.roundness })
+      // a blur mask is a solid patch; a frame is only hit on its border and name
+      if (s.kind === 'blur') return pointInPolygon(p, outline) || polylineDistance(p, outline, true) <= half
+      if (s.kind === 'frame') return polylineDistance(p, outline, true) <= half || pointInRect(p, frameLabelRect(s))
       if (polylineDistance(p, outline, true) <= half) return true
       if (s.style.fillColor || s.label) return pointInPolygon(p, outline)
       return false
@@ -151,10 +163,11 @@ export function objectIntersectsRect(obj: CanvasObject, rect: Rect, resolve: Res
   const outline = localOutline(obj)
   if (!outline) return false
   const poly = outline.map((q) => applyMat(m, q.x, q.y))
-  const filled = obj.type !== 'shape' || !!obj.style.fillColor || !!obj.label
+  const filled = obj.type !== 'shape' || !!obj.style.fillColor || (!!obj.label && obj.kind !== 'frame') || obj.kind === 'blur'
   if (obj.type === 'shape' && obj.kind === 'line') {
-    const l = shapeOutline('line', obj.width, obj.height).map((q) => applyMat(m, q.x, q.y))
-    return segmentIntersectsRect(l[0], l[1], rect)
+    const l = shapeOutline('line', obj.width, obj.height, { points: obj.points }).map((q) => applyMat(m, q.x, q.y))
+    for (let i = 0; i + 1 < l.length; i++) if (segmentIntersectsRect(l[i], l[i + 1], rect)) return true
+    return false
   }
   for (let i = 0; i < poly.length; i++) if (segmentIntersectsRect(poly[i], poly[(i + 1) % poly.length], rect)) return true
   if (filled) {
