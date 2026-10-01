@@ -49,4 +49,4 @@ pnpm --filter @folio/web exec playwright test   # e2e against the preview build 
 - `VITE_API_BASE` — folio-server URL (e.g. `/api` in dev, or `https://api.example.com`). Empty = local only.
 - `VITE_CLERK_PUBLISHABLE_KEY` — enables account sign-in (Clerk loaded at runtime).
 
-**With a server:** `FOLIO_AUTH_DEV=true pnpm server` (port 8787), start the web app with `VITE_API_BASE=/api`, then in the browser console run `localStorage['folio.devToken']='dev:alice'` and reload to sync without Clerk. Set `ANTHROPIC_API_KEY` on the server for AI features. `localStorage['folio.debug']='1'` exposes `window.__folio` (used by the e2e tests).
+**With a server:** `FOLIO_AUTH_DEV=true pnpm server` (port 8787), start the web app with `VITE_API_BASE=/api`, then in the browser console run `localStorage['folio.devToken']='dev:alice'` and reload to sync without Clerk. Set `OPENROUTER_API_KEY` on the server for AI features (all AI requests go through OpenRouter). `localStorage['folio.debug']='1'` exposes `window.__folio` (used by the e2e tests).

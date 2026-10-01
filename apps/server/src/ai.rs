@@ -96,8 +96,8 @@ impl AiProvider for MockProvider {
     }
 }
 
-/// Anthropic Messages API client with retry/backoff.
-pub struct AnthropicProvider {
+/// OpenRouter chat completions client with retry/backoff.
+pub struct OpenRouterProvider {
     http: reqwest::Client,
     api_key: String,
     base_url: String,
@@ -107,7 +107,7 @@ pub struct AnthropicProvider {
     base_backoff: Duration,
 }
 
-impl AnthropicProvider {
+impl OpenRouterProvider {
     pub fn new(api_key: String, base_url: String, model: String, vision_model: String) -> Self {
         let http = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(10))
@@ -134,8 +134,8 @@ impl AnthropicProvider {
         let mut content = Vec::new();
         let model = if let Some(img) = &req.image_png_b64 {
             content.push(json!({
-                "type": "image",
-                "source": {"type": "base64", "media_type": "image/png", "data": img}
+                "type": "image_url",
+                "image_url": {"url": format!("data:image/png;base64,{img}")}
             }));
             &self.vision_model
         } else {
@@ -145,21 +145,23 @@ impl AnthropicProvider {
         json!({
             "model": model,
             "max_tokens": req.max_tokens,
-            "system": req.system,
-            "messages": [{"role": "user", "content": content}],
+            "messages": [
+                {"role": "system", "content": req.system},
+                {"role": "user", "content": content},
+            ],
         })
     }
 
     fn retryable(status: u16) -> bool {
-        status == 429 || status == 529 || (500..600).contains(&status)
+        status == 429 || (500..600).contains(&status)
     }
 }
 
 #[async_trait]
-impl AiProvider for AnthropicProvider {
+impl AiProvider for OpenRouterProvider {
     async fn complete(&self, req: AiRequest) -> Result<AiResponse, AppError> {
         let body = self.build_body(&req);
-        let url = format!("{}/v1/messages", self.base_url);
+        let url = format!("{}/chat/completions", self.base_url);
         let mut last_err = String::from("unknown");
         for attempt in 0..self.max_attempts {
             if attempt > 0 {
@@ -168,9 +170,7 @@ impl AiProvider for AnthropicProvider {
             let res = self
                 .http
                 .post(&url)
-                .header("x-api-key", &self.api_key)
-                .header("anthropic-version", "2023-06-01")
-                .header("content-type", "application/json")
+                .bearer_auth(&self.api_key)
                 .json(&body)
                 .send()
                 .await;
@@ -178,7 +178,7 @@ impl AiProvider for AnthropicProvider {
                 Ok(r) => r,
                 Err(e) => {
                     last_err = format!("request failed: {e}");
-                    tracing::warn!(counter = "ai_error", attempt, error = %e, "anthropic request failed");
+                    tracing::warn!(counter = "ai_error", attempt, error = %e, "openrouter request failed");
                     continue;
                 }
             };
@@ -188,24 +188,19 @@ impl AiProvider for AnthropicProvider {
                     .json()
                     .await
                     .map_err(|e| AppError::Upstream(format!("invalid provider response: {e}")))?;
-                let text: String = v["content"]
-                    .as_array()
-                    .map(|a| {
-                        a.iter()
-                            .filter(|b| b["type"] == "text")
-                            .filter_map(|b| b["text"].as_str())
-                            .collect::<Vec<_>>()
-                            .join("")
-                    })
-                    .unwrap_or_default();
+                // OpenRouter reports a failing upstream model as HTTP 200 with an `error` object.
+                let Some(text) = v["choices"][0]["message"]["content"].as_str() else {
+                    let msg = v["error"]["message"].as_str().unwrap_or("no completion");
+                    return Err(AppError::Upstream(format!("provider error: {msg}")));
+                };
                 return Ok(AiResponse {
-                    text,
-                    tokens_in: v["usage"]["input_tokens"].as_i64().unwrap_or(0),
-                    tokens_out: v["usage"]["output_tokens"].as_i64().unwrap_or(0),
+                    text: text.to_string(),
+                    tokens_in: v["usage"]["prompt_tokens"].as_i64().unwrap_or(0),
+                    tokens_out: v["usage"]["completion_tokens"].as_i64().unwrap_or(0),
                 });
             }
             last_err = format!("provider returned HTTP {status}");
-            tracing::warn!(counter = "ai_error", attempt, status, "anthropic non-200");
+            tracing::warn!(counter = "ai_error", attempt, status, "openrouter non-200");
             if !Self::retryable(status) {
                 break;
             }
@@ -296,7 +291,7 @@ mod tests {
 
     #[test]
     fn request_body_shape() {
-        let p = AnthropicProvider::new("k".into(), "http://x".into(), "m".into(), "v".into());
+        let p = OpenRouterProvider::new("k".into(), "http://x".into(), "m".into(), "v".into());
         let b = p.build_body(&AiRequest {
             system: "s".into(),
             user_text: "t".into(),
@@ -304,11 +299,12 @@ mod tests {
             max_tokens: 10,
         });
         assert_eq!(b["model"], "v");
-        assert_eq!(b["messages"][0]["content"][0]["type"], "image");
+        assert_eq!(b["messages"][0], json!({"role": "system", "content": "s"}));
+        assert_eq!(b["messages"][1]["content"][0]["type"], "image_url");
         assert_eq!(
-            b["messages"][0]["content"][0]["source"]["media_type"],
-            "image/png"
+            b["messages"][1]["content"][0]["image_url"]["url"],
+            "data:image/png;base64,AAAA"
         );
-        assert_eq!(b["messages"][0]["content"][1]["type"], "text");
+        assert_eq!(b["messages"][1]["content"][1]["type"], "text");
     }
 }

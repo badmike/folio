@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use folio_server::ai::{AiProvider, AnthropicProvider, DisabledProvider};
+use folio_server::ai::{AiProvider, DisabledProvider, OpenRouterProvider};
 use folio_server::auth::JwksCache;
 use folio_server::config::Config;
 use folio_server::{build_router, db, storage, AppState};
@@ -13,7 +13,7 @@ async fn main() -> anyhow::Result<()> {
         let port = std::env::var("FOLIO_BIND")
             .ok()
             .and_then(|b| b.rsplit(':').next().map(str::to_string))
-            .unwrap_or_else(|| "8787".into());
+            .unwrap_or_else(|| "8989".into());
         let ok = reqwest::get(format!("http://127.0.0.1:{port}/health"))
             .await
             .map(|r| r.status().is_success())
@@ -45,15 +45,15 @@ async fn main() -> anyhow::Result<()> {
 
     let pool = db::connect(&config.database_url).await?;
     let store = storage::build(&config.storage)?;
-    let ai: Arc<dyn AiProvider> = match &config.anthropic_api_key {
-        Some(key) => Arc::new(AnthropicProvider::new(
+    let ai: Arc<dyn AiProvider> = match &config.openrouter_api_key {
+        Some(key) => Arc::new(OpenRouterProvider::new(
             key.clone(),
-            config.anthropic_base_url.clone(),
+            config.openrouter_base_url.clone(),
             config.ai_model.clone(),
             config.ai_vision_model.clone(),
         )),
         None => {
-            tracing::warn!("ANTHROPIC_API_KEY not set: /ai/* endpoints will answer 503");
+            tracing::warn!("OPENROUTER_API_KEY not set: /ai/* endpoints will answer 503");
             Arc::new(DisabledProvider)
         }
     };

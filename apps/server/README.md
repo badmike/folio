@@ -13,21 +13,21 @@ cargo test && cargo clippy --all-targets
 
 ## Configuration (environment)
 
-| Variable | Default | Notes |
-|---|---|---|
-| `FOLIO_BIND` | `0.0.0.0:8787` | |
-| `DATABASE_URL` | `sqlite://data/folio.db` | created (with parent dirs) on start; migrations run automatically |
-| `FOLIO_CORS_ORIGINS` | empty | comma list or `*`; empty disables CORS headers |
-| `CLERK_ISSUER` / `CLERK_JWKS_URL` | none | JWKS URL defaults to `<issuer>/.well-known/jwks.json`; issuer is validated when set |
-| `FOLIO_CLERK_AUTHORIZED_PARTIES` | empty | optional `azp` allow-list |
-| `FOLIO_AUTH_DEV` | `false` | accepts `Bearer dev:<user-id>`; logs a warning. Never in production |
-| `FOLIO_S3_BUCKET`, `FOLIO_S3_ENDPOINT`, `FOLIO_S3_REGION`, `FOLIO_S3_ACCESS_KEY_ID`, `FOLIO_S3_SECRET_ACCESS_KEY` | unset | any S3-compatible store (AWS, R2, B2, MinIO). Without a bucket, files go to `FOLIO_ASSETS_DIR` (`data/assets`). `AWS_*` key vars are also read |
-| `ANTHROPIC_API_KEY` | unset | unset => `/ai/*` answers `503 AI not configured` |
-| `FOLIO_AI_MODEL`, `FOLIO_AI_VISION_MODEL` | `claude-sonnet-5-5` | vision defaults to the text model |
-| `FOLIO_AI_DAILY_QUOTA` | `200` | AI requests per user per UTC day, then `429`. Failed provider calls are refunded |
-| `FOLIO_MAX_UPDATE_BYTES` | 8 MiB | per sync update / `FOLIO_MAX_ASSET_BYTES` (25 MiB) per asset and snapshot |
-| `FOLIO_PUSH_RATE_PER_MIN` | `600` | per-user sync pushes per minute |
-| `FOLIO_LOG`, `FOLIO_LOG_FORMAT` | `info`, json | `RUST_LOG` syntax; `pretty` for human output |
+| Variable                                                                                                          | Default                  | Notes                                                                                                                                          |
+| ----------------------------------------------------------------------------------------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FOLIO_BIND`                                                                                                      | `0.0.0.0:8989`           |                                                                                                                                                |
+| `DATABASE_URL`                                                                                                    | `sqlite://data/folio.db` | created (with parent dirs) on start; migrations run automatically                                                                              |
+| `FOLIO_CORS_ORIGINS`                                                                                              | empty                    | comma list or `*`; empty disables CORS headers                                                                                                 |
+| `CLERK_ISSUER` / `CLERK_JWKS_URL`                                                                                 | none                     | JWKS URL defaults to `<issuer>/.well-known/jwks.json`; issuer is validated when set                                                            |
+| `FOLIO_CLERK_AUTHORIZED_PARTIES`                                                                                  | empty                    | optional `azp` allow-list                                                                                                                      |
+| `FOLIO_AUTH_DEV`                                                                                                  | `false`                  | accepts `Bearer dev:<user-id>`; logs a warning. Never in production                                                                            |
+| `FOLIO_S3_BUCKET`, `FOLIO_S3_ENDPOINT`, `FOLIO_S3_REGION`, `FOLIO_S3_ACCESS_KEY_ID`, `FOLIO_S3_SECRET_ACCESS_KEY` | unset                    | any S3-compatible store (AWS, R2, B2, MinIO). Without a bucket, files go to `FOLIO_ASSETS_DIR` (`data/assets`). `AWS_*` key vars are also read |
+| `OPENROUTER_API_KEY`                                                                                              | unset                    | all AI goes through OpenRouter. Unset => `/ai/*` answers `503 AI not configured`                                                               |
+| `FOLIO_AI_MODEL`, `FOLIO_AI_VISION_MODEL`                                                                         | see notes                | OpenRouter slugs, default `anthropic/claude-sonnet-5.5`; vision defaults to the text model and needs image input                               |
+| `FOLIO_AI_DAILY_QUOTA`                                                                                            | `200`                    | AI requests per user per UTC day, then `429`. Failed provider calls are refunded                                                               |
+| `FOLIO_MAX_UPDATE_BYTES`                                                                                          | 8 MiB                    | per sync update / `FOLIO_MAX_ASSET_BYTES` (25 MiB) per asset and snapshot                                                                      |
+| `FOLIO_PUSH_RATE_PER_MIN`                                                                                         | `600`                    | per-user sync pushes per minute                                                                                                                |
+| `FOLIO_LOG`, `FOLIO_LOG_FORMAT`                                                                                   | `info`, json             | `RUST_LOG` syntax; `pretty` for human output                                                                                                   |
 
 ## API
 
