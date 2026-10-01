@@ -23,6 +23,7 @@ export function createLiveInkLayer(canvas: HTMLCanvasElement): LiveInkLayer {
   }
   let style: StrokeStyle | null = null
   let pts: InkPoint[] = []
+  let completed: { style: StrokeStyle; pts: InkPoint[] }[] = []
   let drawn = 0 // number of points already rendered incrementally
   let viewport: Size = { width: canvas.clientWidth || 1, height: canvas.clientHeight || 1, dpr: 1 }
   let camera: Camera = { x: 0, y: 0, zoom: 1 }
@@ -50,9 +51,9 @@ export function createLiveInkLayer(canvas: HTMLCanvasElement): LiveInkLayer {
 
   const wholePath = () => !!style && (style.tool === 'highlighter' || style.opacity < 1)
 
-  function drawWhole(): void {
+  function drawWhole(clear = true): void {
     if (!ctx || !style || !pts.length) return
-    clearAll()
+    if (clear) { clearAll(); drawCompleted() }
     ctx.globalAlpha = style.opacity
     ctx.strokeStyle = paintColor()
     ctx.fillStyle = paintColor()
@@ -109,6 +110,22 @@ export function createLiveInkLayer(canvas: HTMLCanvasElement): LiveInkLayer {
     ctx.globalAlpha = 1
   }
 
+  function drawCompleted(): void {
+    const active = { style, pts, drawn, prevMid }
+    for (const stroke of completed) {
+      style = stroke.style
+      pts = stroke.pts
+      drawn = 0
+      prevMid = null
+      if (wholePath()) drawWhole(false)
+      else drawIncremental()
+    }
+    style = active.style
+    pts = active.pts
+    drawn = active.drawn
+    prevMid = active.prevMid
+  }
+
   const layer: LiveInkLayer = {
     setBackground(color) {
       background = color
@@ -118,7 +135,25 @@ export function createLiveInkLayer(canvas: HTMLCanvasElement): LiveInkLayer {
       pts = []
       drawn = 0
       prevMid = null
+    },
+    finish() {
+      if (style && pts.length) completed.push({ style, pts })
+      style = null
+      pts = []
+      drawn = 0
+      prevMid = null
+    },
+    clearCommitted() {
+      completed = []
+      layer.redraw(camera)
+    },
+    cancel() {
+      style = null
+      pts = []
+      drawn = 0
+      prevMid = null
       clearAll()
+      drawCompleted()
     },
     append(points, cam) {
       if (!style || !points.length) return
@@ -134,17 +169,19 @@ export function createLiveInkLayer(canvas: HTMLCanvasElement): LiveInkLayer {
     },
     redraw(cam) {
       camera = { x: cam.x, y: cam.y, zoom: cam.zoom }
-      if (!style) return
+      if (!style) { clearAll(); drawCompleted(); return }
       if (wholePath()) {
         drawWhole()
         return
       }
       clearAll()
+      drawCompleted()
       drawn = 0
       prevMid = null
       drawIncremental()
     },
     clear() {
+      completed = []
       pts = []
       drawn = 0
       prevMid = null
@@ -160,9 +197,10 @@ export function createLiveInkLayer(canvas: HTMLCanvasElement): LiveInkLayer {
         canvas.style.height = `${vp.height}px`
       }
       setup()
-      if (style && pts.length) layer.redraw(camera)
+      layer.redraw(camera)
     },
     dispose() {
+      completed = []
       pts = []
       style = null
       ctx = null

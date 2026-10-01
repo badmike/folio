@@ -118,7 +118,7 @@ export class Editor {
   private dirty = false
   private rafId = 0
   private pendingLiveClear = false
-  private pendingStroke?: { pageId: PageId; stroke: InkStroke }
+  private pendingStrokes: { pageId: PageId; stroke: InkStroke }[] = []
   private pendingTimer: ReturnType<typeof setTimeout> | undefined
   private destroyed = false
   private pasteSerial = 0
@@ -652,6 +652,7 @@ export class Editor {
   /** Render synchronously (used by the frame loop, and to flush before clearing the live layer). */
   renderNow(): void {
     if (this.destroyed) return
+    this.flushPending()
     this.dirty = false
     const page = this.page
     if (page && this.viewport.width > 0) {
@@ -660,7 +661,7 @@ export class Editor {
     }
     if (this.pendingLiveClear) {
       this.pendingLiveClear = false
-      this.live.clear()
+      this.live.clearCommitted()
     }
   }
 
@@ -787,35 +788,30 @@ export class Editor {
   nextZ(): number { return this.maxZ + 1 }
 
   /**
-   * Commit a finished stroke AFTER the frame that shows it: the live layer keeps
+   * Defer committing finished strokes out of pointer input: the live layer keeps
    * displaying it until the retained scene has rendered the committed object.
    */
   commitStrokeDeferred(stroke: InkStroke): void {
-    this.flushPending()
-    this.pendingStroke = { pageId: this._pageId, stroke }
-    this.pendingTimer = setTimeout(() => this.flushPending(), 0)
+    this.maxZ = Math.max(this.maxZ, stroke.z)
+    this.pendingStrokes.push({ pageId: this._pageId, stroke })
+    if (this.pendingTimer === undefined) this.pendingTimer = setTimeout(() => this.flushPending(), 0)
+    this.requestRender()
   }
 
-  /** Commit a pending stroke and make sure it has been rendered (before a new live stroke starts). */
-  settleLive(): void {
-    this.flushPending()
-    if (this.pendingLiveClear) this.renderNow()
-  }
-
-  /** Commit any deferred stroke right now. */
+  /** Commit any deferred strokes right now, preserving one undo step per stroke. */
   flushPending(): void {
     if (this.pendingTimer !== undefined) clearTimeout(this.pendingTimer)
     this.pendingTimer = undefined
-    const p = this.pendingStroke
-    if (!p) return
-    this.pendingStroke = undefined
-    this.maxZ = Math.max(this.maxZ, p.stroke.z)
-    const frame = p.pageId === this._pageId ? this.frameContaining(p.stroke) : undefined
-    if (frame) p.stroke.frameId = frame.id
-    this.execute([{ type: 'addObjects', pageId: p.pageId, objects: [p.stroke] }])
-    this.pendingLiveClear = true
-    this.requestRender()
-    this.opts.onStrokeCommitted?.(p.pageId, p.stroke)
+    const pending = this.pendingStrokes
+    this.pendingStrokes = []
+    for (const p of pending) {
+      const frame = p.pageId === this._pageId ? this.frameContaining(p.stroke) : undefined
+      if (frame) p.stroke.frameId = frame.id
+      this.execute([{ type: 'addObjects', pageId: p.pageId, objects: [p.stroke] }])
+      this.pendingLiveClear = true
+      this.requestRender()
+      this.opts.onStrokeCommitted?.(p.pageId, p.stroke)
+    }
   }
 
   // ---------------------------------------------------------------------------

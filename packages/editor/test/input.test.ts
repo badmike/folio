@@ -10,6 +10,28 @@ afterEach(() => h?.editor.destroy())
 const flush = () => h.editor.flushPending()
 
 describe('pen drawing', () => {
+  it('retains rapid strokes without committing or rendering in the next pointerdown', () => {
+    h = setup()
+    h.editor.renderNow()
+    h.renderer.render.mockClear()
+    for (let i = 0; i < 20; i++) drag(h, [10 + i * 10, 20], [15 + i * 10, 30], { pointerType: 'pen' })
+    pointer(h, 'pointerdown', 220, 20, { pointerType: 'pen' })
+    expect(objs(h)).toHaveLength(0)
+    expect(h.renderer.render).not.toHaveBeenCalled()
+    expect(h.live.finish).toHaveBeenCalledTimes(20)
+    h.editor.renderNow()
+    expect(objs(h)).toHaveLength(20)
+    expect(new Set(objs(h).map((o) => o.z)).size).toBe(20)
+    expect(h.live.clearCommitted).toHaveBeenCalledTimes(1)
+    expect(h.live.clear).not.toHaveBeenCalled()
+    pointer(h, 'pointermove', 230, 30, { pointerType: 'pen' })
+    pointer(h, 'pointerup', 230, 30, { pointerType: 'pen' })
+    flush()
+    expect(objs(h)).toHaveLength(21)
+    h.editor.undo()
+    expect(objs(h)).toHaveLength(20)
+  })
+
   it('produces a stroke with pressure/tilt relative to bbox min, committed after the frame', async () => {
     h = setup()
     h.editor.setTool('pen')
@@ -68,6 +90,24 @@ describe('pen drawing', () => {
 })
 
 describe('touch and pen modes', () => {
+  it('rejects a palm that arrived before the pen, including a second finger', () => {
+    h = setup({ penMode: 'pen-only' })
+    pointer(h, 'pointerdown', 300, 300, { pointerType: 'touch', id: 2 })
+    pointer(h, 'pointerdown', 10, 10, { pointerType: 'pen', id: 1 })
+    pointer(h, 'pointermove', 350, 350, { pointerType: 'touch', id: 2 })
+    pointer(h, 'pointerdown', 400, 400, { pointerType: 'touch', id: 3 })
+    pointer(h, 'pointermove', 20, 20, { pointerType: 'pen', id: 1 })
+    pointer(h, 'pointerup', 20, 20, { pointerType: 'pen', id: 1 })
+    pointer(h, 'pointerup', 350, 350, { pointerType: 'touch', id: 2 })
+    pointer(h, 'pointerup', 400, 400, { pointerType: 'touch', id: 3 })
+    flush()
+    expect(objs(h)).toHaveLength(1)
+    expect(h.editor.camera).toEqual({ x: 0, y: 0, zoom: 1 })
+    drag(h, [30, 10], [40, 20], { pointerType: 'pen', id: 1 })
+    flush()
+    expect(objs(h)).toHaveLength(2)
+  })
+
   it('touch pans (does not draw) once a pen was seen; two fingers pinch-zoom', () => {
     h = setup()
     // pen touches and lifts

@@ -2,7 +2,7 @@
  * Pointer / wheel / keyboard input for the editor.
  *
  * Hot path: pointerdown → LiveStroke → pointermove (coalesced) → live layer,
- * pointerup → build InkStroke → commit AFTER the frame. Nothing in here runs
+ * pointerup → build InkStroke → deferred commit. Nothing in here runs
  * recognition, persistence or sync.
  */
 import { DRAWABLE_SHAPE_KINDS, type ArrowObject, type CanvasObject, type InkPoint, type ObjectId, type ObjectPatch, type ShapeKind, type ShapeObject, type Vec2 } from '@folio/document'
@@ -200,6 +200,9 @@ export class InputController {
     if (type === 'pen') {
       this.penSeen = true
       this.penDown++
+      // A palm may already be resting on the canvas when the Pencil arrives.
+      for (const id of this.touches.keys()) this.ignored.add(id)
+      this.touches.clear()
     }
     // palm rejection: no touches while the pen is down
     if (type === 'touch' && this.penDown > 0) {
@@ -260,7 +263,6 @@ export class InputController {
     switch (ed.tool) {
       case 'pen':
       case 'highlighter':
-        ed.settleLive()
         return new StrokeInteraction(ed, id, s, ed.tool)
       case 'eraser': return new EraserInteraction(ed, id, s)
       case 'select': return new SelectInteraction(ed, id, s, (t, hit) => this.onTap(t, hit))
@@ -593,11 +595,12 @@ class StrokeInteraction implements Interaction {
       id: createId(), style: this.style, pointerType: this.pointerType, startedAt: this.startedAt, z: this.ed.nextZ(),
     })
     // keep showing the live stroke until the committed one has been rendered
+    this.ed.live.finish()
     this.ed.commitStrokeDeferred(stroke)
   }
 
   cancel(): void {
-    this.ed.live.clear()
+    this.ed.live.cancel()
   }
 }
 

@@ -10,6 +10,7 @@ import { settings } from './settings'
 import type { NotebookSession } from './workspace'
 
 const IDLE_MS = 2500
+const RECOGNITION_PAUSE_MS = 700
 const REGION_PAD = 160
 /** Minimum confidence for the manual "Clean Up" button. */
 export const MANUAL_CLEANUP_CONFIDENCE = 0.5
@@ -110,6 +111,8 @@ export class RecognitionService {
 export class AttachedRecognition {
   private readonly since = Date.now()
   private pointerDown = 0
+  private recognitionTimer: ReturnType<typeof setTimeout> | undefined
+  private readonly pendingStrokes = new Map<string, Map<string, InkStroke>>()
   private idleTimer: ReturnType<typeof setTimeout> | undefined
   private promptTimer: ReturnType<typeof setTimeout> | undefined
   private readonly inflight = new Set<Promise<unknown>>()
@@ -136,13 +139,30 @@ export class AttachedRecognition {
   onStrokeCommitted = (pageId: string, stroke: InkStroke): void => {
     if (this.detached) return
     this.svc.prompt.value = null
-    const strokes = this.nearbyInk(pageId, stroke)
-    const p = this.svc.recognize(this.session, pageId, strokes, false)
-      .then((recs) => { if (!this.detached) this.svc.storeRecognitions(this.session, pageId, recs) })
-      .catch((e) => diagnostics.log('recognition.enqueue', e))
-    this.inflight.add(p)
-    void p.finally(() => this.inflight.delete(p))
+    let pending = this.pendingStrokes.get(pageId)
+    if (!pending) this.pendingStrokes.set(pageId, (pending = new Map()))
+    pending.set(stroke.id, stroke)
+    clearTimeout(this.recognitionTimer)
+    this.recognitionTimer = setTimeout(() => this.flushRecognition(), RECOGNITION_PAUSE_MS)
     this.armIdle()
+  }
+
+  private flushRecognition(): void {
+    clearTimeout(this.recognitionTimer)
+    for (const [pageId, pending] of this.pendingStrokes) {
+      const strokes = new Map<string, InkStroke>()
+      for (const stroke of pending.values()) {
+        if (!isLiveInk(this.session.doc.object(pageId, stroke.id))) continue
+        for (const nearby of this.nearbyInk(pageId, stroke)) strokes.set(nearby.id, nearby)
+      }
+      if (!strokes.size) continue
+      const p = this.svc.recognize(this.session, pageId, [...strokes.values()], false)
+        .then((recs) => { if (!this.detached) this.svc.storeRecognitions(this.session, pageId, recs) })
+        .catch((e) => diagnostics.log('recognition.enqueue', e))
+      this.inflight.add(p)
+      void p.finally(() => this.inflight.delete(p))
+    }
+    this.pendingStrokes.clear()
   }
 
   private nearbyInk(pageId: string, stroke: InkStroke): InkStroke[] {
@@ -273,7 +293,9 @@ export class AttachedRecognition {
   }
 
   detach(): void {
+    this.flushRecognition()
     this.detached = true
+    clearTimeout(this.recognitionTimer)
     clearTimeout(this.idleTimer)
     clearTimeout(this.promptTimer)
     this.svc.prompt.value = null

@@ -68,6 +68,12 @@ export interface Renderer {
 /** Immediate-mode Canvas2D layer for the stroke currently being drawn (Pencil hot path). */
 export interface LiveInkLayer {
   begin(style: StrokeStyle): void
+  /** Retain the completed stroke until the scene has rendered it. */
+  finish(): void
+  /** Remove retained strokes, preserving any stroke still being drawn. */
+  clearCommitted(): void
+  /** Cancel only the active stroke. */
+  cancel(): void
   /** Append samples (world coordinates) and draw them immediately. */
   append(points: InkPoint[], camera: Camera): void
   /** Redraw the whole live stroke (e.g. after camera change). */

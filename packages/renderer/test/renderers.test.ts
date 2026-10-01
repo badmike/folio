@@ -159,7 +159,29 @@ describe('LiveInkLayer', () => {
     expect(ctx.calls.filter((c) => c === 'clearRect').length).toBe(clears1)
   })
 
-  it('redraws the whole path for highlighters (no overlapping alpha)', () => {
+  it('keeps completed ink across strokes and preserves active ink when the scene catches up', () => {
+    const ctx = mockCtx()
+    const layer = createLiveInkLayer(mockCanvas(ctx))
+    const cam = { x: 0, y: 0, zoom: 1 }
+    layer.begin(pen)
+    layer.append([pt(0, 0), pt(10, 0)], cam)
+    layer.finish()
+    const clears = ctx.calls.filter((c) => c === 'clearRect').length
+    layer.begin(pen)
+    layer.append([pt(20, 0), pt(30, 0)], cam)
+    expect(ctx.calls.filter((c) => c === 'clearRect').length).toBe(clears)
+    ctx.calls.length = 0
+    layer.clearCommitted()
+    expect(ctx.calls.filter((c) => c === 'stroke')).toHaveLength(1)
+    layer.append([pt(40, 0)], cam)
+    expect(ctx.calls.filter((c) => c === 'stroke')).toHaveLength(2)
+    layer.cancel()
+    ctx.calls.length = 0
+    layer.redraw(cam)
+    expect(ctx.calls).not.toContain('stroke')
+  })
+
+  it('redraws the whole path for highlighters (no overlapping alpha)',  () => {
     const ctx = mockCtx()
     const layer = createLiveInkLayer(mockCanvas(ctx))
     layer.resize({ width: 100, height: 100, dpr: 1 })

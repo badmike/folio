@@ -1,6 +1,7 @@
 import { NotebookDocument, createId, type InkStroke, type Recognition } from '@folio/document'
 import { MemoryStorage } from '@folio/persistence'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import type { Editor } from '@folio/editor'
 import { renderSnippet } from '../src/composables'
 import { contextForPage, placementForAiOutput, aiDisabledReason } from '../src/services/ai'
 import { clerkFrontendApi } from '../src/services/auth'
@@ -110,6 +111,37 @@ describe('recognition storage', () => {
   })
   const rec = (id: string, ids: string[], text: string): Recognition => ({
     id, kind: 'text', strokeIds: ids, bounds: { x: 0, y: 0, width: 10, height: 10 }, text, confidence: 0.9, recognizer: 't', createdAt: Date.now(),
+  })
+
+  it('batches recognition after a writing pause instead of scanning the page per stroke', async () => {
+    const ws = await Workspace.open(new MemoryStorage())
+    const id = await ws.createNotebook({ title: 'R' })
+    const session = await ws.openNotebook(id)
+    const pageId = session.doc.pages()[0].id
+    const a = stroke(createId()), b = stroke(createId())
+    session.apply([{ type: 'addObjects', pageId, objects: [a, b] }])
+    const svc = new RecognitionService()
+    const recognize = vi.spyOn(svc, 'recognize').mockResolvedValue([])
+    const store = vi.spyOn(svc, 'storeRecognitions')
+    const queryRect = vi.fn(() => [a, b])
+    const editor = { root: document.createElement('div'), pageId, queryRect } as unknown as Editor
+    const attached = svc.attach(editor, session)
+    vi.useFakeTimers()
+    try {
+      attached.onStrokeCommitted(pageId, a)
+      await vi.advanceTimersByTimeAsync(500)
+      attached.onStrokeCommitted(pageId, b)
+      expect(queryRect).not.toHaveBeenCalled()
+      expect(recognize).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(700)
+      expect(recognize).toHaveBeenCalledTimes(1)
+      expect(recognize.mock.calls[0][2].map((s) => s.id).sort()).toEqual([a.id, b.id].sort())
+      expect(store).toHaveBeenCalledTimes(1)
+    } finally {
+      attached.detach()
+      vi.useRealTimers()
+      await ws.dispose()
+    }
   })
 
   it('stores recognitions non-destructively, replaces regrouped ones and ignores deleted strokes', async () => {

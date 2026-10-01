@@ -21,6 +21,9 @@ export class FakeLive implements LiveInkLayer {
   cleared = 0
   begin = vi.fn(() => { this.begun++ })
   append = vi.fn((pts: unknown[]) => { this.points += pts.length })
+  finish = vi.fn()
+  clearCommitted = vi.fn(() => { this.cleared++ })
+  cancel = vi.fn()
   redraw = vi.fn()
   clear = vi.fn(() => { this.cleared++ })
   resize = vi.fn()
