@@ -16,13 +16,15 @@ cargo test && cargo clippy --all-targets
 | Variable                                                                                                          | Default                  | Notes                                                                                                                                          |
 | ----------------------------------------------------------------------------------------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | `FOLIO_BIND`                                                                                                      | `0.0.0.0:8989`           |                                                                                                                                                |
+| `FOLIO_WEB_DIR`                                                                                                   | unset                    | built web app to serve at `/` (with `/config.json`); unset = API only. The image sets `/app/web`                                               |
+| `FOLIO_CLERK_PUBLISHABLE_KEY`                                                                                     | unset                    | handed to the web app through `/config.json`                                                                                                   |
 | `DATABASE_URL`                                                                                                    | `sqlite://data/folio.db` | created (with parent dirs) on start; migrations run automatically                                                                              |
 | `FOLIO_CORS_ORIGINS`                                                                                              | empty                    | comma list or `*`; empty disables CORS headers                                                                                                 |
 | `CLERK_ISSUER` / `CLERK_JWKS_URL`                                                                                 | none                     | JWKS URL defaults to `<issuer>/.well-known/jwks.json`; issuer is validated when set                                                            |
 | `FOLIO_CLERK_AUTHORIZED_PARTIES`                                                                                  | empty                    | optional `azp` allow-list                                                                                                                      |
 | `FOLIO_AUTH_DEV`                                                                                                  | `false`                  | accepts `Bearer dev:<user-id>`; logs a warning. Never in production                                                                            |
 | `FOLIO_S3_BUCKET`, `FOLIO_S3_ENDPOINT`, `FOLIO_S3_REGION`, `FOLIO_S3_ACCESS_KEY_ID`, `FOLIO_S3_SECRET_ACCESS_KEY` | unset                    | any S3-compatible store (AWS, R2, B2, MinIO). Without a bucket, files go to `FOLIO_ASSETS_DIR` (`data/assets`). `AWS_*` key vars are also read |
-| `OPENROUTER_API_KEY`                                                                                              | unset                    | all AI goes through OpenRouter. Unset => `/ai/*` answers `503 AI not configured`                                                               |
+| `OPENROUTER_API_KEY`                                                                                              | unset                    | all AI goes through OpenRouter. Unset => `/api/ai/*` answers `503 AI not configured`                                                               |
 | `FOLIO_AI_MODEL`, `FOLIO_AI_VISION_MODEL`                                                                         | see notes                | OpenRouter slugs, default `anthropic/claude-sonnet-5.5`; vision defaults to the text model and needs image input                               |
 | `FOLIO_AI_DAILY_QUOTA`                                                                                            | `200`                    | AI requests per user per UTC day, then `429`. Failed provider calls are refunded                                                               |
 | `FOLIO_MAX_UPDATE_BYTES`                                                                                          | 8 MiB                    | per sync update / `FOLIO_MAX_ASSET_BYTES` (25 MiB) per asset and snapshot                                                                      |
@@ -31,7 +33,7 @@ cargo test && cargo clippy --all-targets
 
 ## API
 
-All routes except `/health` need `Authorization: Bearer <Clerk session JWT>`. Errors are `{ "error": code, "message": text }`.
+All routes live under `/api` (`/health` is also served at the root for probes). All except `/health` need `Authorization: Bearer <Clerk session JWT>`. Errors are `{ "error": code, "message": text }`.
 Binary values are base64 (standard alphabet) strings. Ids (`docId`, `deviceId`, asset id) match `[A-Za-z0-9_.:-]{1,128}`.
 
 - `GET /health` -> `{status:"ok", version}`
@@ -48,8 +50,8 @@ Binary values are base64 (standard alphabet) strings. Ids (`docId`, `deviceId`, 
 
 ## Deploy notes
 
-- Docker: `docker build -t folio-server apps/server && docker run -p 8989:8989 -v folio-data:/app/data --env-file .env folio-server`. The image is multi-stage, runs as a non-root user, and exposes a `--healthcheck` probe.
+- Docker: the root `Dockerfile` builds web app + server into one image (`docker build -t folio .`, published as `ghcr.io/badmike/folio`). Run it with `docker run -p 8989:8989 -v folio-data:/app/data --env-file .env folio`. It runs as a non-root user and exposes a `--healthcheck` probe.
 - SQLite (WAL) is a single-node store: run one replica and back up the `data/` volume (or use Litestream). Snapshots and assets live in the object store, so use S3 for durability.
-- Terminate TLS in front (Caddy, nginx, a platform router). Set `CLERK_ISSUER` and a strict `FOLIO_CORS_ORIGINS`; keep `FOLIO_AUTH_DEV` off.
+- Terminate TLS in front (Caddy, nginx, a platform router). Set `CLERK_ISSUER`; `FOLIO_CORS_ORIGINS` is only needed when the web app is hosted on another origin; keep `FOLIO_AUTH_DEV` off.
 - Logs are JSON on stdout. Failures carry a `counter` field (`auth_failure`, `sync_failure`, `storage_error`, `ai_failure`, `db_error`, `internal_error`) for log-based metrics; every request carries an `x-request-id`.
 - SIGTERM/SIGINT triggers graceful shutdown.

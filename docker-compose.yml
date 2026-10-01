@@ -1,0 +1,26 @@
+# Self-hosted folio: web app + sync/AI server in one container.
+# Put the variables in a `.env` file next to this one, then run `docker compose up -d`.
+# Terminate TLS in front of it (Caddy, nginx, a platform router): the PWA needs HTTPS.
+services:
+  folio:
+    image: ghcr.io/badmike/folio:${FOLIO_VERSION:-latest}
+    restart: unless-stopped
+    ports:
+      - '8989:8989'
+    volumes:
+      - folio-data:/app/data
+    environment:
+      # Accounts and sync (Clerk). Leave empty to run the app local-only.
+      CLERK_ISSUER: ${CLERK_ISSUER:-}
+      FOLIO_CLERK_PUBLISHABLE_KEY: ${FOLIO_CLERK_PUBLISHABLE_KEY:-}
+      # AI features (summaries, outline, ask my notes) through OpenRouter.
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      # Optional S3-compatible storage for snapshots and assets (default: the data volume).
+      FOLIO_S3_BUCKET: ${FOLIO_S3_BUCKET:-}
+      FOLIO_S3_ENDPOINT: ${FOLIO_S3_ENDPOINT:-}
+      FOLIO_S3_REGION: ${FOLIO_S3_REGION:-}
+      FOLIO_S3_ACCESS_KEY_ID: ${FOLIO_S3_ACCESS_KEY_ID:-}
+      FOLIO_S3_SECRET_ACCESS_KEY: ${FOLIO_S3_SECRET_ACCESS_KEY:-}
+
+volumes:
+  folio-data:

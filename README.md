@@ -24,7 +24,7 @@ pnpm install
 pnpm dev          # web app on http://localhost:5173
 pnpm test         # all TypeScript unit tests
 pnpm typecheck
-pnpm server       # Rust API on http://localhost:8787
+pnpm server       # Rust API on http://localhost:8989/api
 ```
 
 ## Using folio
@@ -44,9 +44,40 @@ pnpm --filter @folio/web exec playwright test   # e2e against the preview build 
 
 **Keyboard shortcuts** follow Excalidraw (press `?` in a notebook for the full list): `V` select, `H` hand, `R` rectangle, `D` diamond, `O` ellipse, `A` arrow, `L` line, `P` pen, `T` text, `E` eraser, `F` frame, `M` highlighter, `X` blur, `Q` tool lock, `⌘Z`/`⌘⇧Z` undo/redo, `⌘D` duplicate, `⌘G` group, `⌘[`/`⌘]` layer order, `⌘⇧arrows` align, `⌘+`/`⌘-`/`⌘0` zoom, `Shift+1` fit.
 
-**Environment (optional, `apps/web/.env.local`):**
+**Runtime config:** at boot the app reads `config.json` next to `index.html` (`{"apiBase": "/api", "clerkPublishableKey": "pk_..."}`). folio-server generates it when it serves the app; empty values mean local only. During development, `apps/web/.env.local` provides the same values as `VITE_API_BASE` and `VITE_CLERK_PUBLISHABLE_KEY`.
 
-- `VITE_API_BASE` — folio-server URL (e.g. `/api` in dev, or `https://api.example.com`). Empty = local only.
-- `VITE_CLERK_PUBLISHABLE_KEY` — enables account sign-in (Clerk loaded at runtime).
+**With a server:** `FOLIO_AUTH_DEV=true pnpm server` (port 8989), start the web app with `VITE_API_BASE=/api`, then in the browser console run `localStorage['folio.devToken']='dev:alice'` and reload to sync without Clerk. Set `OPENROUTER_API_KEY` on the server for AI features (all AI requests go through OpenRouter). `localStorage['folio.debug']='1'` exposes `window.__folio` (used by the e2e tests).
 
-**With a server:** `FOLIO_AUTH_DEV=true pnpm server` (port 8787), start the web app with `VITE_API_BASE=/api`, then in the browser console run `localStorage['folio.devToken']='dev:alice'` and reload to sync without Clerk. Set `OPENROUTER_API_KEY` on the server for AI features (all AI requests go through OpenRouter). `localStorage['folio.debug']='1'` exposes `window.__folio` (used by the e2e tests).
+## Self-hosting
+
+Each release publishes one image with the web app and the server: `ghcr.io/badmike/folio`. The server serves the app at `/`, the API under `/api` and `/health` for probes.
+
+```sh
+docker run -d -p 8989:8989 -v folio-data:/app/data ghcr.io/badmike/folio:latest
+```
+
+Or use [`docker-compose.yml`](docker-compose.yml) with a `.env` file next to it. Without any variables folio runs local-only: the app works, sync and AI stay off. Put TLS in front of the container, the PWA needs HTTPS outside `localhost`.
+
+| Variable                                     | Purpose                                                                     |
+| -------------------------------------------- | --------------------------------------------------------------------------- |
+| `CLERK_ISSUER`                               | Clerk instance URL; enables sign-in and sync (tokens are verified via JWKS) |
+| `FOLIO_CLERK_PUBLISHABLE_KEY`                | Clerk publishable key, handed to the app through `/config.json`             |
+| `OPENROUTER_API_KEY`                         | enables AI features                                                         |
+| `FOLIO_S3_BUCKET` and the other `FOLIO_S3_*` | S3-compatible storage for snapshots and assets instead of the data volume   |
+
+All server settings are listed in [`apps/server/README.md`](apps/server/README.md). Data lives in the `/app/data` volume (SQLite plus local assets): back it up, run a single replica.
+
+**Upgrading:** pin a version (`ghcr.io/badmike/folio:26.10.1-8e5921d`, or `FOLIO_VERSION=` for compose), pull the new one and restart. Migrations run on start.
+
+**Static hosting:** every release also attaches `folio-web-<version>.tar.gz`. Unpack it on any static host with an `index.html` fallback for unknown paths, and point `config.json` at a folio server (`"apiBase": "https://folio.example.com/api"`, plus `FOLIO_CORS_ORIGINS` on that server).
+
+## Releasing
+
+Versions are calendar based: `vYY.M.D-<short hash>`, e.g. `v26.10.1-8e5921d`. On an up-to-date `main`, run:
+
+```sh
+./release.sh              # prepends the release to CHANGELOG.md, commits "🔖 Release <tag>", tags and pushes
+./release.sh --backfill   # rebuilds CHANGELOG.md from all tags
+```
+
+The tag starts [`.github/workflows/release.yml`](.github/workflows/release.yml): the full CI suite, native amd64 and arm64 image builds, the multi-arch image on GHCR (`latest` only moves for the newest tag), provenance and SBOM attestations, and a GitHub release with the changelog block, `docker-compose.yml` and the web tarball. Set `FOLIO_VERSION` when building the image yourself: `docker build --build-arg FOLIO_VERSION=dev -t folio .`

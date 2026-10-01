@@ -1,0 +1,12 @@
+**/node_modules
+**/dist
+**/dist-sync
+**/dev-dist
+**/target
+**/test-results*
+**/playwright-report
+**/.env
+**/.env.local
+.git
+data
+apps/server/data

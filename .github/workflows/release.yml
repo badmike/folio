@@ -1,0 +1,240 @@
+name: Release
+
+# Runs on the calver tags release.sh pushes (v26.10.1-8e5921d): builds the image natively for
+# amd64 and arm64, publishes it to GHCR, and creates a GitHub release with the changelog block,
+# docker-compose.yml and the web app as a static tarball.
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+
+concurrency:
+  # Not keyed on the ref: two releases building in parallel would race for `latest`.
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  # A calver tag can land on any commit; without the gate a red one goes straight to `latest`.
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      is_latest: ${{ steps.latest.outputs.is_latest }}
+      exists: ${{ steps.exists.outputs.exists }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The whole tag list is needed to decide whether this release is the newest.
+          fetch-depth: 0
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Determine whether this tag is the newest release
+        id: latest
+        # `latest` must never regress, also when an old run is re-tried from the Actions UI.
+        # Tags are lightweight, so creatordate is the tagged commit's date.
+        run: |
+          newest="$(git for-each-ref --sort=-creatordate --format='%(refname:short)' 'refs/tags/v*' | head -n1)"
+          if [ "$newest" = "$GITHUB_REF_NAME" ]; then
+            echo "is_latest=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_latest=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::${newest} is newer than ${GITHUB_REF_NAME}, leaving latest alone"
+          fi
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for an existing image
+        id: exists
+        # Version tags are immutable: a re-run after a partial failure must not republish one.
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if docker manifest inspect "${IMAGE}:${VERSION}" >/dev/null 2>&1; then
+            echo "::notice::${IMAGE}:${VERSION} already exists, skipping the image build"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: [test, prepare]
+    if: needs.prepare.outputs.exists != 'true'
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Platform slug
+        run: echo "ARCH=${PLATFORM#linux/}" >> "$GITHUB_ENV"
+        env:
+          PLATFORM: ${{ matrix.platform }}
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Pushed by digest only; the merge job tags the multi-arch index.
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          build-args: FOLIO_VERSION=${{ needs.prepare.outputs.version }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ env.ARCH }}
+          cache-to: type=gha,scope=${{ env.ARCH }},mode=max
+          provenance: mode=max
+          sbom: true
+
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/digests"
+          touch "${RUNNER_TEMP}/digests/${DIGEST#sha256:}"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digest-${{ env.ARCH }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push the multi-arch index
+        id: index
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          IS_LATEST: ${{ needs.prepare.outputs.is_latest }}
+        run: |
+          tags=(-t "${IMAGE}:${VERSION}")
+          if [ "$IS_LATEST" = "true" ]; then tags+=(-t "${IMAGE}:latest"); fi
+          docker buildx imagetools create "${tags[@]}" $(printf "${IMAGE}@sha256:%s " *)
+          digest="$(docker buildx imagetools inspect "${IMAGE}:${VERSION}" --format '{{json .Manifest}}' | jq -r .digest)"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.index.outputs.digest }}
+          push-to-registry: true
+
+  release:
+    needs: [test, prepare, merge]
+    # merge is skipped when a re-run finds the image already published
+    if: ${{ !cancelled() && needs.test.result == 'success' && needs.prepare.result == 'success' && (needs.merge.result == 'success' || needs.merge.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      packages: read
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Taken from the published image, so the tarball is byte-identical to what the container serves.
+      - name: Package the web app
+        run: |
+          name="folio-web-${VERSION}"
+          mkdir -p "dist/${name}"
+          cid="$(docker create "${IMAGE}:${VERSION}")"
+          docker cp "${cid}:/app/web/." "dist/${name}/"
+          docker rm "$cid" >/dev/null
+          printf '{\n  "apiBase": "",\n  "clerkPublishableKey": ""\n}\n' > "dist/${name}/config.json"
+          tar -C dist -czf "dist/${name}.tar.gz" "$name"
+          cp docker-compose.yml dist/docker-compose.yml
+          cd dist && sha256sum "${name}.tar.gz" docker-compose.yml > SHA256SUMS
+
+      - name: Release notes
+        run: |
+          digest="$(docker buildx imagetools inspect "${IMAGE}:${VERSION}" --format '{{json .Manifest}}' | jq -r .digest)"
+          {
+            awk -v head="## [${TAG}]" 'index($0, head) == 1 { found = 1; next } found && /^## / { exit } found' CHANGELOG.md
+            echo
+            echo '```sh'
+            echo "docker pull ${IMAGE}:${VERSION}"
+            echo '```'
+            echo
+            echo "**Image digest:** \`${digest}\`"
+          } > dist/NOTES.md
+          cat dist/NOTES.md
+
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          name: ${{ env.TAG }}
+          body_path: dist/NOTES.md
+          make_latest: ${{ needs.prepare.outputs.is_latest }}
+          files: |
+            dist/folio-web-${{ env.VERSION }}.tar.gz
+            dist/docker-compose.yml
+            dist/SHA256SUMS
