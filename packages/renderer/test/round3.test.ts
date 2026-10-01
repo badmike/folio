@@ -47,14 +47,12 @@ describe('highlighter edges', () => {
     expect(Math.min(...xs(slanted))).toBeLessThan(0)
     expect(Math.max(...xs(slanted))).toBeGreaterThan(100)
   })
-  it('curvy ends taper: thin at both ends, full width in the middle', () => {
-    const long = Array.from({ length: 21 }, (_, i) => ({ x: i * 10, y: 0 }))
-    const o = highlighterOutline(long, 20, 'curvy')
-    const halfWidth = (from: number, to: number) => Math.max(...o.filter((p) => p.x >= from && p.x <= to).map((p) => Math.abs(p.y)))
-    expect(halfWidth(-5, 4)).toBeLessThan(5)
-    expect(halfWidth(196, 205)).toBeLessThan(5)
-    expect(halfWidth(90, 110)).toBeGreaterThan(8)
-    expect(halfWidth(90, 110)).toBeLessThan(11)
+  it('curvy ends keep the full width and have a shallow wavy cut', () => {
+    const o = highlighterOutline(pts, 20, 'curvy')
+    const edge = o.filter((p) => p.x < 4)
+    expect(Math.max(...edge.map((p) => p.y))).toBeGreaterThan(9)
+    expect(Math.min(...edge.map((p) => p.y))).toBeLessThan(-9)
+    expect(Math.max(...edge.map((p) => p.x)) - Math.min(...edge.map((p) => p.x))).toBeGreaterThan(2)
   })
   it('a sharp zigzag does not fold the outline over itself', () => {
     const zig = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 5, y: 6 }, { x: 100, y: 12 }]
@@ -138,11 +136,10 @@ describe('ink stencil mesh and highlighter parts', () => {
     expect(Math.max(...cover)).toBeGreaterThan(60)
   })
 
-  it('highlighter: a quad per segment and a disc per joint, filled as a union', async () => {
+  it('highlighter: segment bands and round joins stay covered through a reversal', async () => {
     const { highlighterParts, strokeFill } = await import('../src/geometry/ink')
     const parts = highlighterParts(zig, 20, 'flat')
-    expect(parts.filter((p) => p.length === 4)).toHaveLength(3)
-    expect(parts.filter((p) => p.length === 12)).toHaveLength(2)
+    expect(parts).toHaveLength(5)
     // a reversal stays covered: the doubled-back segment has its own quad around y = 2
     expect(parts.some((p) => p.length === 4 && p.every((q) => q.x >= 30 && q.x <= 110))).toBe(true)
     const stroke: InkStroke = {
@@ -152,7 +149,7 @@ describe('ink stencil mesh and highlighter parts', () => {
     expect(strokeFill(stroke).union).toBe(true)
   })
 
-  it('caps: flat ends square, round and slanted reach past the ends, curvy tapers', async () => {
+  it('caps: flat ends square, round and slanted reach past the ends, curvy stays full width', async () => {
     const { highlighterParts } = await import('../src/geometry/ink')
     const line = Array.from({ length: 11 }, (_, i) => ({ x: i * 20, y: 0 }))
     expect(Math.min(...allX(highlighterParts(line, 20, 'flat')))).toBeCloseTo(0)
@@ -161,8 +158,46 @@ describe('ink stencil mesh and highlighter parts', () => {
     expect(Math.min(...allX(highlighterParts(line, 20, 'slanted')))).toBeCloseTo(-8)
     expect(Math.max(...allX(highlighterParts(line, 20, 'slanted')))).toBeCloseTo(208)
     const curvy = highlighterParts(line, 20, 'curvy')
-    const first = curvy[0]
-    expect(Math.abs(first[0].y)).toBeLessThan(1) // start of the first quad is almost a point
+    expect(curvy.flat().some((p) => p.x < 4 && Math.abs(p.y) === 10)).toBe(true)
     expect(Math.max(...curvy.flat().map((p) => Math.abs(p.y)))).toBeCloseTo(10)
+  })
+
+  it('curvy cuts work on sparse strokes and dense straight strokes keep the chisel cut', async () => {
+    const { highlighterParts } = await import('../src/geometry/ink')
+    const ends = [{ x: 0, y: 0 }, { x: 200, y: 0 }]
+    const wavy = highlighterParts(ends, 20, 'curvy').flat()
+    expect(Math.max(...wavy.map((p) => Math.abs(p.y)))).toBeCloseTo(10)
+    const edge = wavy.filter((p) => p.x < 3)
+    expect(Math.max(...edge.map((p) => p.y)) - Math.min(...edge.map((p) => p.y))).toBe(20)
+    expect(Math.max(...edge.map((p) => p.x)) - Math.min(...edge.map((p) => p.x))).toBeGreaterThan(2)
+    const dense = Array.from({ length: 201 }, (_, x) => ({ x, y: 0 }))
+    expect(highlighterParts(dense, 20, 'slanted')).toEqual(highlighterParts(ends, 20, 'slanted'))
+  })
+
+  it('round parts have smooth edges and the same winding as the band', async () => {
+    const { highlighterParts } = await import('../src/geometry/ink')
+    const parts = highlighterParts([{ x: 0, y: 0 }, { x: 100, y: 0 }], 40, 'round')
+    const area = (p: { x: number; y: number }[]) => p.reduce((sum, a, i) => {
+      const b = p[(i + 1) % p.length]
+      return sum + a.x * b.y - b.x * a.y
+    }, 0)
+    expect(parts.every((p) => area(p) < 0)).toBe(true)
+    for (const circle of parts.slice(1)) {
+      const a = circle[0], b = circle[1]
+      expect(20 - Math.hypot((a.x + b.x) / 2 - a.x + 20, (a.y + b.y) / 2)).toBeLessThan(0.05)
+    }
+  })
+
+  it.each(['flat', 'slanted'] as const)('%s cuts also trim nearby joints on dense curves', async (cap) => {
+    const { highlighterParts } = await import('../src/geometry/ink')
+    const pts = Array.from({ length: 51 }, (_, i) => ({ x: i * 2, y: 10 * Math.sin(i / 12) }))
+    const parts = highlighterParts(pts, 20, cap)
+    const first = pts[0], second = { x: (pts[0].x + 2 * pts[1].x + pts[2].x) / 4, y: (pts[0].y + 2 * pts[1].y + pts[2].y) / 4 }
+    const len = Math.hypot(second.x - first.x, second.y - first.y)
+    const dx = (second.x - first.x) / len, dy = (second.y - first.y) / len
+    const slant = cap === 'slanted' ? 0.8 : 0
+    for (const p of parts.flat()) {
+      expect(p.x * dx + p.y * dy + slant * (p.y * dx - p.x * dy)).toBeGreaterThanOrEqual(-1e-8)
+    }
   })
 })

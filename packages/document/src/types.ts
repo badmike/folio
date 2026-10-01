@@ -92,7 +92,7 @@ export interface InkPoint {
 
 export type InkTool = 'pen' | 'highlighter'
 
-/** End shape of a highlighter stroke: cut flat, rounded, cut at a slant or tapered ("curvy"). */
+/** End shape of a highlighter stroke: cut flat, rounded, cut at a slant or cut in gentle waves ("curvy"). */
 export type HighlighterCap = 'flat' | 'round' | 'slanted' | 'curvy'
 
 export interface StrokeStyle {

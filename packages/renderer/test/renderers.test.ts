@@ -189,9 +189,24 @@ describe('LiveInkLayer', () => {
     const cam = { x: 0, y: 0, zoom: 1 }
     layer.append([pt(0, 0), pt(10, 0), pt(20, 5)], cam)
     const before = ctx.calls.filter((c) => c === 'clearRect').length
+    const fills = ctx.calls.filter((c) => c === 'fill').length
     layer.append([pt(30, 10)], cam)
     expect(ctx.calls.filter((c) => c === 'clearRect').length).toBe(before + 1)
+    expect(ctx.calls.filter((c) => c === 'fill').length).toBe(fills + 1)
+    expect(ctx.calls).not.toContain('stroke')
     expect((ctx as unknown as { globalAlpha: number }).globalAlpha).toBe(1)
+  })
+
+  it.each(['flat', 'round', 'slanted', 'curvy'] as const)('live highlighter uses the %s cap geometry', async (cap) => {
+    const { highlighterParts } = await import('../src/geometry/ink')
+    const ctx = mockCtx()
+    const move = vi.fn()
+    ctx.moveTo = move
+    const layer = createLiveInkLayer(mockCanvas(ctx))
+    layer.begin({ tool: 'highlighter', color: '#ff0', width: 20, opacity: 0.4, pressureSensitive: false, cap })
+    const points = [pt(0, 0), pt(100, 0)]
+    layer.append(points, { x: -10, y: -20, zoom: 2 })
+    expect(move.mock.calls).toEqual(highlighterParts(points, 20, cap).map((p) => [(p[0].x + 10) * 2, (p[0].y + 20) * 2]))
   })
 
   it('redraw / clear / dispose do not throw, even without a context', () => {

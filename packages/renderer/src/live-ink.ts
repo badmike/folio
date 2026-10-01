@@ -1,6 +1,7 @@
 import { adaptColor } from '@folio/document'
 import type { InkPoint, StrokeStyle } from '@folio/document'
 import type { Camera, LiveInkLayer, Size } from './contract'
+import { highlighterParts } from './geometry/ink'
 
 /** Width multiplier for a pressure value; matches perfect-freehand thinning 0.5 at mid pressure. */
 export function pressureFactor(pressure: number): number {
@@ -12,7 +13,7 @@ export function pressureFactor(pressure: number): number {
  * Canvas2D immediate-mode layer for the in-progress stroke.
  * Pens are drawn incrementally (only new segments as quadratic curves between
  * sample midpoints). Highlighters (and translucent pens) redraw the whole path
- * each append as a single stroke so overlapping segments never double-blend.
+ * each append as a single fill or stroke so overlapping segments never double-blend.
  */
 export function createLiveInkLayer(canvas: HTMLCanvasElement): LiveInkLayer {
   let ctx: CanvasRenderingContext2D | null = null
@@ -59,7 +60,15 @@ export function createLiveInkLayer(canvas: HTMLCanvasElement): LiveInkLayer {
     ctx.fillStyle = paintColor()
     ctx.lineWidth = Math.max(0.5, style.width * camera.zoom)
     ctx.lineCap = style.tool === 'highlighter' ? 'butt' : 'round'
-    if (pts.length === 1) {
+    if (style.tool === 'highlighter') {
+      ctx.beginPath()
+      for (const polygon of highlighterParts(pts, style.width, style.cap ?? 'flat')) {
+        ctx.moveTo(sx(polygon[0].x), sy(polygon[0].y))
+        for (let i = 1; i < polygon.length; i++) ctx.lineTo(sx(polygon[i].x), sy(polygon[i].y))
+        ctx.closePath()
+      }
+      ctx.fill()
+    } else if (pts.length === 1) {
       ctx.beginPath()
       ctx.arc(sx(pts[0].x), sy(pts[0].y), ctx.lineWidth / 2, 0, Math.PI * 2)
       ctx.fill()

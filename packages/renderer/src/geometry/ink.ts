@@ -47,19 +47,40 @@ export function strokeOutline(stroke: InkStroke): Vec2[] {
 /**
  * Constant-width highlighter outline with an end cap: perfect-freehand builds the band (its
  * joins never fold over on sharp turns, which would break triangulation); the caps are
- * 'flat' (cut square), 'round', 'curvy' (tapered) or 'slanted' (the flat cap sheared like a
+ * 'flat' (cut square), 'round', 'curvy' (wavy cut) or 'slanted' (the flat cap sheared like a
  * chisel tip, applied as a post-process on the cap vertices).
  */
 export function highlighterOutline(input: Vec2[], width: number, cap: HighlighterCap): Vec2[] {
   const pts = input.map((p) => [p.x, p.y, 0.5])
   if (!pts.length) return []
-  const taper = cap === 'curvy' ? Math.min(width * 1.6, pathLength(input) / 2) : 0
   const round = cap === 'round'
   const outline = getStroke(pts, {
     size: width, thinning: 0, smoothing: 0.5, streamline: 0.4, simulatePressure: false, last: true,
-    start: { cap: round || cap === 'curvy', taper: taper || false },
-    end: { cap: round || cap === 'curvy', taper: taper || false },
+    start: { cap: round },
+    end: { cap: round },
   }).map(([x, y]) => ({ x, y }))
+  if (cap === 'curvy' && input.length > 1) {
+    const depth = Math.min(width * 0.15, pathLength(input) / 3)
+    const ends = [
+      { origin: input[0], direction: unit(input[1], input[0]) },
+      { origin: input[input.length - 1], direction: unit(input[input.length - 2], input[input.length - 1]) },
+    ]
+    const result: Vec2[] = []
+    for (let i = 0; i < outline.length; i++) {
+      const a = outline[i], b = outline[(i + 1) % outline.length]
+      const end = ends.find(({ origin, direction }) => [a, b].every((p) => Math.abs((p.x - origin.x) * direction.x + (p.y - origin.y) * direction.y) < 1e-6))
+      if (!end) { result.push(a); continue }
+      const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / width * 32))
+      for (let j = 0; j < steps; j++) {
+        const t = j / steps
+        const x = a.x + (b.x - a.x) * t, y = a.y + (b.y - a.y) * t
+        const side = ((y - end.origin.y) * end.direction.x - (x - end.origin.x) * end.direction.y) / width + 0.5
+        const d = waveOffset(side, depth)
+        result.push({ x: x + end.direction.x * d, y: y + end.direction.y * d })
+      }
+    }
+    return result
+  }
   if (cap !== 'slanted' || input.length < 2) return outline
   // shear the cap vertices along the stroke direction: left corner forward, right corner back
   const hw = width / 2
@@ -126,36 +147,93 @@ function cleanPath(input: Vec2[]): Vec2[] {
   return out
 }
 
-function disc(c: Vec2, r: number, steps = 12): Vec2[] {
+function disc(c: Vec2, r: number): Vec2[] {
+  // Keep round edges within 0.05 world units of the circle, including wide markers.
+  const steps = Math.max(32, Math.ceil(Math.PI / Math.acos(1 - Math.min(0.05 / r, 1)) / 4) * 4)
   const out: Vec2[] = []
-  for (let i = 0; i < steps; i++) out.push({ x: c.x + Math.cos((i / steps) * Math.PI * 2) * r, y: c.y + Math.sin((i / steps) * Math.PI * 2) * r })
+  for (let i = 0; i < steps; i++) out.push({ x: c.x + Math.cos((i / steps) * Math.PI * 2) * r, y: c.y - Math.sin((i / steps) * Math.PI * 2) * r })
   return out
+}
+
+/** Clip a convex part to one side of a cap's cut line. */
+function clipCap(polygon: Vec2[], origin: Vec2, direction: Vec2, slant: number, end: boolean): Vec2[] {
+  const distance = (p: Vec2) => {
+    const x = p.x - origin.x, y = p.y - origin.y
+    const d = x * direction.x + y * direction.y + slant * (y * direction.x - x * direction.y)
+    return end ? -d : d
+  }
+  const out: Vec2[] = []
+  for (let i = 0; i < polygon.length; i++) {
+    const a = polygon[i], b = polygon[(i + 1) % polygon.length]
+    const da = distance(a), db = distance(b)
+    if (da >= 0) out.push(a)
+    if ((da < 0) !== (db < 0)) {
+      const t = da / (da - db)
+      out.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t })
+    }
+  }
+  return out
+}
+
+/** Two gentle waves across a full-width cut, split into convex strips for the stencil union. */
+function waveOffset(t: number, depth: number): number {
+  return depth * (0.5 + 0.5 * Math.sin(t * Math.PI * 4))
+}
+
+function wavyCap(origin: Vec2, direction: Vec2, radius: number, depth: number): Vec2[][] {
+  const point = (t: number, d: number): Vec2 => {
+    const side = (2 * t - 1) * radius
+    return { x: origin.x + direction.x * d - direction.y * side, y: origin.y + direction.y * d + direction.x * side }
+  }
+  const parts: Vec2[][] = []
+  for (let i = 0; i < 32; i++) {
+    const a = i / 32, b = (i + 1) / 32
+    parts.push([point(a, waveOffset(a, depth)), point(b, waveOffset(b, depth)), point(b, depth), point(a, depth)])
+  }
+  return parts
 }
 
 /**
  * A constant-width highlighter band as overlapping convex parts: one quad per segment and a
- * disc at every joint. Their union is the stroke, however sharply the path turns or doubles
+ * disc at each turn. Their union is the stroke, however sharply the path turns or doubles
  * back (a single outline polygon folds over itself there and fills wrongly). Ends: 'flat'
  * leaves the end quads square, 'round' adds discs, 'slanted' shears the end quads like a
- * chisel tip, 'curvy' tapers the width towards both ends.
+ * chisel tip, 'curvy' uses a shallow wavy cut across the full width. All parts have the same winding
+ * so Canvas2D can fill their union in one pass without overlapping alpha.
  */
 export function highlighterParts(input: Vec2[], width: number, cap: HighlighterCap): Vec2[][] {
-  const pts = cleanPath(input)
+  let pts = cleanPath(input)
   const hw = width / 2
   if (!pts.length) return []
   if (pts.length === 1) {
     const c = pts[0]
     return [cap === 'round' || cap === 'curvy' ? disc(c, hw) : [{ x: c.x - hw, y: c.y - hw }, { x: c.x + hw, y: c.y - hw }, { x: c.x + hw, y: c.y + hw }, { x: c.x - hw, y: c.y + hw }]]
   }
+  // Collinear samples must not shorten a chisel cap or leave joints across its cut.
+  if (cap === 'slanted') {
+    const reduced = [pts[0]]
+    for (let i = 1; i < pts.length - 1; i++) {
+      const a = reduced[reduced.length - 1], b = pts[i], c = pts[i + 1]
+      const ab = unit(b, a), bc = unit(c, b)
+      if (Math.abs(ab.x * bc.y - ab.y * bc.x) > 1e-6 || ab.x * bc.x + ab.y * bc.y < 0) reduced.push(b)
+    }
+    reduced.push(pts[pts.length - 1])
+    pts = reduced
+  }
   const n = pts.length
   const arc = new Float64Array(n)
   for (let i = 1; i < n; i++) arc[i] = arc[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y)
   const total = arc[n - 1] || 1
-  const taperLen = Math.min(width * 1.6, total / 2)
-  const half = (i: number): number => {
-    if (cap !== 'curvy') return hw
-    const t = Math.min(1, arc[i] / taperLen, (total - arc[i]) / taperLen)
-    return hw * Math.max(0.06, t * t * (3 - 2 * t))
+  const skew = cap === 'slanted' ? Math.min(hw * 0.8, total / 2) : 0
+  const startDir = unit(pts[1], pts[0]), endDir = unit(pts[n - 1], pts[n - 2])
+  const waveDepth = cap === 'curvy' ? Math.min(hw * 0.3, total / 3) : 0
+  const startCut = { x: pts[0].x + startDir.x * waveDepth, y: pts[0].y + startDir.y * waveDepth }
+  const endCut = { x: pts[n - 1].x - endDir.x * waveDepth, y: pts[n - 1].y - endDir.y * waveDepth }
+  const cut = (polygon: Vec2[], from: number, to: number) => {
+    if (cap === 'round') return polygon
+    if (from < hw + skew + waveDepth) polygon = clipCap(polygon, startCut, startDir, skew / hw, false)
+    if (total - to < hw + skew + waveDepth) polygon = clipCap(polygon, endCut, endDir, skew / hw, true)
+    return polygon
   }
   const parts: Vec2[][] = []
   for (let i = 0; i + 1 < n; i++) {
@@ -163,22 +241,28 @@ export function highlighterParts(input: Vec2[], width: number, cap: HighlighterC
     const len = Math.hypot(b.x - a.x, b.y - a.y) || 1
     const dx = (b.x - a.x) / len, dy = (b.y - a.y) / len
     const nx = -dy, ny = dx
-    const wa = half(i), wb = half(i + 1)
+    const wa = hw, wb = hw
     const quad = [
       { x: a.x + nx * wa, y: a.y + ny * wa }, { x: b.x + nx * wb, y: b.y + ny * wb },
       { x: b.x - nx * wb, y: b.y - ny * wb }, { x: a.x - nx * wa, y: a.y - ny * wa },
     ]
     if (cap === 'slanted') {
-      // chisel tip: one corner of each end runs ahead, the other stays back (same slant at both ends)
-      const skew = Math.min(hw * 0.8, len)
-      if (i === 0) { quad[0] = { x: quad[0].x - dx * skew, y: quad[0].y - dy * skew }; quad[3] = { x: quad[3].x + dx * skew, y: quad[3].y + dy * skew } }
-      if (i === n - 2) { quad[1] = { x: quad[1].x - dx * skew, y: quad[1].y - dy * skew }; quad[2] = { x: quad[2].x + dx * skew, y: quad[2].y + dy * skew } }
+      // Extend the terminal band, then cut it and nearby joins along the same chisel line.
+      if (i === 0) for (const j of [0, 3]) { quad[j].x -= dx * skew; quad[j].y -= dy * skew }
+      if (i === n - 2) for (const j of [1, 2]) { quad[j].x += dx * skew; quad[j].y += dy * skew }
     }
-    parts.push(quad)
+    parts.push(cut(quad, arc[i], arc[i + 1]))
   }
-  for (let i = 1; i < n - 1; i++) parts.push(disc(pts[i], half(i)))
+  for (let i = 1; i < n - 1; i++) {
+    const before = unit(pts[i], pts[i - 1]), after = unit(pts[i + 1], pts[i])
+    if (Math.abs(before.x * after.y - before.y * after.x) < 1e-6 && before.x * after.x + before.y * after.y > 0) continue
+    parts.push(cut(disc(pts[i], hw), arc[i], arc[i]))
+  }
   if (cap === 'round') parts.push(disc(pts[0], hw), disc(pts[n - 1], hw))
-  return parts
+  if (cap === 'curvy') {
+    parts.push(...wavyCap(pts[0], startDir, hw, waveDepth), ...wavyCap(pts[n - 1], { x: -endDir.x, y: -endDir.y }, hw, waveDepth))
+  }
+  return parts.filter((p) => p.length > 2)
 }
 
 /** Triangulate a simple polygon; returns triangle vertex indices into `polygon`. */
