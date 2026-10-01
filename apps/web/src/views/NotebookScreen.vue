@@ -38,20 +38,33 @@ function armFade() {
   fadeTimer = setTimeout(() => { faded.value = true }, 2000)
 }
 function wake() { clearTimeout(fadeTimer); faded.value = false }
-/** Auto-hide: the HUD goes while the pen is down and returns a moment after it lifts. */
+/**
+ * Auto-hide: drawing ink (pen, highlighter, eraser) slides the HUD off screen; it stays hidden
+ * until a plain finger tap on the canvas (a pan or pinch does not count). The compact tool options stay.
+ */
 const hudHidden = ref(false)
-let hudTimer: ReturnType<typeof setTimeout> | undefined
-function onHostPointerDown() {
+const touches = new Map<number, { x: number; y: number; t: number; moved: boolean }>()
+function onHostPointerDown(e: PointerEvent) {
   if (ctl.highlighted.value) ctl.clearHighlight()
   armFade()
-  if (settings.autoHideHud) { clearTimeout(hudTimer); hudHidden.value = true }
-}
-function onHostPointerUp() {
   if (!settings.autoHideHud) return
-  clearTimeout(hudTimer)
-  hudTimer = setTimeout(() => { hudHidden.value = false }, 900)
+  if (e.pointerType === 'touch') {
+    for (const t of touches.values()) t.moved = true // a second finger: gesture, not a tap
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY, t: e.timeStamp, moved: touches.size > 0 })
+  } else if (INK_TOOLS.includes(ctl.tool.value)) hudHidden.value = true
 }
-watch(() => settings.autoHideHud, (on) => { if (!on) { clearTimeout(hudTimer); hudHidden.value = false } })
+const INK_TOOLS = ['pen', 'highlighter', 'eraser']
+function onHostPointerMove(e: PointerEvent) {
+  const t = touches.get(e.pointerId)
+  if (t && Math.hypot(e.clientX - t.x, e.clientY - t.y) > 10) t.moved = true
+}
+function onHostPointerUp(e: PointerEvent) {
+  const t = touches.get(e.pointerId)
+  touches.delete(e.pointerId)
+  if (!t || e.type === 'pointercancel') return
+  if (!t.moved && e.timeStamp - t.t < 350 && hudHidden.value) hudHidden.value = false
+}
+watch(() => settings.autoHideHud, (on) => { if (!on) hudHidden.value = false })
 watch(zen, (on) => {
   wake()
   if (on) { panel.value = null; showSettings.value = false; ctl.showToolOptions.value = false }
@@ -152,7 +165,6 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeyDown)
   document.removeEventListener('fullscreenchange', onFullscreenChange)
   clearTimeout(fadeTimer)
-  clearTimeout(hudTimer)
   void ctl.destroy().catch((e) => diagnostics.log('notebook.destroy', e))
 })
 
@@ -196,7 +208,8 @@ const zoomPct = computed(() => Math.round(ctl.zoom.value * 100))
 
 <template>
   <div class="screen" :class="{ 'hud-hidden': hudHidden }" data-testid="notebook-screen">
-    <div ref="host" class="canvas-host" data-testid="editor-host" @pointerdown.capture="onHostPointerDown" @pointerup.capture="onHostPointerUp" @pointercancel.capture="onHostPointerUp" />
+    <div ref="host" class="canvas-host" data-testid="editor-host" @pointerdown.capture="onHostPointerDown" @pointermove.capture="onHostPointerMove"
+         @pointerup.capture="onHostPointerUp" @pointercancel.capture="onHostPointerUp" />
 
     <header v-if="!zen" class="topbar">
       <Menu :items="mainItems" align="left">
@@ -220,7 +233,7 @@ const zoomPct = computed(() => Math.round(ctl.zoom.value * 100))
     <input ref="excalInput" type="file" accept=".excalidraw,application/json" hidden data-testid="excalidraw-input" @change="onExcalidrawFile" />
 
     <Toolbar :placement="placement" :zen="zen" :faded="zen && faded" @wake="wake" />
-    <PropertiesPanel :placement="placement" :zen="zen" :force-compact="hudHidden" />
+    <PropertiesPanel :placement="placement" :zen="zen" :hud-hidden="hudHidden" />
     <button v-if="zen" class="zen-exit panel floating" data-testid="zen-exit" @click="toggleZen(false)">Exit zen mode</button>
 
     <div v-if="!zen" class="zoom panel floating" :class="placement">
@@ -239,10 +252,12 @@ const zoomPct = computed(() => Math.round(ctl.zoom.value * 100))
 </template>
 
 <style scoped>
-.screen { position: fixed; inset: 0; overflow: hidden; background: var(--bg); touch-action: none; }
-/* auto-hide: everything but the compact properties bar fades out while drawing */
-.screen > .topbar, .screen > .zoom, .screen :deep(.dock), .screen :deep(.sheet) { transition: opacity 0.25s; }
-.screen.hud-hidden > .topbar, .screen.hud-hidden > .zoom, .screen.hud-hidden :deep(.dock), .screen.hud-hidden :deep(.sheet) { opacity: 0; pointer-events: none; }
+.screen { position: fixed; top: 0; left: 0; width: var(--app-w); height: var(--app-h); overflow: hidden; background: var(--bg); touch-action: none; }
+/* auto-hide: the HUD slides off its edge; the compact properties bar stays and slides to the corner */
+.screen > .topbar, .screen > .zoom, .screen :deep(.dock), .screen :deep(.sheet) { transition: transform 0.28s ease, opacity 0.28s ease; }
+.screen.hud-hidden > .topbar, .screen.hud-hidden :deep(.dock.top), .screen.hud-hidden > .zoom.bottom { transform: translateY(-140%); opacity: 0; pointer-events: none; }
+.screen.hud-hidden :deep(.dock.bottom), .screen.hud-hidden > .zoom.top { transform: translateY(140%); opacity: 0; pointer-events: none; }
+.screen.hud-hidden :deep(.sheet) { transform: translateX(110%); opacity: 0; pointer-events: none; }
 .screen.hud-hidden :deep(.dock > *) { pointer-events: none; }
 .canvas-host { position: absolute; inset: 0; touch-action: none; }
 .topbar {

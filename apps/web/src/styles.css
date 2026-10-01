@@ -98,9 +98,11 @@
 @font-face { font-family: 'Fira Code'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/fira-code-latin-400.woff2') format('woff2'); }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body, #app { height: 100%; margin: 0; }
-/* Installed on iPad: no rubber-banding into a gap below the app. */
-html, body { overscroll-behavior: none; position: fixed; inset: 0; width: 100%; }
+/* --app-w / --app-h are the measured visual viewport (services/viewport.ts); CSS viewport units lie in the installed iPad app. */
+:root { --app-w: 100vw; --app-h: 100vh; }
+html, body { margin: 0; overscroll-behavior: none; }
+body { position: fixed; top: 0; left: 0; width: var(--app-w); height: var(--app-h); overflow: hidden; }
+#app { width: 100%; height: 100%; }
 body {
   background: var(--bg);
   color: var(--text);
