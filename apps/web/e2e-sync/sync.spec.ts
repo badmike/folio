@@ -73,8 +73,11 @@ test('device A creates a notebook and draws; device B receives notebook and stro
   await expect
     .poll(async () => { await poke(A); await poke(B); return B.getByTestId('notebook-card').filter({ hasText: 'Shared notebook' }).count() }, { timeout: 90_000, intervals: [1500] })
     .toBe(1)
+  // The library entry can arrive before the notebook's content: B waits for it to sync, then opens.
   await B.getByTestId('notebook-card').filter({ hasText: 'Shared notebook' }).locator('button.thumb').click()
-  await expect.poll(() => B.evaluate(() => !!(window as any).__folio?.editor)).toBe(true)
+  await expect
+    .poll(async () => { await poke(A); await poke(B); return B.evaluate(() => !!(window as any).__folio?.editor) }, { timeout: 60_000, intervals: [1500] })
+    .toBe(true)
   await expect
     .poll(async () => { await poke(B); return typeCount(B, 'ink') }, { timeout: 60_000, intervals: [1500] })
     .toBe(3)
@@ -82,6 +85,8 @@ test('device A creates a notebook and draws; device B receives notebook and stro
 })
 
 test('concurrent offline edits on both devices converge after reconnecting', async () => {
+  // B reloads offline at the end: its service worker must finish precaching while still online
+  await B.evaluate(async () => { await navigator.serviceWorker.ready })
   await ctxA.setOffline(true)
   await ctxB.setOffline(true)
 
@@ -118,6 +123,8 @@ test('concurrent offline edits on both devices converge after reconnecting', asy
 
   // the merged state was persisted locally on B (survives a reload, even without the network)
   const merged = await objectIds(B)
+  // an offline reload needs the service worker to control the page
+  await expect.poll(() => B.evaluate(() => !!navigator.serviceWorker.controller), { timeout: 30_000 }).toBe(true)
   await ctxB.setOffline(true)
   await B.reload()
   await expect.poll(() => B.evaluate(() => !!(window as any).__folio?.editor)).toBe(true)

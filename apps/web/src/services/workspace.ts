@@ -241,14 +241,12 @@ export class Workspace {
 
   /**
    * Open a notebook for the UI (call `release` when done). Throws NotebookNotFoundError
-   * if no such notebook exists locally.
+   * if no such notebook exists locally. The empty session stays cached: the sync engine may be
+   * filling it right now, and `evictIdle` drops it once nobody uses it.
    */
   async openNotebook(id: NotebookId): Promise<NotebookSession> {
     const s = await this.session(id)
-    if (s.doc.pages().length === 0) {
-      if (s.refs === 0) await this.dropSession(id)
-      throw new NotebookNotFoundError(`Notebook ${id} not found`)
-    }
+    if (s.doc.pages().length === 0) throw new NotebookNotFoundError(`Notebook ${id} not found`)
     s.refs++
     s.lastUse = Date.now()
     return s
