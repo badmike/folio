@@ -3,6 +3,7 @@ import { onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { whenReady } from '../app'
 import Icon from '../components/Icon.vue'
+import Logo from '../components/Logo.vue'
 import { NotebookController } from '../notebook'
 import { NotebookNotFoundError } from '../services/workspace'
 import { diagnostics } from '../services/diagnostics'
@@ -37,7 +38,7 @@ onBeforeUnmount(() => { token++ })
 <template>
   <NotebookScreen v-if="state === 'ready' && ctl" :key="ctl.id" :ctl="ctl" />
   <div v-else class="msg">
-    <template v-if="state === 'loading'"><Icon name="logo" :size="36" /><p class="muted">Opening notebook…</p></template>
+    <template v-if="state === 'loading'"><Logo class="mark" :height="64" /><p class="muted">Opening notebook…</p></template>
     <template v-else>
       <Icon name="alert" :size="36" />
       <h2>{{ state === 'missing' ? 'Notebook not found' : 'Could not open this notebook' }}</h2>
@@ -50,4 +51,5 @@ onBeforeUnmount(() => { token++ })
 <style scoped>
 .msg { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; padding: 24px; }
 .msg p { margin: 0; max-width: 380px; }
+.mark { color: var(--text-strong); }
 </style>

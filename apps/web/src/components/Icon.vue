@@ -60,7 +60,6 @@ const ICONS: Record<string, string> = {
   menu: 'M4 7h16|M4 12h16|M4 17h16',
   sliders: 'M4 6h9|M17 6h3|M4 12h3|M11 12h9|M4 18h11|M19 18h1|M15 4v4|M7 10v4|M17 16v4',
   chevleft: 'M15 6l-6 6 6 6',
-  logo: 'M6 3h12a1 1 0 011 1v16a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z|M9 8h6|M9 12h6|M9 16h3',
   hand: 'M8 13V5.5a1.5 1.5 0 013 0V12|M11 11V4.5a1.5 1.5 0 013 0V12|M14 12V6.5a1.5 1.5 0 013 0V13|M17 12.5a1.5 1.5 0 013 .5v3a6 6 0 01-6 6h-2a6 6 0 01-5-2.7L4.2 15a1.5 1.5 0 012.4-1.8L8 15',
   frame: 'M7 3v18|M17 3v18|M3 7h18|M3 17h18',
   blur: 'M4 4h5v5H4z|M9 9h5v5H9z|M14 14h6v6h-6z|M14 4h6v5h-6z|M4 14h5v6H4z',

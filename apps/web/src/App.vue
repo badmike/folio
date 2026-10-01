@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { bootError, bootState } from './app'
 import DialogHost from './components/DialogHost.vue'
 import Icon from './components/Icon.vue'
+import Logo from './components/Logo.vue'
 import ToastHost from './components/ToastHost.vue'
 import { exportDiagnostics } from './services/diagnostics'
 
@@ -27,8 +28,8 @@ const reload = () => window.location.reload()
     </div>
   </div>
   <div v-else-if="isBooting" class="fullscreen" data-testid="booting">
-    <Icon name="logo" :size="40" />
-    <p class="muted">Opening folio…</p>
+    <Logo class="mark" :height="64" />
+    <p class="muted">Opening…</p>
   </div>
   <template v-else>
     <router-view />
@@ -43,4 +44,5 @@ const reload = () => window.location.reload()
   gap: 12px; padding: 24px; text-align: center; background: var(--bg);
 }
 .fullscreen p { max-width: 420px; margin: 0; }
+.mark { color: var(--text-strong); }
 </style>
