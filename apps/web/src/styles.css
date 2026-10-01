@@ -55,9 +55,9 @@
   --warn: oklch(68.1% 0.162 75.834);
   --ai: oklch(55.8% 0.288 302.321);
   --shadow-sm: 0 1px 2px rgba(3, 7, 18, 0.04), 0 2px 6px rgba(3, 7, 18, 0.05);
-  --shadow: 0 1px 1px rgba(3, 7, 18, 0.02), 0 4px 6px rgba(3, 7, 18, 0.03), 0 9px 14px rgba(3, 7, 18, 0.04), 0 16px 24px rgba(3, 7, 18, 0.04);
+  --shadow: 0 1px 2px rgba(3, 7, 18, 0.04), 0 4px 10px rgba(3, 7, 18, 0.05);
   --radius: 8px;
-  --radius-lg: 12px;
+  --radius-lg: 10px;
   --target: 44px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
@@ -84,7 +84,7 @@
     --accent-soft: var(--blue-950);
     --accent-text: var(--gray-950);
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-    --shadow: 0 2px 6px rgba(0, 0, 0, 0.35), 0 10px 20px rgba(0, 0, 0, 0.3);
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 4px 10px rgba(0, 0, 0, 0.25);
   }
 }
 

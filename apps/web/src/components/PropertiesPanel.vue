@@ -3,7 +3,7 @@ import {
   DRAWABLE_SHAPE_KINDS,
   type Arrowhead, type ArrowType, type BlurMode, type FillStyle, type FontFamily, type HighlighterCap, type Roundness, type StrokeLineStyle,
 } from '@folio/document'
-import { FONT_SIZE_PRESETS, STROKE_WIDTH_PRESETS, type AlignMode, type StyleProp } from '@folio/editor'
+import { FONT_SIZE_PRESETS, STROKE_WIDTH_PRESETS, type AlignMode, type DistributeAxis, type StyleProp } from '@folio/editor'
 import { FONT_FAMILIES, FONT_LABELS } from '@folio/renderer'
 import { computed, inject, ref } from 'vue'
 import { NOTEBOOK_KEY, type NotebookController, type QuickColorSet } from '../notebook'
@@ -12,6 +12,7 @@ import { diagnostics } from '../services/diagnostics'
 import { toast, toastError } from '../services/toast'
 import ColorRow from './ColorRow.vue'
 import Icon from './Icon.vue'
+import Menu, { type MenuItem } from './Menu.vue'
 import OptionRow, { type Option } from './OptionRow.vue'
 import StyleGlyph from './StyleGlyph.vue'
 
@@ -23,7 +24,7 @@ import StyleGlyph from './StyleGlyph.vue'
  * Collapsed, it turns into a one-row "quick bar" (colours + widths) so colours can be switched while
  * taking notes without the full panel in the way.
  */
-const props = defineProps<{ placement: 'top' | 'bottom'; zen?: boolean; hudHidden?: boolean }>()
+const props = defineProps<{ zen?: boolean; hudHidden?: boolean }>()
 const ctl = inject<NotebookController>(NOTEBOOK_KEY)!
 const ctx = computed(() => ctl.styleCtx.value)
 const sel = ctl.selection
@@ -88,17 +89,25 @@ const SIZES: Option<number>[] = (Object.entries(FONT_SIZE_PRESETS) as [string, n
 const ALIGNS: Option<'left' | 'center' | 'right'>[] = [
   { value: 'left', glyph: 'ta-left', label: 'Align left' }, { value: 'center', glyph: 'ta-center', label: 'Align center' }, { value: 'right', glyph: 'ta-right', label: 'Align right' },
 ]
-const ALIGN_ROWS: { mode: AlignMode; icon: string; label: string }[] = [
-  { mode: 'left', icon: 'align-left', label: 'Align left' }, { mode: 'centerX', icon: 'align-center-x', label: 'Center horizontally' }, { mode: 'right', icon: 'align-right', label: 'Align right' },
-  { mode: 'top', icon: 'align-top', label: 'Align top' }, { mode: 'centerY', icon: 'align-center-y', label: 'Center vertically' }, { mode: 'bottom', icon: 'align-bottom', label: 'Align bottom' },
+/** One row per axis: its three align modes, then (for three or more items) distribute along that axis. */
+const ALIGN_ROWS: { axis: DistributeAxis; distributeIcon: string; modes: { mode: AlignMode; icon: string; label: string }[] }[] = [
+  { axis: 'horizontal', distributeIcon: 'distribute-x', modes: [
+    { mode: 'left', icon: 'align-left', label: 'Align left' }, { mode: 'centerX', icon: 'align-center-x', label: 'Center horizontally' }, { mode: 'right', icon: 'align-right', label: 'Align right' },
+  ] },
+  { axis: 'vertical', distributeIcon: 'distribute-y', modes: [
+    { mode: 'top', icon: 'align-top', label: 'Align top' }, { mode: 'centerY', icon: 'align-center-y', label: 'Center vertically' }, { mode: 'bottom', icon: 'align-bottom', label: 'Align bottom' },
+  ] },
 ]
 
-const fontOpen = ref(false)
-const fontLabel = computed(() => {
-  const v = val('fontFamily')
-  return v === 'mixed' ? 'Mixed' : FONT_LABELS.find((f) => f.family === v)?.label ?? 'Font'
-})
-function pickFont(f: FontFamily) { ctl.setStyle({ fontFamily: f }); fontOpen.value = false }
+/** Hand-drawn, normal and code are one tap away; every other bundled font sits in the "more fonts" popover. */
+const FONTS: Option<FontFamily>[] = [
+  { value: 'hand', glyph: 'ff-hand', label: 'Hand-drawn' }, { value: 'sans', glyph: 'ff-sans', label: 'Normal' }, { value: 'mono', glyph: 'ff-mono', label: 'Code' },
+]
+const EXTRA_FONTS = FONT_LABELS.filter((f) => !FONTS.some((o) => o.value === f.family))
+const customFont = computed(() => EXTRA_FONTS.find((f) => f.family === val('fontFamily')))
+const moreFonts = computed<MenuItem[]>(() => EXTRA_FONTS.map((f) => ({
+  label: f.label, fontFamily: FONT_FAMILIES[f.family], active: f.family === customFont.value?.family, action: () => ctl.setStyle({ fontFamily: f.family }),
+})))
 
 const openHead = ref<'start' | 'end' | null>(null)
 const headGlyph = (v: unknown) => `head-${typeof v === 'string' && v !== 'mixed' ? v : 'none'}`
@@ -137,7 +146,7 @@ const title = computed(() => (hasSel.value ? `${sel.value.count} selected` : TOO
 
 <template>
   <div
-    v-if="visible" class="props panel floating" :class="[placement, { zen, compact, docked: hudHidden }]" role="region" aria-label="Properties"
+    v-if="visible" class="props panel floating" :class="{ zen, compact, docked: hudHidden }" role="region" aria-label="Properties"
     data-testid="properties-panel" @pointerdown.stop
   >
     <!-- quick bar: colours and widths in one row -->
@@ -243,15 +252,17 @@ const title = computed(() => (hasSel.value ? `${sel.value.count} selected` : TOO
         </section>
         <section v-if="has('fontFamily')" data-testid="sec-fontFamily">
           <label>Font family</label>
-          <button type="button" class="font-btn" :style="{ fontFamily: val('fontFamily') !== 'mixed' && val('fontFamily') ? FONT_FAMILIES[val('fontFamily') as FontFamily] : undefined }"
-                  aria-haspopup="listbox" :aria-expanded="fontOpen" data-testid="font-family-btn" @click="fontOpen = !fontOpen">
-            <span>{{ fontLabel }}</span><Icon :name="fontOpen ? 'up' : 'down'" :size="16" />
-          </button>
-          <div v-if="fontOpen" class="font-list" role="listbox" aria-label="Font family">
-            <button v-for="f in FONT_LABELS" :key="f.family" type="button" role="option" class="font-item" :class="{ on: val('fontFamily') === f.family }"
-                    :aria-selected="val('fontFamily') === f.family" :style="{ fontFamily: FONT_FAMILIES[f.family] }" :data-testid="`font-family-${f.family}`" @click="pickFont(f.family)">
-              {{ f.label }}
-            </button>
+          <div class="opt-row">
+            <OptionRow name="Font family" :options="FONTS" :model-value="val('fontFamily')" @pick="(v) => ctl.setStyle({ fontFamily: v })" />
+            <Menu :items="moreFonts">
+              <template #default="{ open }">
+                <button type="button" class="opt" :class="{ on: open || !!customFont }" aria-haspopup="menu" :aria-expanded="open" :aria-label="customFont ? `Font: ${customFont.label}` : 'More fonts'"
+                        :title="customFont?.label ?? 'More fonts'" data-testid="font-family-more">
+                  <span v-if="customFont" class="aa" :style="{ fontFamily: FONT_FAMILIES[customFont.family] }">Aa</span>
+                  <Icon v-else name="more" :size="20" />
+                </button>
+              </template>
+            </Menu>
           </div>
         </section>
         <section v-if="has('fontSize')" data-testid="sec-fontSize">
@@ -271,12 +282,10 @@ const title = computed(() => (hasSel.value ? `${sel.value.count} selected` : TOO
         <template v-if="hasSel && !ctl.editingText.value">
           <section v-if="sel.count > 1" data-testid="sec-align">
             <label>Align</label>
-            <div class="opt-row">
-              <button v-for="a in ALIGN_ROWS" :key="a.mode" type="button" class="opt" :aria-label="a.label" :title="a.label" :data-testid="`align-${a.mode}`" @click="ctl.alignSelection(a.mode)"><Icon :name="a.icon" :size="20" /></button>
-              <template v-if="sel.count > 2">
-                <button type="button" class="opt" aria-label="Distribute horizontally" title="Distribute horizontally" data-testid="distribute-horizontal" @click="ctl.distributeSelection('horizontal')"><Icon name="distribute-x" :size="20" /></button>
-                <button type="button" class="opt" aria-label="Distribute vertically" title="Distribute vertically" data-testid="distribute-vertical" @click="ctl.distributeSelection('vertical')"><Icon name="distribute-y" :size="20" /></button>
-              </template>
+            <div v-for="row in ALIGN_ROWS" :key="row.axis" class="opt-row">
+              <button v-for="a in row.modes" :key="a.mode" type="button" class="opt" :aria-label="a.label" :title="a.label" :data-testid="`align-${a.mode}`" @click="ctl.alignSelection(a.mode)"><Icon :name="a.icon" :size="20" /></button>
+              <button v-if="sel.count > 2" type="button" class="opt" :aria-label="`Distribute ${row.axis}ly`" :title="`Distribute ${row.axis}ly`" :data-testid="`distribute-${row.axis}`"
+                      @click="ctl.distributeSelection(row.axis)"><Icon :name="row.distributeIcon" :size="20" /></button>
             </div>
           </section>
           <section data-testid="sec-layers">
@@ -312,15 +321,14 @@ const title = computed(() => (hasSel.value ? `${sel.value.count} selected` : TOO
 </template>
 
 <style scoped>
-.props { position: absolute; z-index: 21; display: flex; flex-direction: column; width: 232px; max-height: calc(100% - 140px); transition: top 0.28s ease, bottom 0.28s ease; }
-/* HUD hidden: the quick bar moves into the corner the toolbar left free */
-.props.top.docked { top: calc(8px + var(--safe-top)); }
-.props.bottom.docked { bottom: calc(8px + var(--safe-bottom)); }
-.props.top { left: calc(8px + var(--safe-left)); top: calc(60px + var(--safe-top)); }
-.props.bottom { left: calc(8px + var(--safe-left)); right: calc(8px + var(--safe-right)); bottom: calc(66px + var(--safe-bottom)); width: auto; max-height: 46vh; margin: 0 auto; max-width: 460px; }
+.props {
+  position: absolute; z-index: 21; display: flex; flex-direction: column; left: calc(8px + var(--safe-left)); right: calc(8px + var(--safe-right));
+  bottom: calc(66px + var(--safe-bottom)); max-height: 46vh; margin: 0 auto; max-width: 460px; transition: bottom 0.28s ease;
+}
+/* HUD hidden: the quick bar moves down into the place the toolbar left free */
+.props.docked { bottom: calc(8px + var(--safe-bottom)); }
 .props.zen { opacity: 0.96; }
-.props.compact { width: max-content; max-width: calc(100% - 16px); }
-.props.bottom.compact { left: 0; right: 0; margin: 0 auto; }
+.props.compact { width: max-content; max-width: calc(100% - 16px); left: 0; right: 0; }
 .quick { display: flex; align-items: center; gap: 6px; padding: 5px 6px; }
 .quick :deep(.opt-row) { flex-wrap: nowrap; gap: 2px; }
 .quick :deep(.opt) { width: 32px; height: 30px; background: transparent; }
@@ -329,8 +337,7 @@ const title = computed(() => (hasSel.value ? `${sel.value.count} selected` : TOO
 .head { display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 0 14px; min-height: 36px; }
 .head strong { font-size: 13px; }
 .mini { width: 32px; height: 32px; }
-.body { overflow-y: auto; padding: 2px 14px 12px; display: flex; flex-direction: column; gap: 10px; overscroll-behavior: contain; }
-.props.bottom .body { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px 16px; }
+.body { overflow-y: auto; padding: 2px 14px 12px; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px 16px; overscroll-behavior: contain; }
 section { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 section > label { font-size: 12.5px; font-weight: 600; color: var(--muted); display: flex; justify-content: space-between; }
 section > label b { color: var(--text); }
@@ -338,7 +345,7 @@ section > label b { color: var(--text); }
 .kinds { display: flex; gap: 4px; flex-wrap: wrap; }
 .opt-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .opt {
-  width: 40px; height: 38px; border-radius: var(--radius); border: 1px solid transparent; background: var(--surface-2); color: var(--text);
+  width: 36px; height: 34px; border-radius: var(--radius); border: 1px solid transparent; background: var(--surface-2); color: var(--text);
   display: inline-flex; align-items: center; justify-content: center; padding: 0;
 }
 .opt:hover { background: var(--surface-3); }
@@ -346,14 +353,10 @@ section > label b { color: var(--text); }
 .opt.danger { color: var(--danger); }
 .heads { display: flex; gap: 6px; }
 .head-list { display: flex; gap: 4px; flex-wrap: wrap; padding: 6px; border-radius: var(--radius); background: var(--surface-2); }
-.head-list .opt { background: var(--surface); width: 36px; }
-.font-btn { display: flex; align-items: center; justify-content: space-between; min-height: 38px; padding: 0 10px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface-2); font-size: 16px; }
-.font-list { display: flex; flex-direction: column; border-radius: var(--radius); background: var(--surface-2); padding: 4px; max-height: 240px; overflow: auto; }
-.font-item { text-align: left; border: 0; background: transparent; min-height: 36px; padding: 0 10px; border-radius: 6px; font-size: 17px; }
-.font-item:hover { background: var(--surface-3); }
-.font-item.on { background: var(--accent-soft); color: var(--accent-strong); }
+.head-list .opt { background: var(--surface); width: 32px; }
+.aa { font-size: 15px; line-height: 1; }
 .scale { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: -4px; }
 .check { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text) !important; font-weight: 500 !important; }
 .check input { width: 20px; height: 20px; accent-color: var(--accent); }
-.actions .btn { min-height: 38px; }
+.actions .btn { min-height: 34px; }
 </style>

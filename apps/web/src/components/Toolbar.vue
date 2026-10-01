@@ -5,7 +5,7 @@ import { NOTEBOOK_KEY, type NotebookController } from '../notebook'
 import { hasKeyboard } from '../services/input-mode'
 import Icon from './Icon.vue'
 
-const props = defineProps<{ placement: 'top' | 'bottom'; zen?: boolean; faded?: boolean }>()
+const props = defineProps<{ zen?: boolean; faded?: boolean }>()
 const emit = defineEmits<{ (e: 'wake'): void }>()
 const ctl = inject<NotebookController>(NOTEBOOK_KEY)!
 
@@ -42,7 +42,7 @@ function pick(t: Tool) {
 
 <template>
   <div
-    class="dock" :class="[props.placement, { zen, faded }]" data-testid="toolbar"
+    class="dock" :class="{ zen, faded }" data-testid="toolbar"
     @pointerenter="emit('wake')" @pointerdown="emit('wake')"
   >
     <div v-if="locked" class="bar panel floating readonly" role="status" data-testid="locked-bar">
@@ -74,17 +74,15 @@ function pick(t: Tool) {
 </template>
 
 <style scoped>
-.dock { position: absolute; left: 0; right: 0; margin: 0 auto; width: max-content; z-index: 20; display: flex; align-items: center; max-width: calc(100% - 16px); pointer-events: none; transition: opacity 0.35s; }
+.dock { position: absolute; left: 0; right: 0; bottom: calc(8px + var(--safe-bottom)); margin: 0 auto; width: max-content; z-index: 20; display: flex; align-items: center; max-width: calc(100% - 16px); pointer-events: none; transition: opacity 0.35s; }
 .dock > * { pointer-events: auto; }
-.dock.bottom { bottom: calc(8px + var(--safe-bottom)); }
-.dock.top { top: calc(8px + var(--safe-top)); }
 .dock.zen .bar { background: color-mix(in srgb, var(--surface) 80%, transparent); backdrop-filter: blur(8px); }
 .dock.faded { opacity: 0.18; }
 .bar { display: flex; align-items: center; gap: 1px; padding: 4px; overflow-x: auto; max-width: 100%; scrollbar-width: none; }
 .bar::-webkit-scrollbar { display: none; }
-.bar .icon-btn { width: 40px; height: 40px; }
+.bar .icon-btn { width: 40px; height: 40px; border-radius: 6px; }
 .bar .lock { width: 34px; }
-.key { position: absolute; right: 4px; bottom: 2px; font-size: 9px; line-height: 1; color: var(--muted); font-weight: 600; }
+.key { position: absolute; right: 4px; bottom: 2px; font-size: 9px; line-height: 1; color: var(--muted); font-weight: 600; opacity: 0.7; }
 .icon-btn.active .key { color: var(--accent-strong); }
 .sep { width: 1px; height: 24px; background: var(--border); margin: 0 3px; flex: none; }
 .readonly { gap: 8px; padding: 4px 6px 4px 12px; color: var(--muted); font-size: 13.5px; }
