@@ -23,7 +23,7 @@ import StyleGlyph from './StyleGlyph.vue'
  * Collapsed, it turns into a one-row "quick bar" (colours + widths) so colours can be switched while
  * taking notes without the full panel in the way.
  */
-const props = defineProps<{ placement: 'top' | 'bottom'; zen?: boolean; forceCompact?: boolean }>()
+const props = defineProps<{ placement: 'top' | 'bottom'; zen?: boolean; hudHidden?: boolean }>()
 const ctl = inject<NotebookController>(NOTEBOOK_KEY)!
 const ctx = computed(() => ctl.styleCtx.value)
 const sel = ctl.selection
@@ -47,7 +47,7 @@ const visible = computed(() => {
   return DRAW_TOOLS.includes(tool.value)
 })
 /** Zen mode only ever shows the quick bar for ink tools. */
-const compact = computed(() => collapsed.value || props.forceCompact || (!!props.zen && !hasSel.value))
+const compact = computed(() => collapsed.value || props.hudHidden || (!!props.zen && !hasSel.value))
 const has = (p: StyleProp) => !!ctx.value?.applicable.includes(p)
 const val = <P extends StyleProp>(p: P) => ctx.value?.values[p]
 const bg = computed(() => ctx.value?.canvasBackground ?? '#ffffff')
@@ -137,7 +137,7 @@ const title = computed(() => (hasSel.value ? `${sel.value.count} selected` : TOO
 
 <template>
   <div
-    v-if="visible" class="props panel floating" :class="[placement, { zen, compact }]" role="region" aria-label="Properties"
+    v-if="visible" class="props panel floating" :class="[placement, { zen, compact, docked: hudHidden }]" role="region" aria-label="Properties"
     data-testid="properties-panel" @pointerdown.stop
   >
     <!-- quick bar: colours and widths in one row -->
@@ -312,7 +312,10 @@ const title = computed(() => (hasSel.value ? `${sel.value.count} selected` : TOO
 </template>
 
 <style scoped>
-.props { position: absolute; z-index: 21; display: flex; flex-direction: column; width: 232px; max-height: calc(100% - 140px); }
+.props { position: absolute; z-index: 21; display: flex; flex-direction: column; width: 232px; max-height: calc(100% - 140px); transition: top 0.28s ease, bottom 0.28s ease; }
+/* HUD hidden: the quick bar moves into the corner the toolbar left free */
+.props.top.docked { top: calc(8px + var(--safe-top)); }
+.props.bottom.docked { bottom: calc(8px + var(--safe-bottom)); }
 .props.top { left: calc(8px + var(--safe-left)); top: calc(60px + var(--safe-top)); }
 .props.bottom { left: calc(8px + var(--safe-left)); right: calc(8px + var(--safe-right)); bottom: calc(66px + var(--safe-bottom)); width: auto; max-height: 46vh; margin: 0 auto; max-width: 460px; }
 .props.zen { opacity: 0.96; }

@@ -7,6 +7,7 @@ import { router } from './router'
 import { diagnostics, installGlobalErrorHandlers } from './services/diagnostics'
 import { whenFontsReady } from './services/fonts'
 import { initPwa } from './services/pwa'
+import { bindViewportSize } from './services/viewport'
 import './styles.css'
 
 installGlobalErrorHandlers()
@@ -16,6 +17,7 @@ app.config.errorHandler = (err, _inst, info) => diagnostics.log(`vue.${info}`, e
 app.use(router)
 app.mount('#app')
 
+bindViewportSize()
 void boot()
 initPwa()
 void whenFontsReady()
