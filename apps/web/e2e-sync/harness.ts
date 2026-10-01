@@ -45,14 +45,20 @@ export interface Stack {
   stop(): void
 }
 
-/** Build + start folio-server (dev auth, temp db/assets) and a preview of the web app pointing at it. */
+/**
+ * Build the web app and serve it from folio-server (dev auth, temp db/assets) on one origin,
+ * the same way the release image does: app at `/`, API under `/api`, `/config.json` from the server.
+ */
 export async function startStack(): Promise<Stack> {
   const dir = mkdtempSync(join(tmpdir(), 'folio-sync-e2e-'))
-  const apiPort = await freePort()
-  const webPort = await freePort()
-  const apiBase = `http://127.0.0.1:${apiPort}`
-  const webBase = `http://localhost:${webPort}`
+  const port = await freePort()
+  const webBase = `http://localhost:${port}`
+  const apiBase = `${webBase}/api`
   const children: ChildProcess[] = []
+
+  // Separate outDir so the regular `dist` (used by the main e2e suite) is untouched.
+  // No VITE_API_BASE: the app must pick the server up from /config.json.
+  run('pnpm', ['exec', 'vite', 'build', '--outDir', 'dist-sync', '--emptyOutDir'], webRoot, { VITE_API_BASE: '' })
 
   run('cargo', ['build', '--manifest-path', join(serverDir, 'Cargo.toml')], serverDir)
   const meta = spawnSync('cargo', ['metadata', '--format-version', '1', '--no-deps', '--manifest-path', join(serverDir, 'Cargo.toml')], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
@@ -63,25 +69,16 @@ export async function startStack(): Promise<Stack> {
     env: {
       ...process.env,
       FOLIO_AUTH_DEV: 'true',
-      FOLIO_BIND: `127.0.0.1:${apiPort}`,
+      FOLIO_BIND: `127.0.0.1:${port}`,
+      FOLIO_WEB_DIR: join(webRoot, 'dist-sync'),
       DATABASE_URL: `sqlite://${join(dir, 'folio.db')}`,
       FOLIO_ASSETS_DIR: join(dir, 'assets'),
-      FOLIO_CORS_ORIGINS: webBase,
       FOLIO_LOG: 'warn',
     },
   })
   children.push(server)
 
-  // Separate outDir so the regular `dist` (used by the main e2e suite) is untouched.
-  run('pnpm', ['exec', 'vite', 'build', '--outDir', 'dist-sync', '--emptyOutDir'], webRoot, { VITE_API_BASE: apiBase })
-  const web = spawn(join(webRoot, 'node_modules/.bin/vite'), ['preview', '--outDir', 'dist-sync', '--port', String(webPort), '--strictPort', '--host', 'localhost'], {
-    cwd: webRoot,
-    stdio: 'inherit',
-  })
-  children.push(web)
-
   await waitFor(`${apiBase}/health`)
-  await waitFor(webBase)
   return {
     apiBase,
     webBase,

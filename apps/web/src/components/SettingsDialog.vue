@@ -4,12 +4,12 @@ import { requireServices } from '../app'
 import { exportDiagnostics } from '../services/diagnostics'
 import { offlineReady } from '../services/pwa'
 import { settings, toggleZen } from '../services/settings'
-import { API_BASE } from '../services/sync'
 import AccountPanel from './AccountPanel.vue'
 import Modal from './Modal.vue'
 
 defineEmits<{ (e: 'close'): void }>()
 const svc = requireServices()
+const version = import.meta.env.VITE_FOLIO_VERSION || 'dev'
 
 /** Only languages whose Tesseract data ships with the app work offline. */
 const LANGS = [{ code: 'en', label: 'English' }, { code: 'de', label: 'Deutsch' }]
@@ -21,7 +21,7 @@ function toggleLang(code: string) {
 }
 
 const cloudDisabledReason = computed(() => {
-  if (!API_BASE) return 'Needs a folio server.'
+  if (!svc.sync.available) return 'Needs a folio server.'
   if (!svc.auth.signedIn.value) return 'Sign in to enable.'
   return ''
 })
@@ -132,6 +132,7 @@ const cloudDisabledReason = computed(() => {
       </p>
       <button class="btn" @click="exportDiagnostics({ storage: svc.storageKind })">Export diagnostics</button>
       <span class="muted hint"> Error messages only, never notebook content.</span>
+      <p class="muted hint version">folio {{ version }}</p>
     </section>
   </Modal>
 </template>
@@ -147,5 +148,6 @@ h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: 
 kbd { font: inherit; font-size: 12px; padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface-2); }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .line { margin: 0 0 10px; }
+.version { margin: 12px 0 0; }
 @media (max-width: 480px) { .two { grid-template-columns: 1fr; } }
 </style>

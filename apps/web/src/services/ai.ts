@@ -4,7 +4,7 @@ import {
 } from '@folio/document'
 import type { Editor } from '@folio/editor'
 import type { AuthService } from './auth'
-import { API_BASE } from './sync'
+import { runtimeConfig } from './runtime-config'
 import type { NotebookSession } from './workspace'
 
 export type AiKind = 'page' | 'lecture' | 'outline' | 'flashcards' | 'questions' | 'ask'
@@ -23,7 +23,7 @@ export class AiError extends Error {
 
 /** Why AI is unavailable right now, or null when it can be used. */
 export function aiDisabledReason(auth: Pick<AuthService, 'signedIn' | 'online'>): string | null {
-  if (!API_BASE) return 'AI needs a folio server. Set VITE_API_BASE to enable it.'
+  if (!runtimeConfig.apiBase) return 'AI needs a folio server.'
   if (!auth.online.value) return 'AI needs an internet connection.'
   if (!auth.signedIn.value) return 'Create an account and sign in to use AI features.'
   return null
@@ -45,7 +45,7 @@ async function post<T>(auth: AuthService, path: string, body: unknown): Promise<
   const token = await auth.getToken()
   let res: Response
   try {
-    res = await fetch(`${API_BASE}${path}`, {
+    res = await fetch(`${runtimeConfig.apiBase}${path}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify(body),

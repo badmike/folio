@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { requireServices } from '../app'
-import { API_BASE } from '../services/sync'
 import Icon from './Icon.vue'
 
 const { auth, sync } = requireServices()
 const user = auth.user
+const accountsAvailable = auth.configured && sync.available
 const status = computed(() => sync.status.value)
 const label = computed(() => {
   switch (sync.uiState.value) {
@@ -36,10 +36,10 @@ const label = computed(() => {
     </template>
     <template v-else>
       <p class="muted">folio works fully without an account. Create an account to sync your notebooks between devices and use AI features.</p>
-      <button class="btn primary" :disabled="!auth.configured || !API_BASE" @click="auth.signIn()">
+      <button class="btn primary" :disabled="!accountsAvailable" @click="auth.signIn()">
         <Icon name="user" :size="18" /> Create account to sync
       </button>
-      <p v-if="!auth.configured || !API_BASE" class="muted small">Accounts are not configured in this build (VITE_CLERK_PUBLISHABLE_KEY / VITE_API_BASE).</p>
+      <p v-if="!accountsAvailable" class="muted small">Accounts are not set up for this folio installation.</p>
     </template>
   </div>
 </template>

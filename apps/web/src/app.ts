@@ -5,7 +5,8 @@ import { diagnostics } from './services/diagnostics'
 import { RecognitionService } from './services/recognition'
 import { thumbnailDataUrl } from './services/export'
 import { bindSettings, settings } from './services/settings'
-import { API_BASE, SyncService } from './services/sync'
+import { loadRuntimeConfig, runtimeConfig } from './services/runtime-config'
+import { SyncService } from './services/sync'
 import { Workspace } from './services/workspace'
 
 export type BootState = 'booting' | 'ready' | 'locked' | 'error'
@@ -36,8 +37,9 @@ export async function createServices(storage: Storage): Promise<AppServices> {
   const workspace = await Workspace.open(storage, diagnostics)
   const auth = new AuthService()
   const sync = new SyncService(workspace, auth)
+  const { apiBase } = runtimeConfig
   const recognition = new RecognitionService(
-    API_BASE ? { apiBase: API_BASE, getToken: () => auth.getToken(), isSignedIn: () => auth.signedIn.value } : undefined,
+    apiBase ? { apiBase, getToken: () => auth.getToken(), isSignedIn: () => auth.signedIn.value } : undefined,
   )
   return { storage, storageKind: storage.kind, workspace, auth, sync, recognition }
 }
@@ -59,7 +61,7 @@ let booting: Promise<void> | null = null
 export function boot(): Promise<void> {
   booting ??= (async () => {
     try {
-      const opened = await openStorage({ diagnostics })
+      const [opened] = await Promise.all([openStorage({ diagnostics }), loadRuntimeConfig()])
       const s = await createServices(opened.storage)
       const welcome = await s.workspace.ensureFirstRun()
       services.value = s

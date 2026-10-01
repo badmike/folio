@@ -2,9 +2,8 @@ import { SyncApi, SyncEngine, type SyncStatus } from '@folio/sync'
 import { ref, shallowRef, watch } from 'vue'
 import type { AuthService } from './auth'
 import { diagnostics } from './diagnostics'
+import { runtimeConfig } from './runtime-config'
 import { WORKSPACE_DOC_ID, type Workspace } from './workspace'
-
-export const API_BASE: string = (import.meta.env.VITE_API_BASE ?? '').replace(/\/+$/, '')
 
 export type SyncUiState = SyncStatus['state'] | 'local'
 
@@ -22,7 +21,7 @@ export class SyncService {
 
   constructor(private readonly ws: Workspace, private readonly auth: AuthService) {}
 
-  get available(): boolean { return !!API_BASE }
+  get available(): boolean { return !!runtimeConfig.apiBase }
 
   /** Start/stop automatically as the account signs in/out. */
   init(): () => void {
@@ -34,9 +33,10 @@ export class SyncService {
   }
 
   private async start(): Promise<void> {
-    if (!API_BASE || this.engine) return
+    const apiBase = runtimeConfig.apiBase
+    if (!apiBase || this.engine) return
     const ws = this.ws
-    const api = new SyncApi({ baseUrl: API_BASE, getToken: () => this.auth.getToken() })
+    const api = new SyncApi({ baseUrl: apiBase, getToken: () => this.auth.getToken() })
     const engine = new SyncEngine({
       api,
       storage: ws.storage,

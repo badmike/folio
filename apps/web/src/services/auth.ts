@@ -1,5 +1,6 @@
 import { computed, ref, shallowRef } from 'vue'
 import { diagnostics } from './diagnostics'
+import { runtimeConfig } from './runtime-config'
 
 export interface AuthUser {
   id: string
@@ -42,7 +43,7 @@ function readDevToken(): string | null {
 
 /**
  * Account handling. Clerk is loaded at runtime from its CDN (no npm dependency) and only
- * when VITE_CLERK_PUBLISHABLE_KEY is set. The app is fully usable without an account.
+ * when a Clerk publishable key is configured (see runtime-config.ts). The app is fully usable without an account.
  * For local testing against folio-server with FOLIO_AUTH_DEV, set
  * `localStorage['folio.devToken'] = 'dev:<user-id>'`.
  */
@@ -55,7 +56,7 @@ export class AuthService {
   readonly online = ref(typeof navigator === 'undefined' ? true : navigator.onLine !== false)
   private devToken: string | null
 
-  constructor(private readonly publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY ?? '') {
+  constructor(private readonly publishableKey = runtimeConfig.clerkPublishableKey) {
     this.devToken = readDevToken()
     this.configured = !!this.publishableKey && !!clerkFrontendApi(this.publishableKey)
     if (this.devToken) this.user.value = { id: this.devToken, name: 'Dev user' }
