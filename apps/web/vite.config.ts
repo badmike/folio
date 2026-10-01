@@ -83,7 +83,7 @@ export default defineConfig({
   worker: { format: 'es' },
   build: { target: 'es2022', sourcemap: false },
   server: {
-    proxy: { '/api': { target: 'http://localhost:8989', changeOrigin: true, rewrite: (p) => p.replace(/^\/api/, '') } },
+    proxy: { '/api': { target: 'http://localhost:8989', changeOrigin: true } },
   },
   preview: { port: 4173 },
 })

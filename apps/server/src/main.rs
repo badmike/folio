@@ -43,6 +43,15 @@ async fn main() -> anyhow::Result<()> {
         tracing::warn!("CLERK_ISSUER not set: token issuer is not validated");
     }
 
+    if let Some(dir) = &config.web_dir {
+        anyhow::ensure!(
+            dir.join("index.html").is_file(),
+            "FOLIO_WEB_DIR {} has no index.html",
+            dir.display()
+        );
+        tracing::info!(dir = %dir.display(), "serving the web app");
+    }
+
     let pool = db::connect(&config.database_url).await?;
     let store = storage::build(&config.storage)?;
     let ai: Arc<dyn AiProvider> = match &config.openrouter_api_key {
@@ -53,7 +62,7 @@ async fn main() -> anyhow::Result<()> {
             config.ai_vision_model.clone(),
         )),
         None => {
-            tracing::warn!("OPENROUTER_API_KEY not set: /ai/* endpoints will answer 503");
+            tracing::warn!("OPENROUTER_API_KEY not set: /api/ai/* endpoints will answer 503");
             Arc::new(DisabledProvider)
         }
     };
@@ -62,7 +71,7 @@ async fn main() -> anyhow::Result<()> {
     let state = AppState::new(pool, config, store, ai, jwks);
 
     let listener = tokio::net::TcpListener::bind(bind).await?;
-    tracing::info!(addr = %bind, version = env!("CARGO_PKG_VERSION"), "folio-server listening");
+    tracing::info!(addr = %bind, version = folio_server::VERSION, "folio-server listening");
     axum::serve(listener, build_router(state))
         .with_graceful_shutdown(shutdown_signal())
         .await?;

@@ -10,6 +10,7 @@ pub mod routes;
 pub mod state;
 pub mod storage;
 pub mod util;
+pub mod web;
 
 use std::time::Duration;
 
@@ -28,21 +29,28 @@ use tower_http::trace::TraceLayer;
 
 pub use state::AppState;
 
+/// Release version (`FOLIO_VERSION` at build time, e.g. `26.10.1-8e5921d`), else the crate version.
+pub const VERSION: &str = match option_env!("FOLIO_VERSION") {
+    Some(v) => v,
+    None => env!("CARGO_PKG_VERSION"),
+};
+
 async fn health() -> Json<Value> {
-    Json(json!({ "status": "ok", "version": env!("CARGO_PKG_VERSION") }))
+    Json(json!({ "status": "ok", "version": VERSION }))
 }
 
 async fn fallback() -> error::AppError {
     error::AppError::NotFound("no such route".into())
 }
 
+/// API under `/api`, `/health` at the root, and the web app (if configured) everywhere else.
 pub fn build_router(state: AppState) -> Router {
     let cfg = state.config.clone();
     // Base64 inflates by 4/3; leave room for JSON framing.
     let sync_limit = cfg.max_update_bytes.max(cfg.max_asset_bytes) / 3 * 4 + 64 * 1024;
     let x_request_id = HeaderName::from_static("x-request-id");
 
-    let mut app = Router::new()
+    let api = Router::new()
         .route("/health", get(health))
         .route(
             "/sync/push",
@@ -75,7 +83,15 @@ pub fn build_router(state: AppState) -> Router {
             post(routes::ai::ask).layer(DefaultBodyLimit::max(2 * 1024 * 1024)),
         )
         .fallback(fallback)
-        .with_state(state);
+        .with_state(state.clone());
+
+    let mut app = Router::new()
+        .route("/health", get(health))
+        .nest("/api", api);
+    app = match &cfg.web_dir {
+        Some(dir) => app.fallback_service(web::router(state, dir)),
+        None => app.fallback(fallback),
+    };
 
     if !cfg.cors_origins.is_empty() {
         let origin = if cfg.cors_origins.iter().any(|o| o == "*") {

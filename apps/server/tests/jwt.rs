@@ -88,7 +88,7 @@ async fn app_with(
 }
 
 async fn status(app: &TestApp, tok: &str) -> StatusCode {
-    app.json("GET", "/sync/docs", Some(tok), None).await.0
+    app.json("GET", "/api/sync/docs", Some(tok), None).await.0
 }
 
 #[tokio::test]

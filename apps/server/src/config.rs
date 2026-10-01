@@ -28,7 +28,11 @@ pub struct Config {
     pub clerk_issuer: Option<String>,
     /// Optional allow-list for the `azp` claim (comma separated origins).
     pub clerk_authorized_parties: Vec<String>,
+    /// Handed to the web app via `/config.json` so it can load Clerk.
+    pub clerk_publishable_key: Option<String>,
     pub auth_dev: bool,
+    /// Built web app to serve at `/` (with the API under `/api`). `None` = API only.
+    pub web_dir: Option<PathBuf>,
     pub storage: StorageConfig,
     pub openrouter_api_key: Option<String>,
     pub openrouter_base_url: String,
@@ -112,6 +116,8 @@ impl Config {
             clerk_jwks_url,
             clerk_issuer,
             clerk_authorized_parties: list("FOLIO_CLERK_AUTHORIZED_PARTIES"),
+            clerk_publishable_key: get("FOLIO_CLERK_PUBLISHABLE_KEY"),
+            web_dir: get("FOLIO_WEB_DIR").map(PathBuf::from),
             auth_dev: get("FOLIO_AUTH_DEV")
                 .map(|s| matches!(s.as_str(), "true" | "1" | "yes"))
                 .unwrap_or(false),

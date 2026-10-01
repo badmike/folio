@@ -1,6 +1,7 @@
 mod common;
 
-use axum::http::StatusCode;
+use axum::body::Body;
+use axum::http::{Request, StatusCode};
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use common::{dev, TestApp};
 use serde_json::{json, Value};
@@ -9,7 +10,7 @@ async fn push(app: &TestApp, user: &str, doc: &str, data: &[u8]) -> i64 {
     let (s, v) = app
         .json(
             "POST",
-            "/sync/push",
+            "/api/sync/push",
             Some(&dev(user)),
             Some(json!({"docId": doc, "deviceId": "d1", "update": B64.encode(data)})),
         )
@@ -20,7 +21,12 @@ async fn push(app: &TestApp, user: &str, doc: &str, data: &[u8]) -> i64 {
 
 async fn pull(app: &TestApp, user: &str, q: &str) -> Value {
     let (s, v) = app
-        .json("GET", &format!("/sync/pull?{q}"), Some(&dev(user)), None)
+        .json(
+            "GET",
+            &format!("/api/sync/pull?{q}"),
+            Some(&dev(user)),
+            None,
+        )
         .await;
     assert_eq!(s, StatusCode::OK, "{v}");
     v
@@ -45,16 +51,52 @@ async fn health_is_public() {
 }
 
 #[tokio::test]
+async fn serves_web_app_and_runtime_config() {
+    let web = tempfile::tempdir().unwrap();
+    std::fs::write(web.path().join("index.html"), "<!doctype html>folio").unwrap();
+    std::fs::create_dir(web.path().join("assets")).unwrap();
+    std::fs::write(web.path().join("assets/app-abc.js"), "1").unwrap();
+    let dir = web.path().to_path_buf();
+    let app = TestApp::with(|c| {
+        c.web_dir = Some(dir);
+        c.clerk_publishable_key = Some("pk_test_x".into());
+    })
+    .await;
+
+    let (s, v) = app.json("GET", "/config.json", None, None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["apiBase"], "/api");
+    assert_eq!(v["clerkPublishableKey"], "pk_test_x");
+
+    let get = |uri: &str| Request::builder().uri(uri).body(Body::empty()).unwrap();
+    let (s, h, body) = app.send(get("/notebook/123")).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(body, b"<!doctype html>folio");
+    assert_eq!(h["cache-control"], "no-cache");
+
+    let (s, h, _) = app.send(get("/assets/app-abc.js")).await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(h["cache-control"].to_str().unwrap().contains("immutable"));
+
+    // unknown API routes stay JSON 404s instead of falling through to the app
+    let (s, v) = app.json("GET", "/api/nope", None, None).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    assert_eq!(v["error"], "not_found");
+}
+
+#[tokio::test]
 async fn rejects_missing_or_bad_auth() {
     let app = TestApp::new().await;
-    let (s, v) = app.json("GET", "/sync/docs", None, None).await;
+    let (s, v) = app.json("GET", "/api/sync/docs", None, None).await;
     assert_eq!(s, StatusCode::UNAUTHORIZED);
     assert_eq!(v["error"], "unauthorized");
     assert!(v["message"].is_string());
-    let (s, _) = app.json("GET", "/sync/docs", Some("garbage"), None).await;
+    let (s, _) = app
+        .json("GET", "/api/sync/docs", Some("garbage"), None)
+        .await;
     assert_eq!(s, StatusCode::UNAUTHORIZED);
     let (s, _) = app
-        .json("GET", "/sync/docs", Some("dev:bad user!"), None)
+        .json("GET", "/api/sync/docs", Some("dev:bad user!"), None)
         .await;
     assert_eq!(s, StatusCode::UNAUTHORIZED);
 }
@@ -62,7 +104,9 @@ async fn rejects_missing_or_bad_auth() {
 #[tokio::test]
 async fn dev_tokens_rejected_when_dev_auth_off() {
     let app = TestApp::with(|c| c.auth_dev = false).await;
-    let (s, _) = app.json("GET", "/sync/docs", Some("dev:alice"), None).await;
+    let (s, _) = app
+        .json("GET", "/api/sync/docs", Some("dev:alice"), None)
+        .await;
     assert_eq!(s, StatusCode::UNAUTHORIZED);
 }
 
@@ -114,7 +158,7 @@ async fn docs_list_and_devices() {
     push(&app, "alice", "nb-1", b"b").await;
     push(&app, "bob", "nb-bob", b"c").await;
     let (s, v) = app
-        .json("GET", "/sync/docs", Some(&dev("alice")), None)
+        .json("GET", "/api/sync/docs", Some(&dev("alice")), None)
         .await;
     assert_eq!(s, StatusCode::OK);
     let mut ids: Vec<String> = v
@@ -131,7 +175,7 @@ async fn docs_list_and_devices() {
     let (s, _) = app
         .json(
             "POST",
-            "/devices",
+            "/api/devices",
             Some(&dev("alice")),
             Some(json!({"deviceId":"d1","name":"iPad"})),
         )
@@ -140,7 +184,7 @@ async fn docs_list_and_devices() {
     let (s, _) = app
         .json(
             "POST",
-            "/devices",
+            "/api/devices",
             Some(&dev("alice")),
             Some(json!({"deviceId":"d1","name":"iPad Pro"})),
         )
@@ -149,7 +193,7 @@ async fn docs_list_and_devices() {
     let (s, _) = app
         .json(
             "POST",
-            "/devices",
+            "/api/devices",
             Some(&dev("alice")),
             Some(json!({"deviceId":"","name":"x"})),
         )
@@ -169,7 +213,7 @@ async fn users_are_isolated() {
     let (s, _) = app
         .json(
             "POST",
-            "/sync/compact",
+            "/api/sync/compact",
             Some(&dev("bob")),
             Some(json!({"docId":"workspace","uptoSeq":1,"snapshot":B64.encode(b"x")})),
         )
@@ -182,7 +226,7 @@ async fn users_are_isolated() {
     let (s, _, b) = app
         .raw(
             "POST",
-            "/assets?id=pic1",
+            "/api/assets?id=pic1",
             &dev("alice"),
             "image/png",
             vec![1, 2, 3],
@@ -190,18 +234,18 @@ async fn users_are_isolated() {
         .await;
     assert_eq!(s, StatusCode::OK, "{}", String::from_utf8_lossy(&b));
     let (s, _, _) = app
-        .raw("GET", "/assets/pic1", &dev("bob"), "x/y", vec![])
+        .raw("GET", "/api/assets/pic1", &dev("bob"), "x/y", vec![])
         .await;
     assert_eq!(s, StatusCode::NOT_FOUND);
     let (s, _, _) = app
-        .raw("GET", "/assets/pic1", &dev("alice"), "x/y", vec![])
+        .raw("GET", "/api/assets/pic1", &dev("alice"), "x/y", vec![])
         .await;
     assert_eq!(s, StatusCode::OK);
     // Same client asset id for another user is a different asset.
     let (s, _, _) = app
         .raw(
             "POST",
-            "/assets?id=pic1",
+            "/api/assets?id=pic1",
             &dev("bob"),
             "image/jpeg",
             vec![9, 9],
@@ -209,7 +253,7 @@ async fn users_are_isolated() {
         .await;
     assert_eq!(s, StatusCode::OK);
     let (_, h, b) = app
-        .raw("GET", "/assets/pic1", &dev("alice"), "x/y", vec![])
+        .raw("GET", "/api/assets/pic1", &dev("alice"), "x/y", vec![])
         .await;
     assert_eq!(b, vec![1, 2, 3]);
     assert_eq!(h["content-type"], "image/png");
@@ -225,7 +269,7 @@ async fn compaction_returns_snapshot_then_later_updates() {
     let (s, v) = app
         .json(
             "POST",
-            "/sync/compact",
+            "/api/sync/compact",
             Some(&dev("alice")),
             Some(json!({"docId":"nb","uptoSeq":s2,"snapshot":B64.encode(b"SNAP12")})),
         )
@@ -256,7 +300,7 @@ async fn compaction_returns_snapshot_then_later_updates() {
     let (s, _) = app
         .json(
             "POST",
-            "/sync/compact",
+            "/api/sync/compact",
             Some(&dev("alice")),
             Some(json!({"docId":"nb","uptoSeq":s2,"snapshot":B64.encode(b"x")})),
         )
@@ -265,7 +309,7 @@ async fn compaction_returns_snapshot_then_later_updates() {
     let (s, _) = app
         .json(
             "POST",
-            "/sync/compact",
+            "/api/sync/compact",
             Some(&dev("alice")),
             Some(json!({"docId":"nb","uptoSeq":s4+100,"snapshot":B64.encode(b"x")})),
         )
@@ -276,7 +320,7 @@ async fn compaction_returns_snapshot_then_later_updates() {
     let (s, _) = app
         .json(
             "POST",
-            "/sync/compact",
+            "/api/sync/compact",
             Some(&dev("alice")),
             Some(json!({"docId":"nb","uptoSeq":s4,"snapshot":B64.encode(b"SNAP-ALL")})),
         )
@@ -299,7 +343,7 @@ async fn validation_and_limits() {
     let (s, v) = app
         .json(
             "POST",
-            "/sync/push",
+            "/api/sync/push",
             Some(&t),
             Some(json!({"docId":"w","deviceId":"d","update":big})),
         )
@@ -309,7 +353,9 @@ async fn validation_and_limits() {
 
     // Very large raw body also maps to a JSON 413.
     let huge = json!({"docId":"w","deviceId":"d","update":"A".repeat(200_000)});
-    let (s, v) = app.json("POST", "/sync/push", Some(&t), Some(huge)).await;
+    let (s, v) = app
+        .json("POST", "/api/sync/push", Some(&t), Some(huge))
+        .await;
     assert_eq!(s, StatusCode::PAYLOAD_TOO_LARGE);
     assert_eq!(v["error"], "payload_too_large");
 
@@ -322,7 +368,7 @@ async fn validation_and_limits() {
         let (s, _) = app
             .json(
                 "POST",
-                "/sync/push",
+                "/api/sync/push",
                 Some(&t),
                 Some(json!({"docId":doc,"deviceId":dev_id,"update":upd})),
             )
@@ -330,11 +376,11 @@ async fn validation_and_limits() {
         assert_eq!(s, StatusCode::BAD_REQUEST, "{doc:?} {upd:?}");
     }
     let (s, _) = app
-        .json("POST", "/sync/push", Some(&t), Some(json!({"nope": 1})))
+        .json("POST", "/api/sync/push", Some(&t), Some(json!({"nope": 1})))
         .await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
     let (s, _) = app
-        .json("GET", "/sync/pull?docId=a%2Fb", Some(&t), None)
+        .json("GET", "/api/sync/pull?docId=a%2Fb", Some(&t), None)
         .await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
 }
@@ -348,7 +394,7 @@ async fn push_rate_limit() {
     let (s, v) = app
         .json(
             "POST",
-            "/sync/push",
+            "/api/sync/push",
             Some(&dev("alice")),
             Some(json!({"docId":"w","deviceId":"d","update":B64.encode(b"x")})),
         )
@@ -364,13 +410,13 @@ async fn asset_limits_and_headers() {
     let app = TestApp::with(|c| c.max_asset_bytes = 1000).await;
     let t = dev("alice");
     let (s, _, _) = app
-        .raw("POST", "/assets", &t, "image/png", vec![0; 2000])
+        .raw("POST", "/api/assets", &t, "image/png", vec![0; 2000])
         .await;
     assert_eq!(s, StatusCode::PAYLOAD_TOO_LARGE);
     let (s, _, body) = app
         .raw(
             "POST",
-            "/assets",
+            "/api/assets",
             &t,
             "text/html; charset=utf-8",
             b"<script>1</script>".to_vec(),
@@ -382,7 +428,7 @@ async fn asset_limits_and_headers() {
         .unwrap()
         .to_string();
     let (s, h, b) = app
-        .raw("GET", &format!("/assets/{id}"), &t, "x/y", vec![])
+        .raw("GET", &format!("/api/assets/{id}"), &t, "x/y", vec![])
         .await;
     assert_eq!(s, StatusCode::OK);
     assert_eq!(b, b"<script>1</script>");
@@ -392,10 +438,12 @@ async fn asset_limits_and_headers() {
         .to_str()
         .unwrap()
         .contains("sandbox"));
-    let (s, _, _) = app.raw("GET", "/assets/missing", &t, "x/y", vec![]).await;
+    let (s, _, _) = app
+        .raw("GET", "/api/assets/missing", &t, "x/y", vec![])
+        .await;
     assert_eq!(s, StatusCode::NOT_FOUND);
     let (s, _, _) = app
-        .raw("POST", "/assets?id=..%2Fx", &t, "image/png", vec![1])
+        .raw("POST", "/api/assets?id=..%2Fx", &t, "image/png", vec![1])
         .await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
 }
@@ -412,7 +460,7 @@ async fn ai_endpoints_with_mock() {
     let (s, v) = app
         .json(
             "POST",
-            "/ai/recognize",
+            "/api/ai/recognize",
             Some(&t),
             Some(json!({"image": png_b64(), "languages": ["de","en"], "hint": "Physik"})),
         )
@@ -431,7 +479,7 @@ async fn ai_endpoints_with_mock() {
     let (s, v) = app
         .json(
             "POST",
-            "/ai/summarize",
+            "/api/ai/summarize",
             Some(&t),
             Some(json!({"context":"Heading: X\nText: y","kind":"flashcards"})),
         )
@@ -446,7 +494,7 @@ async fn ai_endpoints_with_mock() {
     let (s, v) = app
         .json(
             "POST",
-            "/ai/ask",
+            "/api/ai/ask",
             Some(&t),
             Some(json!({"question":"What?","context":"ctx"})),
         )
@@ -458,7 +506,7 @@ async fn ai_endpoints_with_mock() {
     let (s, _) = app
         .json(
             "POST",
-            "/ai/summarize",
+            "/api/ai/summarize",
             Some(&t),
             Some(json!({"context":"x","kind":"poem"})),
         )
@@ -467,14 +515,19 @@ async fn ai_endpoints_with_mock() {
     let (s, _) = app
         .json(
             "POST",
-            "/ai/recognize",
+            "/api/ai/recognize",
             Some(&t),
             Some(json!({"image": B64.encode(b"not a png")})),
         )
         .await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
     let (s, _) = app
-        .json("POST", "/ai/ask", None, Some(json!({"question":"What?"})))
+        .json(
+            "POST",
+            "/api/ai/ask",
+            None,
+            Some(json!({"question":"What?"})),
+        )
         .await;
     assert_eq!(s, StatusCode::UNAUTHORIZED);
 
@@ -495,7 +548,7 @@ async fn ai_failure_does_not_consume_quota() {
     let (s, v) = app
         .json(
             "POST",
-            "/ai/ask",
+            "/api/ai/ask",
             Some(&dev("alice")),
             Some(json!({"question":"q"})),
         )
@@ -521,7 +574,7 @@ async fn ai_quota_exhaustion() {
         let (s, _) = app
             .json(
                 "POST",
-                "/ai/ask",
+                "/api/ai/ask",
                 Some(&dev("alice")),
                 Some(json!({"question":"q"})),
             )
@@ -531,7 +584,7 @@ async fn ai_quota_exhaustion() {
     let (s, v) = app
         .json(
             "POST",
-            "/ai/ask",
+            "/api/ai/ask",
             Some(&dev("alice")),
             Some(json!({"question":"q"})),
         )
@@ -542,7 +595,7 @@ async fn ai_quota_exhaustion() {
     let (s, _) = app
         .json(
             "POST",
-            "/ai/ask",
+            "/api/ai/ask",
             Some(&dev("bob")),
             Some(json!({"question":"q"})),
         )
@@ -561,7 +614,7 @@ async fn ai_disabled_returns_503() {
     let (s, v) = app
         .json(
             "POST",
-            "/ai/ask",
+            "/api/ai/ask",
             Some(&dev("alice")),
             Some(json!({"question":"q"})),
         )
@@ -592,7 +645,7 @@ async fn cors_preflight_allows_configured_origin_only() {
     let preflight = |origin: &str| {
         Request::builder()
             .method("OPTIONS")
-            .uri("/sync/push")
+            .uri("/api/sync/push")
             .header("origin", origin)
             .header("access-control-request-method", "POST")
             .header(
