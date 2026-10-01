@@ -1,24 +1,21 @@
 # folio
 
-Offline-first, semantic infinite-canvas notebook for iPad + Apple Pencil — by **Coder's Cantina**
-(`com.coderscantina.folio`).
-
-> Ink is the input method. Structured, machine-readable knowledge is the underlying product.
+Offline-first, semantic infinite-canvas notebook for iPad + Apple Pencil — by **Coder's Cantina**.
 
 See [`docs/requirements.md`](docs/requirements.md) and [`docs/architecture.md`](docs/architecture.md).
 
 ## Monorepo
 
-| Path | Purpose |
-|---|---|
-| `apps/web` | Vue 3 + Vite PWA shell (library, toolbar, dialogs, settings) |
-| `apps/server` | Rust (Axum/Tokio/SQLx) sync, assets & AI gateway |
-| `packages/document` | Semantic document model, Loro CRDT, operations, Markdown & `.folio` format |
-| `packages/editor` | Framework-independent editor core (camera, tools, selection, undo, spatial index) |
-| `packages/renderer` | WebGL retained renderer, Canvas2D live ink + fallback, rough styling |
-| `packages/recognition` | Stroke grouping, shape & handwriting recognition (Web Worker) |
-| `packages/persistence` | SQLite-WASM + OPFS storage, operation journal, FTS search |
-| `packages/sync` | Client-side CRDT replication |
+| Path                   | Purpose                                                                           |
+| ---------------------- | --------------------------------------------------------------------------------- |
+| `apps/web`             | Vue 3 + Vite PWA shell (library, toolbar, dialogs, settings)                      |
+| `apps/server`          | Rust (Axum/Tokio/SQLx) sync, assets & AI gateway                                  |
+| `packages/document`    | Semantic document model, Loro CRDT, operations, Markdown & `.folio` format        |
+| `packages/editor`      | Framework-independent editor core (camera, tools, selection, undo, spatial index) |
+| `packages/renderer`    | WebGL retained renderer, Canvas2D live ink + fallback, rough styling              |
+| `packages/recognition` | Stroke grouping, shape & handwriting recognition (Web Worker)                     |
+| `packages/persistence` | SQLite-WASM + OPFS storage, operation journal, FTS search                         |
+| `packages/sync`        | Client-side CRDT replication                                                      |
 
 ## Development
 
@@ -36,7 +33,7 @@ pnpm server       # Rust API on http://localhost:8787
 
 ```sh
 pnpm install
-pnpm --filter @folio/web dev          # dev server (proxies /api -> http://localhost:8787)
+pnpm --filter @folio/web dev          # dev server (proxies /api -> http://localhost:8989)
 pnpm --filter @folio/web build        # vue-tsc + vite build (service worker precaches app + OCR assets)
 pnpm --filter @folio/web preview      # http://localhost:4173
 pnpm --filter @folio/web test         # unit + component tests
@@ -48,6 +45,7 @@ pnpm --filter @folio/web exec playwright test   # e2e against the preview build 
 **Keyboard shortcuts** follow Excalidraw (press `?` in a notebook for the full list): `V` select, `H` hand, `R` rectangle, `D` diamond, `O` ellipse, `A` arrow, `L` line, `P` pen, `T` text, `E` eraser, `F` frame, `M` highlighter, `X` blur, `Q` tool lock, `⌘Z`/`⌘⇧Z` undo/redo, `⌘D` duplicate, `⌘G` group, `⌘[`/`⌘]` layer order, `⌘⇧arrows` align, `⌘+`/`⌘-`/`⌘0` zoom, `Shift+1` fit.
 
 **Environment (optional, `apps/web/.env.local`):**
+
 - `VITE_API_BASE` — folio-server URL (e.g. `/api` in dev, or `https://api.example.com`). Empty = local only.
 - `VITE_CLERK_PUBLISHABLE_KEY` — enables account sign-in (Clerk loaded at runtime).
 
