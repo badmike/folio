@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import rough from 'roughjs'
+import { catmullRom, catmullRomSvg } from '../src/geometry/curves'
 import { strokeOutline, triangulate, freehandOptions } from '../src/geometry/ink'
 import { buildArrowGeometry, buildShapeGeometry, opsetToPolylines } from '../src/geometry/rough'
 import { MeshBuilder, addPolyline, addPolygon, buildInkMesh, buildShapeMesh, buildArrowMesh, VERTEX_FLOATS } from '../src/geometry/mesh'
@@ -151,6 +153,56 @@ describe('rough geometry', () => {
     const tip = one.strokes[1][1]
     expect(Math.abs(tip.x - 100)).toBeLessThan(1)
     expect(buildArrowGeometry(a, [a.start, a.start], 'clean').strokes).toHaveLength(0)
+  })
+
+  it('rough arrows keep shaft endpoints and arrow tips attached at every sloppiness', () => {
+    for (const roughness of [1, 2, 3]) {
+      const a = arrow('a', { x: 0, y: 0 }, { x: 200, y: 0 })
+      a.style.roughness = roughness
+      const g = buildArrowGeometry(a, [a.start, a.end], 'rough')
+      expect(g.strokes[0][0]).toEqual(a.start)
+      expect(g.strokes[0].at(-1)).toEqual(a.end)
+      expect(g.strokes.slice(2).every((line) => line.some((p) => p.x === a.end.x && p.y === a.end.y))).toBe(true)
+      expect(g.strokes[0].some((p) => p.y !== 0)).toBe(true)
+    }
+  })
+
+  it('curved shafts use two seeded passes and respond to maximum sloppiness', () => {
+    const a = arrow('a', { x: 0, y: 0 }, { x: 240, y: 0 }, { arrowType: 'curved', waypoints: [{ x: 120, y: 80 }], endHead: 'none' })
+    const path = catmullRom([a.start, ...a.waypoints!, a.end]).path
+    const g = buildArrowGeometry(a, path, 'rough')
+    expect(g.strokes).toHaveLength(4) // two passes per cubic segment
+    expect(g).toEqual(buildArrowGeometry(a, path, 'rough'))
+    for (const line of g.strokes) {
+      expect([a.start, ...a.waypoints!]).toContainEqual(line[0])
+      expect([...a.waypoints!, a.end]).toContainEqual(line.at(-1))
+    }
+    const more = (roughness: number) => buildArrowGeometry({ ...a, style: { ...a.style, roughness } }, path, 'rough')
+    expect(more(2).strokes).not.toEqual(more(3).strokes)
+    expect(buildArrowGeometry(a, path, 'clean').strokes).toEqual([path])
+  })
+
+  it('cubic curve geometry matches the curve used for handles and hit tests', () => {
+    const points = [{ x: 0, y: 0 }, { x: 80, y: 60 }, { x: 160, y: 0 }]
+    const expected = catmullRom(points, 10).path
+    const drawable = rough.generator().path(catmullRomSvg(points), { roughness: 0, preserveVertices: true, disableMultiStroke: true })
+    const lines = opsetToPolylines(drawable.sets[0])
+    const actual = [lines[0][0], ...lines.flatMap((line) => line.slice(1))]
+    expect(actual).toHaveLength(expected.length)
+    actual.forEach((p, i) => {
+      expect(p.x).toBeCloseTo(expected[i].x, 8)
+      expect(p.y).toBeCloseTo(expected[i].y, 8)
+    })
+  })
+
+  it('rough dashed shafts keep clear gaps and solid connected heads', () => {
+    const a = arrow('a', { x: 0, y: 0 }, { x: 200, y: 0 })
+    a.style.strokeStyle = 'dashed'
+    const g = buildArrowGeometry(a, [a.start, a.end], 'rough')
+    const shaft = g.strokes.filter((line) => !line.some((p) => p.x === 200 && p.y === 0))
+    expect(shaft.length).toBeGreaterThan(3)
+    for (let i = 1; i < shaft.length; i++) expect(shaft[i][0].x - shaft[i - 1].at(-1)!.x).toBeGreaterThan(5)
+    expect(g.strokes.slice(-4).every((line) => line.some((p) => p.x === 200 && p.y === 0))).toBe(true)
   })
 
   it('meshes for shapes and arrows are non-empty and finite', () => {

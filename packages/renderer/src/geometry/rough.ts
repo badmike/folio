@@ -1,7 +1,7 @@
 import rough from 'roughjs'
 import type { Options, OpSet } from 'roughjs/bin/core'
 import type { ArrowObject, Arrowhead, ShapeObject, ShapeStyle, Vec2 } from '@folio/document'
-import { dashPattern, dashPolyline } from './curves'
+import { catmullRomSvg, dashPattern, dashPolyline } from './curves'
 import { cornerRadius, roundedPolygon, shapeVertices } from '../shapes'
 import type { VisualTheme } from '../contract'
 
@@ -260,30 +260,52 @@ export function buildArrowGeometry(arrow: ArrowObject, path: Vec2[], theme: Visu
   let len = 0
   for (let i = 1; i < path.length; i++) len += Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y)
   if (len < 0.5) return geo
-  const o = { ...baseOptions(style, theme), fill: undefined }
+  const dashed = style.strokeStyle === 'dashed' || style.strokeStyle === 'dotted'
+  const size = Math.max(...path.map((p) => p.x)) - Math.min(...path.map((p) => p.x))
+  const height = Math.max(...path.map((p) => p.y)) - Math.min(...path.map((p) => p.y))
+  const maxSize = Math.max(size, height)
+  const roughness = effectiveRoughness(style, theme)
+  const o: Options = {
+    ...baseOptions(style, theme), fill: undefined,
+    roughness: maxSize >= 50 ? roughness : Math.min(roughness / (maxSize < 10 ? 3 : 2), 2.5),
+    preserveVertices: true,
+    disableMultiStroke: roughness === 0 || dashed,
+  }
+  if (dashed && roughness > 0) geo.strokeWidth += 0.5
   const rough = o.roughness ?? 0
   if (path.length === 2) collect(generator.line(path[0].x, path[0].y, path[1].x, path[1].y, o), geo)
   else if (rough === 0) geo.strokes.push(path)
-  else if (arrow.arrowType === 'curved') geo.strokes.push(wobblePath(path, style.seed, rough))
+  else if (arrow.arrowType === 'curved') {
+    const points = [path[0], ...(arrow.waypoints ?? []), path[path.length - 1]]
+    collect(generator.path(catmullRomSvg(points), o), geo)
+  }
   else collect(generator.linearPath(path.map((p) => [p.x, p.y] as [number, number]), o), geo)
   applyDashes(geo, style)
   const head = (kind: Arrowhead, atEnd: boolean, seedOffset: number): void => {
     if (kind === 'none') return
     const tip = atEnd ? path[path.length - 1] : path[0]
     const parts = arrowheadParts(kind, tip, pathEndTangent(path, atEnd), style, len)
-    const ho = { ...baseOptions(style, theme, seedOffset), fill: undefined }
+    const ho: Options = {
+      ...o, seed: stableSeed(style.seed + seedOffset),
+      roughness: Math.min(kind === 'dot' ? 0.5 : 1, rough),
+      disableMultiStroke: rough === 0,
+    }
     for (const line of parts.strokes) {
       // heads stay solid even for dashed shafts
       if (rough === 0) geo.strokes.push(line)
       else collect(generator.linearPath(line.map((p) => [p.x, p.y] as [number, number]), ho), geo)
     }
     for (const poly of parts.solids) {
-      geo.solids.push(poly)
-      if (rough > 0) {
-        const tmp: PathGeometry = { strokes: [], fills: [], hatch: [], solids: [], strokeWidth: 0, hatchWidth: 0 }
-        collect(generator.polygon(poly.map((p) => [p.x, p.y] as [number, number]), { ...ho, fill: undefined }), tmp)
-        geo.strokes.push(...tmp.strokes)
-      }
+      if (rough === 0) { geo.solids.push(poly); continue }
+      const tmp: PathGeometry = { strokes: [], fills: [], hatch: [], solids: [], strokeWidth: 0, hatchWidth: 0 }
+      const fillOptions = { ...ho, fill: style.strokeColor, fillStyle: 'solid' }
+      if (kind === 'dot') {
+        const r = Math.min(arrowHeadLength(style, len) * 0.4, 3 + style.strokeWidth * 1.4)
+        const dir = pathEndTangent(path, atEnd)
+        collect(generator.ellipse(tip.x - dir.x * r, tip.y - dir.y * r, r * 2, r * 2, fillOptions), tmp)
+      } else collect(generator.polygon(poly.map((p) => [p.x, p.y] as [number, number]), fillOptions), tmp)
+      geo.solids.push(...tmp.fills)
+      geo.strokes.push(...tmp.strokes)
     }
   }
   head(arrow.endHead, true, 1)

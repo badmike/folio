@@ -61,6 +61,25 @@ export function catmullRom(pts: Vec2[], maxStep = 8): FlatCurve {
   return { path, controlIndex }
 }
 
+/** Exact cubic path for the same centripetal curve used by editing and hit tests. */
+export function catmullRomSvg(pts: Vec2[]): string {
+  if (pts.length < 2) return ''
+  let d = `M${pts[0].x} ${pts[0].y}`
+  if (pts.length === 2) return `${d} L${pts[1].x} ${pts[1].y}`
+  const first = pts[0], last = pts[pts.length - 1]
+  const before = { x: 2 * first.x - pts[1].x, y: 2 * first.y - pts[1].y }
+  const after = { x: 2 * last.x - pts[pts.length - 2].x, y: 2 * last.y - pts[pts.length - 2].y }
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const s = pts[i], e = pts[i + 1], p = pts[i - 1] ?? before, n = pts[i + 2] ?? after
+    const a = segmentPoint(p, s, e, n, 1 / 3), b = segmentPoint(p, s, e, n, 2 / 3)
+    // A cubic is determined by its endpoints and samples at one and two thirds.
+    const c1 = { x: (-5 * s.x + 18 * a.x - 9 * b.x + 2 * e.x) / 6, y: (-5 * s.y + 18 * a.y - 9 * b.y + 2 * e.y) / 6 }
+    const c2 = { x: (2 * s.x - 9 * a.x + 18 * b.x - 5 * e.x) / 6, y: (2 * s.y - 9 * a.y + 18 * b.y - 5 * e.y) / 6 }
+    d += ` C${c1.x} ${c1.y} ${c2.x} ${c2.y} ${e.x} ${e.y}`
+  }
+  return d
+}
+
 // ---------------------------------------------------------------------------
 // Orthogonal routing
 // ---------------------------------------------------------------------------
