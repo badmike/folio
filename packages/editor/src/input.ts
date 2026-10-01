@@ -552,7 +552,7 @@ class StrokeInteraction implements Interaction {
 
   constructor(private ed: Editor, public pointerId: number, s: Sample, private tool: 'pen' | 'highlighter') {
     const o = ed.toolOptions[tool]
-    this.style = { tool, color: o.color, width: o.width, opacity: o.opacity, pressureSensitive: o.pressureSensitive }
+    this.style = { tool, color: o.color, width: o.width, opacity: o.opacity, pressureSensitive: o.pressureSensitive, ...(tool === 'highlighter' && o.cap ? { cap: o.cap } : {}) }
     this.t0 = s.time
     this.pointerType = s.pointerType
     const d = 0.35 / ed.camera.zoom

@@ -7,7 +7,7 @@ import { DESK_COLOR, DESK_COLOR_DARK, MINOR_WEIGHT, backgroundLevels, frameColor
 import { parseColor } from './color'
 import type { Camera, Renderer, Scene, Size, VisualTheme } from './contract'
 import { buildArrowGeometry, buildShapeGeometry, type PathGeometry } from './geometry/rough'
-import { strokeOutline } from './geometry/ink'
+import { strokeFill } from './geometry/ink'
 import { ImageCache, type ImageResolver } from './images'
 import { transformMatrix } from './math'
 import { buildOverlay } from './overlay'
@@ -29,14 +29,16 @@ interface CacheEntry<T> {
 
 /** Cached CPU geometry used by the Canvas2D painter. */
 export class GeometryStore {
-  private ink = new Map<string, CacheEntry<Vec2[]>>()
+  private ink = new Map<string, CacheEntry<Vec2[][]>>()
   private paths = new Map<string, CacheEntry<PathGeometry>>()
 
-  outline(s: InkStroke, theme: VisualTheme): Vec2[] {
+  /** Fill polygons of a stroke, all wound the same way so one nonzero fill paints their union. */
+  inkPolygons(s: InkStroke, theme: VisualTheme): Vec2[][] {
     const key = objectKey(s, theme)
     const hit = this.ink.get(s.id)
     if (hit && hit.key === key) return hit.value
-    const value = strokeOutline(s)
+    const { polygons, union } = strokeFill(s)
+    const value = union ? polygons.map((p) => (signedArea(p) < 0 ? [...p].reverse() : p)) : polygons
     this.ink.set(s.id, { key, value })
     return value
   }
@@ -70,6 +72,12 @@ export class GeometryStore {
       this.paths.delete(id)
     }
   }
+}
+
+function signedArea(p: Vec2[]): number {
+  let a = 0
+  for (let i = 0, j = p.length - 1; i < p.length; j = i++) a += (p[j].x + p[i].x) * (p[j].y - p[i].y)
+  return a
 }
 
 function strokePolyline(ctx: Ctx2D, pts: Vec2[]): void {
@@ -286,13 +294,15 @@ export function paintScene(
     ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5])
     switch (obj.type) {
       case 'ink': {
-        const o = geo.outline(obj, scene.theme)
-        if (o.length > 2) {
+        const polys = geo.inkPolygons(obj, scene.theme)
+        if (polys.length) {
           ctx.fillStyle = col(obj.style.color, obj.style.opacity)
           ctx.beginPath()
-          ctx.moveTo(o[0].x, o[0].y)
-          for (let i = 1; i < o.length; i++) ctx.lineTo(o[i].x, o[i].y)
-          ctx.closePath()
+          for (const o of polys) {
+            ctx.moveTo(o[0].x, o[0].y)
+            for (let i = 1; i < o.length; i++) ctx.lineTo(o[i].x, o[i].y)
+            ctx.closePath()
+          }
           ctx.fill()
         }
         break

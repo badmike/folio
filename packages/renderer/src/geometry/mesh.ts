@@ -2,7 +2,7 @@ import earcut from 'earcut'
 import { adaptColor, type ArrowObject, type InkStroke, type ShapeObject, type Vec2 } from '@folio/document'
 import type { VisualTheme } from '../contract'
 import { premultiplied, type RGBA } from '../color'
-import { strokeOutline } from './ink'
+import { strokeFill, strokeOutline } from './ink'
 import { buildArrowGeometry, buildShapeGeometry, type PathGeometry } from './rough'
 import { frameColor } from '../background'
 
@@ -196,6 +196,38 @@ export function addGeometry(mb: MeshBuilder, geo: PathGeometry, strokeColor: RGB
 export function buildInkMesh(mb: MeshBuilder, stroke: InkStroke, bg = '#ffffff'): void {
   const outline = strokeOutline(stroke)
   addPolygon(mb, outline, premultiplied(adaptColor(stroke.style.color, bg), stroke.style.opacity))
+}
+
+/** A mesh drawn through the stencil buffer: `fan` fill vertices followed by a quad covering their bounds. */
+export interface StencilFill {
+  fan: number
+  /** true: any fan coverage counts (union of overlapping parts); false: nonzero winding of one outline. */
+  union: boolean
+}
+
+/**
+ * Ink for the stencil path: every polygon of the stroke as a triangle fan, followed by a quad
+ * covering the bounds. Pass one writes the fans into the stencil buffer, pass two draws the
+ * quad where it is set. Pens use nonzero winding, so outlines that cross themselves (loops in
+ * handwriting) fill correctly; highlighters use the union of their band parts, so reversals
+ * and sharp turns neither leave holes nor blend twice. Ear clipping can do neither.
+ */
+export function buildInkStencilMesh(mb: MeshBuilder, stroke: InkStroke, bg = '#ffffff'): StencilFill {
+  const { polygons, union } = strokeFill(stroke)
+  const color = premultiplied(adaptColor(stroke.style.color, bg), stroke.style.opacity)
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+  for (const o of polygons) {
+    for (const p of o) {
+      if (p.x < x0) x0 = p.x
+      if (p.x > x1) x1 = p.x
+      if (p.y < y0) y0 = p.y
+      if (p.y > y1) y1 = p.y
+    }
+    for (let i = 1; i + 1 < o.length; i++) mb.tri(o[0].x, o[0].y, o[i].x, o[i].y, o[i + 1].x, o[i + 1].y, color)
+  }
+  const fan = mb.vertexCount
+  if (fan) mb.quad(x0 - 1, y0 - 1, x1 + 1, y0 - 1, x1 + 1, y1 + 1, x0 - 1, y1 + 1, color)
+  return { fan, union }
 }
 
 export function buildShapeMesh(mb: MeshBuilder, shape: ShapeObject, theme: VisualTheme, bg = '#ffffff'): void {

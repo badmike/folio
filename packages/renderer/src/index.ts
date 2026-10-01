@@ -1,12 +1,12 @@
 export * from './contract'
 export { createLiveInkLayer, pressureFactor } from './live-ink'
-export { strokeOutline, triangulate, freehandOptions, highlighterOutline } from './geometry/ink'
+export { strokeOutline, strokeFill, triangulate, freehandOptions, highlighterOutline, highlighterParts, type StrokeFill } from './geometry/ink'
 export {
   buildShapeGeometry, buildArrowGeometry, opsetToPolylines, arrowHeadPoints, arrowHeadLength, effectiveRoughness,
   arrowheadParts, pathEndTangent, wobblePath, type HeadParts,
   type PathGeometry,
 } from './geometry/rough'
-export { MeshBuilder, addPolyline, addPolygon, addGeometry, buildInkMesh, buildShapeMesh, buildArrowMesh, VERTEX_FLOATS } from './geometry/mesh'
+export { MeshBuilder, addPolyline, addPolygon, addGeometry, buildInkMesh, buildInkStencilMesh, type StencilFill, buildShapeMesh, buildArrowMesh, VERTEX_FLOATS } from './geometry/mesh'
 export {
   resolveArrowEndpoints, arrowPath, arrowHandleSpecs, elbowWaypointsAfterDrag, arrowTypeOf, ELBOW_GAP, lineHandleSpecs, linePointsAfterDrag,
   type ArrowHandleSpec, type PathHandleSpec,
