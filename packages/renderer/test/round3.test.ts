@@ -47,12 +47,21 @@ describe('highlighter edges', () => {
     expect(Math.min(...xs(slanted))).toBeLessThan(0)
     expect(Math.max(...xs(slanted))).toBeGreaterThan(100)
   })
-  it('curvy ends taper to (almost) a point', () => {
-    const o = highlighterOutline(pts, 20, 'curvy')
-    const atStart = o.filter((p) => Math.abs(p.x) < 1e-6).map((p) => Math.abs(p.y))
-    expect(Math.max(...atStart)).toBeLessThan(2)
-    const mid = o.filter((p) => Math.abs(p.x - 50) < 1e-6).map((p) => Math.abs(p.y))
-    expect(Math.max(...mid)).toBeCloseTo(10)
+  it('curvy ends taper: thin at both ends, full width in the middle', () => {
+    const long = Array.from({ length: 21 }, (_, i) => ({ x: i * 10, y: 0 }))
+    const o = highlighterOutline(long, 20, 'curvy')
+    const halfWidth = (from: number, to: number) => Math.max(...o.filter((p) => p.x >= from && p.x <= to).map((p) => Math.abs(p.y)))
+    expect(halfWidth(-5, 4)).toBeLessThan(5)
+    expect(halfWidth(196, 205)).toBeLessThan(5)
+    expect(halfWidth(90, 110)).toBeGreaterThan(8)
+    expect(halfWidth(90, 110)).toBeLessThan(11)
+  })
+  it('a sharp zigzag does not fold the outline over itself', () => {
+    const zig = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 5, y: 6 }, { x: 100, y: 12 }]
+    const o = highlighterOutline(zig, 20, 'flat')
+    // the band stays within half a width (plus smoothing slack) of the path's bounding box
+    for (const p of o) { expect(p.x).toBeGreaterThan(-25); expect(p.x).toBeLessThan(125); expect(p.y).toBeGreaterThan(-25); expect(p.y).toBeLessThan(37) }
+    expect(o.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y))).toBe(true)
   })
   it('a committed highlighter stroke uses its cap through strokeOutline', async () => {
     const { strokeOutline } = await import('../src/geometry/ink')
@@ -102,5 +111,58 @@ describe('lines with points, frames and blur masks', () => {
     const path = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }]
     expect(elbowWaypointsAfterDrag(path, 0, { x: 50, y: 50 })).toEqual([{ x: 0, y: 50 }, { x: 100, y: 50 }])
     expect(elbowWaypointsAfterDrag(path, 1, { x: 160, y: 50 })).toEqual([{ x: 160, y: 0 }, { x: 160, y: 100 }])
+  })
+})
+
+describe('ink stencil mesh and highlighter parts', () => {
+  const allX = (parts: { x: number }[][]) => parts.flat().map((p) => p.x)
+  const zig = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 40, y: 4 }, { x: 160, y: 8 }]
+
+  it('pen: one outline as a fan plus a cover quad, nonzero mode', async () => {
+    const { MeshBuilder, VERTEX_FLOATS, buildInkStencilMesh } = await import('../src/geometry/mesh')
+    const { strokeOutline } = await import('../src/geometry/ink')
+    // a figure-eight: the outline crosses itself, which ear clipping fills wrongly
+    const pts: number[] = []
+    for (let i = 0; i <= 40; i++) { const t = (i / 40) * Math.PI * 2; pts.push(Math.sin(t) * 60, Math.sin(2 * t) * 30, 0.5, 0, 0, i * 8) }
+    const stroke: InkStroke = {
+      id: 'e', type: 'ink', transform: { ...ident }, z: 1, createdAt: 1, updatedAt: 1, startedAt: 1, pointerType: 'pen', points: pts,
+      style: { tool: 'pen', color: '#000', width: 4, opacity: 1, pressureSensitive: false },
+    }
+    const mb = new MeshBuilder()
+    const fill = buildInkStencilMesh(mb, stroke)
+    expect(fill.union).toBe(false)
+    expect(fill.fan).toBe((strokeOutline(stroke).length - 2) * 3)
+    expect(mb.vertexCount - fill.fan).toBe(6)
+    const cover = Array.from({ length: 6 }, (_, i) => mb.data[(fill.fan + i) * VERTEX_FLOATS])
+    expect(Math.min(...cover)).toBeLessThan(-60)
+    expect(Math.max(...cover)).toBeGreaterThan(60)
+  })
+
+  it('highlighter: a quad per segment and a disc per joint, filled as a union', async () => {
+    const { highlighterParts, strokeFill } = await import('../src/geometry/ink')
+    const parts = highlighterParts(zig, 20, 'flat')
+    expect(parts.filter((p) => p.length === 4)).toHaveLength(3)
+    expect(parts.filter((p) => p.length === 12)).toHaveLength(2)
+    // a reversal stays covered: the doubled-back segment has its own quad around y = 2
+    expect(parts.some((p) => p.length === 4 && p.every((q) => q.x >= 30 && q.x <= 110))).toBe(true)
+    const stroke: InkStroke = {
+      id: 'h', type: 'ink', transform: { ...ident }, z: 1, createdAt: 1, updatedAt: 1, startedAt: 1, pointerType: 'pen',
+      points: zig.flatMap((p, i) => [p.x, p.y, 0.5, 0, 0, i * 10]), style: { tool: 'highlighter', color: '#ff0', width: 20, opacity: 0.4, pressureSensitive: false },
+    }
+    expect(strokeFill(stroke).union).toBe(true)
+  })
+
+  it('caps: flat ends square, round and slanted reach past the ends, curvy tapers', async () => {
+    const { highlighterParts } = await import('../src/geometry/ink')
+    const line = Array.from({ length: 11 }, (_, i) => ({ x: i * 20, y: 0 }))
+    expect(Math.min(...allX(highlighterParts(line, 20, 'flat')))).toBeCloseTo(0)
+    expect(Math.max(...allX(highlighterParts(line, 20, 'flat')))).toBeCloseTo(200)
+    expect(Math.min(...allX(highlighterParts(line, 20, 'round')))).toBeCloseTo(-10)
+    expect(Math.min(...allX(highlighterParts(line, 20, 'slanted')))).toBeCloseTo(-8)
+    expect(Math.max(...allX(highlighterParts(line, 20, 'slanted')))).toBeCloseTo(208)
+    const curvy = highlighterParts(line, 20, 'curvy')
+    const first = curvy[0]
+    expect(Math.abs(first[0].y)).toBeLessThan(1) // start of the first quad is almost a point
+    expect(Math.max(...curvy.flat().map((p) => Math.abs(p.y)))).toBeCloseTo(10)
   })
 })

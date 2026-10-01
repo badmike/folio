@@ -7,7 +7,7 @@ import { pathMidpoint } from './canvas2d'
 import { FRAME_LABEL_SIZE } from './hit'
 import { parseColor, premultiplied } from './color'
 import type { Camera, Renderer, Scene, Size, VisualTheme } from './contract'
-import { buildArrowMesh, buildInkMesh, buildShapeMesh, addPolygon, addPolyline, MeshBuilder, VERTEX_FLOATS } from './geometry/mesh'
+import { buildArrowMesh, buildInkMesh, buildInkStencilMesh, buildShapeMesh, addPolygon, addPolyline, MeshBuilder, VERTEX_FLOATS, type StencilFill } from './geometry/mesh'
 import { ImageCache, type ImageResolver, type ImageSource } from './images'
 import { IDENTITY, multiply, toMat3, transformMatrix, type Mat } from './math'
 import { buildOverlay } from './overlay'
@@ -175,6 +175,10 @@ interface MeshEntry {
   key: string
   buf: WebGLBuffer
   vertexCount: number
+  /** Stencil-filled meshes: the first `fanCount` vertices are the fans, the rest the cover quad. */
+  fanCount: number
+  /** Stencil mode: union of the fans instead of nonzero winding. */
+  union: boolean
   used: number
 }
 
@@ -213,6 +217,7 @@ function hex(css: string): [number, number, number] {
 export class WebGLRenderer implements Renderer {
   private gl!: GL
   private isGL2 = false
+  private hasStencil = false
   private lost = false
   private viewport: Size = { width: 1, height: 1, dpr: 1 }
   private frame = 0
@@ -271,6 +276,8 @@ export class WebGLRenderer implements Renderer {
     const attrs: WebGLContextAttributes = {
       alpha: false,
       antialias: true,
+      // ink is filled through the stencil buffer (nonzero winding)
+      stencil: true,
       premultipliedAlpha: true,
       preserveDrawingBuffer: false,
       powerPreference: 'high-performance',
@@ -280,6 +287,7 @@ export class WebGLRenderer implements Renderer {
     if (!gl) throw new Error('WebGL not available')
     this.gl = gl
     this.isGL2 = !!gl2
+    this.hasStencil = !!gl.getContextAttributes()?.stencil
     canvas.addEventListener('webglcontextlost', this.onLost as EventListener)
     canvas.addEventListener('webglcontextrestored', this.onRestored as EventListener)
     this.initGL()
@@ -638,32 +646,65 @@ export class WebGLRenderer implements Renderer {
     gl.drawArrays(gl.TRIANGLES, 0, mb.vertexCount)
   }
 
-  private drawCachedMesh(id: string, key: string, model: Mat, cam: Camera, build: (mb: MeshBuilder) => void, cache: boolean): void {
+  /**
+   * Draw a mesh (cached per object id). When `build` returns a fan vertex count the mesh is a
+   * stencil fill (see buildInkStencilMesh) and is drawn in two passes.
+   */
+  private drawCachedMesh(id: string, key: string, model: Mat, cam: Camera, build: (mb: MeshBuilder) => StencilFill | void, cache: boolean): void {
     const gl = this.gl
     if (!cache) {
       this.scratch.reset()
-      build(this.scratch)
-      this.drawScratch(model, cam)
+      const fill = build(this.scratch)
+      if (!fill || !fill.fan) { this.drawScratch(model, cam); return }
+      this.setMeshUniforms(model, cam)
+      this.bindMeshBuffer(this.stream)
+      gl.bufferData(gl.ARRAY_BUFFER, this.scratch.view(), gl.STREAM_DRAW)
+      this.drawStencilFill(fill.fan, this.scratch.vertexCount, fill.union)
       return
     }
     let e = this.meshes.get(id)
     if (!e || e.key !== key) {
       const mb = this.scratch
       mb.reset()
-      build(mb)
+      const fill = build(mb)
       if (e) gl.deleteBuffer(e.buf)
       const buf = gl.createBuffer()
       if (!buf) return
       gl.bindBuffer(gl.ARRAY_BUFFER, buf)
       gl.bufferData(gl.ARRAY_BUFFER, mb.view(), gl.STATIC_DRAW)
-      e = { key, buf, vertexCount: mb.vertexCount, used: this.frame }
+      e = { key, buf, vertexCount: mb.vertexCount, fanCount: fill ? fill.fan : 0, union: !!fill && fill.union, used: this.frame }
       this.meshes.set(id, e)
     }
     e.used = this.frame
     if (e.vertexCount === 0) return
     this.setMeshUniforms(model, cam)
     this.bindMeshBuffer(e.buf)
-    gl.drawArrays(gl.TRIANGLES, 0, e.vertexCount)
+    if (e.fanCount) this.drawStencilFill(e.fanCount, e.vertexCount, e.union)
+    else gl.drawArrays(gl.TRIANGLES, 0, e.vertexCount)
+  }
+
+  /**
+   * Fill the bound mesh through the stencil buffer: mark the fan triangles (winding count, or
+   * plain coverage for `union`), then draw the cover quad where the mark is set (which resets it).
+   */
+  private drawStencilFill(fanCount: number, total: number, union: boolean): void {
+    const gl = this.gl
+    gl.enable(gl.STENCIL_TEST)
+    gl.colorMask(false, false, false, false)
+    if (union) {
+      gl.stencilFunc(gl.ALWAYS, 1, 0xff)
+      gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE)
+    } else {
+      gl.stencilFunc(gl.ALWAYS, 0, 0xff)
+      gl.stencilOpSeparate(gl.FRONT, gl.KEEP, gl.KEEP, gl.INCR_WRAP)
+      gl.stencilOpSeparate(gl.BACK, gl.KEEP, gl.KEEP, gl.DECR_WRAP)
+    }
+    gl.drawArrays(gl.TRIANGLES, 0, fanCount)
+    gl.colorMask(true, true, true, true)
+    gl.stencilFunc(gl.NOTEQUAL, 0, 0xff)
+    gl.stencilOp(gl.ZERO, gl.ZERO, gl.ZERO)
+    gl.drawArrays(gl.TRIANGLES, fanCount, total - fanCount)
+    gl.disable(gl.STENCIL_TEST)
   }
 
   private drawObject(obj: CanvasObject, scene: Scene, camera: Camera, theme: VisualTheme, cache: boolean): void {
@@ -671,7 +712,11 @@ export class WebGLRenderer implements Renderer {
     const bgc = scene.page.background.color
     switch (obj.type) {
       case 'ink':
-        this.drawCachedMesh(obj.id, objectKey(obj, theme, bgc), transformMatrix(obj.transform), camera, (mb) => buildInkMesh(mb, obj as InkStroke, bgc), cache)
+        this.drawCachedMesh(
+          obj.id, objectKey(obj, theme, bgc), transformMatrix(obj.transform), camera,
+          // without a stencil buffer fall back to ear clipping (wrong only for self-crossing strokes)
+          (mb) => (this.hasStencil ? buildInkStencilMesh(mb, obj as InkStroke, bgc) : void buildInkMesh(mb, obj as InkStroke, bgc)), cache,
+        )
         break
       case 'shape': {
         const s = obj as ShapeObject
