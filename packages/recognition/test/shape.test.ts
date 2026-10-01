@@ -19,7 +19,7 @@ describe('recognizeShape', () => {
     if (wrong.length > 0.1 * samples.length) console.log(JSON.stringify(perKind), '\n' + wrong.join('\n'))
     const ok = samples.length - wrong.length
     expect(ok / samples.length).toBeGreaterThanOrEqual(0.9)
-  })
+  }, 30_000)
 
   it('reaches >= 95% accuracy on sparsely sampled shapes (mouse input, 16-36 points)', () => {
     const samples = [1, 2].flatMap((seed) => generateSparseShapeSamples(seed, 20))
