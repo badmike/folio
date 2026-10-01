@@ -124,10 +124,12 @@ export interface InkStroke extends BaseObject {
 // ---------------------------------------------------------------------------
 
 /**
- * 'hand' = Caveat, 'sans' = system UI font, 'mono' = Fira Code; the rest are hand-drawn
- * Google fonts bundled with the app (see FONT_FAMILIES in the renderer).
+ * 'hand' = Excalifont (Excalidraw's hand-drawn font), 'sans' = system UI font, 'mono' = Fira Code;
+ * the rest are Google fonts bundled with the app (see FONT_FAMILIES in the renderer).
  */
-export type FontFamily = 'hand' | 'sans' | 'mono' | 'kalam' | 'patrick' | 'indie' | 'architect' | 'shadows' | 'gloria'
+export type FontFamily =
+  | 'hand' | 'sans' | 'mono'
+  | 'caveat' | 'kalam' | 'patrick' | 'indie' | 'architect' | 'shadows' | 'gloria' | 'marker' | 'playpen'
 export type SemanticTextType = 'heading' | 'paragraph' | 'list-item' | 'label' | 'equation'
 
 export interface TextObject extends BaseObject {

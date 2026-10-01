@@ -163,7 +163,7 @@ export class NotebookController {
       editor.on('toollock', (v) => { this.toolLock.value = v; settings.toolLock = v }),
       editor.on('readonly', (v) => { this.locked.value = v }),
     )
-    // Caveat changes text metrics: once loaded, repaint with fresh measurements.
+    // Web fonts change text metrics: once loaded, repaint with fresh measurements.
     void whenFontsReady().then(() => { if (!this.destroyed) editor.setTheme(editor.theme) })
 
     this.restoreCamera(editor)

@@ -1,32 +1,41 @@
 import { DEFAULT_LABEL_SIZE, type FontFamily, type TextObject } from '@folio/document'
 
 export const FONT_FAMILIES: Record<FontFamily, string> = {
-  hand: "'Caveat', 'Comic Sans MS', cursive",
+  hand: "'Excalifont', 'Comic Sans MS', cursive",
   sans: "system-ui, -apple-system, 'Segoe UI', sans-serif",
   mono: "'Fira Code', ui-monospace, Menlo, monospace",
+  caveat: "'Caveat', 'Comic Sans MS', cursive",
   kalam: "'Kalam', 'Comic Sans MS', cursive",
   patrick: "'Patrick Hand', 'Comic Sans MS', cursive",
   indie: "'Indie Flower', 'Comic Sans MS', cursive",
   architect: "'Architects Daughter', 'Comic Sans MS', cursive",
   shadows: "'Shadows Into Light', 'Comic Sans MS', cursive",
   gloria: "'Gloria Hallelujah', 'Comic Sans MS', cursive",
+  marker: "'Permanent Marker', 'Comic Sans MS', cursive",
+  playpen: "'Playpen Sans', 'Comic Sans MS', cursive",
 }
 
-/** Human names of the font families, in menu order (hand-drawn fonts first). */
+/** Human names of the font families, in menu order: the three standard choices, then the extra fonts. */
 export const FONT_LABELS: { family: FontFamily; label: string }[] = [
-  { family: 'hand', label: 'Caveat' },
+  { family: 'hand', label: 'Hand-drawn' },
+  { family: 'sans', label: 'Normal' },
+  { family: 'mono', label: 'Code' },
+  { family: 'caveat', label: 'Caveat' },
   { family: 'kalam', label: 'Kalam' },
   { family: 'patrick', label: 'Patrick Hand' },
   { family: 'indie', label: 'Indie Flower' },
   { family: 'architect', label: 'Architects Daughter' },
   { family: 'shadows', label: 'Shadows Into Light' },
   { family: 'gloria', label: 'Gloria Hallelujah' },
-  { family: 'sans', label: 'Normal' },
-  { family: 'mono', label: 'Code' },
+  { family: 'marker', label: 'Permanent Marker' },
+  { family: 'playpen', label: 'Playpen Sans' },
 ]
 
 /** Web font faces to preload (family name as used in CSS). */
-export const WEB_FONT_NAMES = ['Caveat', 'Kalam', 'Patrick Hand', 'Indie Flower', 'Architects Daughter', 'Shadows Into Light', 'Gloria Hallelujah', 'Fira Code']
+export const WEB_FONT_NAMES = [
+  'Excalifont', 'Caveat', 'Kalam', 'Patrick Hand', 'Indie Flower', 'Architects Daughter', 'Shadows Into Light', 'Gloria Hallelujah',
+  'Permanent Marker', 'Playpen Sans', 'Fira Code',
+]
 
 export function fontString(size: number, family: FontFamily): string {
   return `${size}px ${FONT_FAMILIES[family] ?? FONT_FAMILIES.sans}`
@@ -94,6 +103,9 @@ const defaultMeasurer: WidthMeasurer = (font, text) => {
 
 const layoutCache = new Map<string, TextLayout>()
 
+/** Line height factors that differ from the default 1.3 (Excalifont uses Excalidraw's 1.25). */
+const LINE_HEIGHTS: Partial<Record<FontFamily, number>> = { hand: 1.25, caveat: 1.2, shadows: 1.2 }
+
 export function layoutText(t: TextLike): TextLayout {
   const key = `${t.fontFamily}|${t.fontSize}|${t.width ?? ''}|${t.text}`
   const hit = layoutCache.get(key)
@@ -125,7 +137,7 @@ export function layoutText(t: TextLike): TextLayout {
     lines.push(cur.trimEnd())
   }
   const lineWidths = lines.map((l) => measure(font, l))
-  const lineHeight = t.fontSize * (t.fontFamily === 'hand' || t.fontFamily === 'shadows' ? 1.2 : 1.3)
+  const lineHeight = t.fontSize * (LINE_HEIGHTS[t.fontFamily] ?? 1.3)
   const layout: TextLayout = {
     lines,
     lineWidths,

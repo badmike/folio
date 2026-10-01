@@ -88,13 +88,16 @@
   }
 }
 
-/* ---- self-hosted web fonts (OFL), precached by the service worker ------- */
+/* ---- self-hosted web fonts (OFL, Permanent Marker: Apache 2.0), precached by the service worker ------- */
+@font-face { font-family: 'Excalifont'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/Excalifont-Regular.woff2') format('woff2'); }
 @font-face { font-family: 'Kalam'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/kalam-latin-400.woff2') format('woff2'); }
 @font-face { font-family: 'Patrick Hand'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/patrick-hand-latin-400.woff2') format('woff2'); }
 @font-face { font-family: 'Indie Flower'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/indie-flower-latin-400.woff2') format('woff2'); }
 @font-face { font-family: 'Architects Daughter'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/architects-daughter-latin-400.woff2') format('woff2'); }
 @font-face { font-family: 'Shadows Into Light'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/shadows-into-light-latin-400.woff2') format('woff2'); }
 @font-face { font-family: 'Gloria Hallelujah'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/gloria-hallelujah-latin-400.woff2') format('woff2'); }
+@font-face { font-family: 'Permanent Marker'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/permanent-marker-latin-400.woff2') format('woff2'); }
+@font-face { font-family: 'Playpen Sans'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/playpen-sans-latin-400.woff2') format('woff2'); }
 @font-face { font-family: 'Fira Code'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/fira-code-latin-400.woff2') format('woff2'); }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }

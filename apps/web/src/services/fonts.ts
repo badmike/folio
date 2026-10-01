@@ -3,7 +3,7 @@ import { WEB_FONT_NAMES, resetTextMetrics } from '@folio/renderer'
 let ready: Promise<void> | null = null
 
 /**
- * Resolves once the bundled web fonts (Caveat and the other hand-drawn faces, Fira Code) are
+ * Resolves once the bundled web fonts (Excalifont and the other hand-drawn faces, Fira Code) are
  * loaded and the renderer's cached text metrics were reset. Callers should then invalidate
  * their renderer (e.g. `editor.setTheme(editor.theme)`).
  */
