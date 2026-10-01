@@ -3,6 +3,14 @@
 All notable changes to folio are documented here.
 Commits follow the [Gitmoji](https://gitmoji.dev/) convention.
 
+## [v26.10.1-a405b9a] — 2026-10-1
+
+- 🐛 renderer: match live highlighter caps to committed ink
+- 🐛 sync: upload strokes written while pulling remote updates
+- ✨ sync: stream notebook edits across devices while writing
+- 💄 renderer: align arrow shafts and heads with Excalidraw roughness
+- ⚡ editor: keep rapid Pencil strokes visible and reject resting palms
+
 ## [v26.10.1-2702774] — 2026-10-1
 
 - 👷 release: calver tags, one multi-arch image on GHCR, self-hosting docs
