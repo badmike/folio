@@ -1,4 +1,4 @@
-//! AnthropicProvider against a local fake Messages API (retry/backoff + request shape).
+//! OpenRouterProvider against a local fake chat completions API (retry/backoff + request shape).
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -8,7 +8,7 @@ use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::post;
 use axum::{Json, Router};
-use folio_server::ai::{AiProvider, AiRequest, AnthropicProvider};
+use folio_server::ai::{AiProvider, AiRequest, OpenRouterProvider};
 use serde_json::{json, Value};
 
 #[derive(Clone)]
@@ -19,7 +19,7 @@ struct Fake {
     seen: Arc<Mutex<Vec<(HeaderMap, Value)>>>,
 }
 
-async fn messages(
+async fn completions(
     State(f): State<Fake>,
     headers: HeaderMap,
     Json(body): Json<Value>,
@@ -35,14 +35,14 @@ async fn messages(
     (
         StatusCode::OK,
         Json(
-            json!({"content":[{"type":"text","text":"he"},{"type":"text","text":"llo"}],"usage":{"input_tokens":7,"output_tokens":3}}),
+            json!({"choices":[{"message":{"role":"assistant","content":"hello"}}],"usage":{"prompt_tokens":7,"completion_tokens":3}}),
         ),
     )
 }
 
 async fn serve(fake: Fake) -> String {
     let app = Router::new()
-        .route("/v1/messages", post(messages))
+        .route("/chat/completions", post(completions))
         .with_state(fake);
     let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = l.local_addr().unwrap();
@@ -70,9 +70,9 @@ fn fake(fail_first: usize, status: u16) -> Fake {
 
 #[tokio::test]
 async fn retries_on_overload_then_succeeds() {
-    let f = fake(2, 529);
+    let f = fake(2, 503);
     let url = serve(f.clone()).await;
-    let p = AnthropicProvider::new(
+    let p = OpenRouterProvider::new(
         "key123".into(),
         url,
         "text-model".into(),
@@ -84,24 +84,23 @@ async fn retries_on_overload_then_succeeds() {
     assert_eq!((r.tokens_in, r.tokens_out), (7, 3));
     assert_eq!(f.hits.load(Ordering::SeqCst), 3);
     let seen = f.seen.lock().unwrap();
-    assert_eq!(seen[0].0["x-api-key"], "key123");
-    assert_eq!(seen[0].0["anthropic-version"], "2023-06-01");
+    assert_eq!(seen[0].0["authorization"], "Bearer key123");
     assert_eq!(seen[0].1["model"], "vision-model");
-    assert_eq!(seen[0].1["system"], "sys");
+    assert_eq!(seen[0].1["messages"][0]["content"], "sys");
 }
 
 #[tokio::test]
 async fn gives_up_after_max_attempts_and_does_not_retry_4xx() {
     let f = fake(100, 500);
     let url = serve(f.clone()).await;
-    let p = AnthropicProvider::new("k".into(), url, "m".into(), "m".into())
+    let p = OpenRouterProvider::new("k".into(), url, "m".into(), "m".into())
         .with_backoff(Duration::from_millis(1));
     assert!(p.complete(req()).await.is_err());
     assert_eq!(f.hits.load(Ordering::SeqCst), 4);
 
     let f = fake(100, 400);
     let url = serve(f.clone()).await;
-    let p = AnthropicProvider::new("k".into(), url, "m".into(), "m".into())
+    let p = OpenRouterProvider::new("k".into(), url, "m".into(), "m".into())
         .with_backoff(Duration::from_millis(1));
     assert!(p.complete(req()).await.is_err());
     assert_eq!(f.hits.load(Ordering::SeqCst), 1);

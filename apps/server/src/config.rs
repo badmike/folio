@@ -30,8 +30,8 @@ pub struct Config {
     pub clerk_authorized_parties: Vec<String>,
     pub auth_dev: bool,
     pub storage: StorageConfig,
-    pub anthropic_api_key: Option<String>,
-    pub anthropic_base_url: String,
+    pub openrouter_api_key: Option<String>,
+    pub openrouter_base_url: String,
     pub ai_model: String,
     pub ai_vision_model: String,
     pub ai_daily_quota: i64,
@@ -74,7 +74,7 @@ impl Config {
         };
 
         let bind = get("FOLIO_BIND")
-            .unwrap_or_else(|| "0.0.0.0:8787".into())
+            .unwrap_or_else(|| "0.0.0.0:8989".into())
             .parse()
             .map_err(|e| anyhow::anyhow!("invalid FOLIO_BIND: {e}"))?;
 
@@ -92,7 +92,8 @@ impl Config {
             )),
         };
 
-        let ai_model = get("FOLIO_AI_MODEL").unwrap_or_else(|| "claude-sonnet-5-5".into());
+        let ai_model =
+            get("FOLIO_AI_MODEL").unwrap_or_else(|| "anthropic/claude-sonnet-5.5".into());
         let clerk_issuer = get("CLERK_ISSUER").or_else(|| get("FOLIO_CLERK_ISSUER"));
         let clerk_jwks_url = get("CLERK_JWKS_URL")
             .or_else(|| get("FOLIO_CLERK_JWKS_URL"))
@@ -115,9 +116,9 @@ impl Config {
                 .map(|s| matches!(s.as_str(), "true" | "1" | "yes"))
                 .unwrap_or(false),
             storage,
-            anthropic_api_key: get("ANTHROPIC_API_KEY"),
-            anthropic_base_url: get("ANTHROPIC_BASE_URL")
-                .unwrap_or_else(|| "https://api.anthropic.com".into()),
+            openrouter_api_key: get("OPENROUTER_API_KEY"),
+            openrouter_base_url: get("OPENROUTER_BASE_URL")
+                .unwrap_or_else(|| "https://openrouter.ai/api/v1".into()),
             ai_vision_model: get("FOLIO_AI_VISION_MODEL").unwrap_or_else(|| ai_model.clone()),
             ai_model,
             ai_daily_quota: parse_num("FOLIO_AI_DAILY_QUOTA", 200)?,
@@ -135,9 +136,9 @@ mod tests {
     #[test]
     fn defaults() {
         let c = Config::from_map(&HashMap::new()).unwrap();
-        assert_eq!(c.bind.port(), 8787);
-        assert_eq!(c.ai_model, "claude-sonnet-5-5");
-        assert_eq!(c.ai_vision_model, "claude-sonnet-5-5");
+        assert_eq!(c.bind.port(), 8989);
+        assert_eq!(c.ai_model, "anthropic/claude-sonnet-5.5");
+        assert_eq!(c.ai_vision_model, "anthropic/claude-sonnet-5.5");
         assert!(matches!(c.storage, StorageConfig::Local(_)));
         assert!(!c.auth_dev);
         assert_eq!(c.ai_daily_quota, 200);
