@@ -68,11 +68,15 @@ export class SyncApi {
     return this.req('GET', '/sync/docs')
   }
 
+  changes(since: number, signal: AbortSignal): Promise<{ cursor: number; docs: RemoteDocInfo[] }> {
+    return this.req('GET', `/sync/changes?since=${since}`, undefined, signal)
+  }
+
   async registerDevice(deviceId: string, name: string): Promise<void> {
     await this.req('POST', '/devices', { deviceId, name })
   }
 
-  private async req<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
+  private async req<T>(method: 'GET' | 'POST', path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
     const token = await this.getToken()
     // No token: behave like a 401 without touching the network.
     if (!token) throw new SyncHttpError(401, 'unauthorized', 'not signed in')
@@ -80,6 +84,8 @@ export class SyncApi {
     try {
       res = await this.fetchFn(this.base + path, {
         method,
+        signal,
+        cache: 'no-store',
         headers: {
           Authorization: `Bearer ${token}`,
           ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),

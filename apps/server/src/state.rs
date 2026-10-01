@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use object_store::ObjectStore;
 use sqlx::SqlitePool;
+use tokio::sync::broadcast;
 
 use crate::ai::AiProvider;
 use crate::auth::JwksCache;
@@ -22,6 +23,7 @@ pub struct AppState {
     pub jwks: Arc<JwksCache>,
     pub push_limiter: Arc<RateLimiter>,
     seen_users: Arc<Mutex<HashSet<String>>>,
+    pub sync_changes: broadcast::Sender<String>,
 }
 
 impl AppState {
@@ -41,6 +43,7 @@ impl AppState {
             jwks: Arc::new(jwks),
             push_limiter,
             seen_users: Arc::new(Mutex::new(HashSet::new())),
+            sync_changes: broadcast::channel(1024).0,
         }
     }
 

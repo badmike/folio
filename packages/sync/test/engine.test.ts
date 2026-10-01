@@ -25,6 +25,47 @@ describe('base64', () => {
 })
 
 describe('SyncEngine', () => {
+  it('streams ongoing edits to a second device without waiting for writing to stop', async () => {
+    vi.useFakeTimers()
+    const s = new FakeServer()
+    const a = device(s, 'A'), b = device(s, 'B')
+    try {
+      a.engine.start(); b.engine.start()
+      await vi.advanceTimersByTimeAsync(10)
+      for (let i = 0; i < 8; i++) {
+        a.doc().edit(`stroke${i}`)
+        a.engine.notifyLocalChange('nb1')
+        await vi.advanceTimersByTimeAsync(50)
+      }
+      expect(s.pushes).toBeGreaterThanOrEqual(2)
+      expect(b.doc().texts().length).toBeGreaterThanOrEqual(6)
+      await vi.advanceTimersByTimeAsync(150)
+      expect(b.doc().texts()).toEqual(a.doc().texts())
+    } finally {
+      a.engine.stop(); b.engine.stop()
+      vi.useRealTimers()
+    }
+  })
+
+  it('recovers changes made while the realtime feed was disconnected', async () => {
+    vi.useFakeTimers()
+    const s = new FakeServer()
+    const a = device(s, 'A'), b = device(s, 'B')
+    try {
+      s.status = 503
+      b.engine.start()
+      await vi.advanceTimersByTimeAsync(10)
+      s.status = null
+      a.doc().edit('offline-feed')
+      await a.engine.syncDoc('nb1')
+      await vi.advanceTimersByTimeAsync(2500)
+      expect(b.doc().texts()).toEqual(['offline-feed'])
+    } finally {
+      b.engine.stop()
+      vi.useRealTimers()
+    }
+  })
+
   it('converges two devices after offline edits', async () => {
     const s = new FakeServer()
     const a = device(s, 'A'), b = device(s, 'B')

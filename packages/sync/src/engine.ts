@@ -27,7 +27,7 @@ export interface SyncLogger {
 }
 
 export interface SyncEngineOptions {
-  api: Pick<SyncApi, 'push' | 'pull' | 'compact' | 'listDocs'>
+  api: Pick<SyncApi, 'push' | 'pull' | 'compact' | 'listDocs'> & Partial<Pick<SyncApi, 'changes'>>
   storage: Storage
   deviceId: string
   /**
@@ -48,7 +48,7 @@ export interface SyncEngineOptions {
   logger?: SyncLogger
   /** Periodic sync interval (default 30 s). */
   intervalMs?: number
-  /** Debounce for notifyLocalChange (default 1500 ms). */
+  /** Batch interval for notifyLocalChange (default 150 ms). */
   debounceMs?: number
   /** Page size for pulls (default 200). */
   pullLimit?: number
@@ -74,6 +74,7 @@ export class SyncEngine {
   private readonly dirty = new Set<string>()
   private readonly debounceTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private timer: ReturnType<typeof setTimeout> | null = null
+  private changesController: AbortController | null = null
   private running = false
   private active = 0
   private failures = 0
@@ -85,7 +86,7 @@ export class SyncEngine {
   constructor(opts: SyncEngineOptions) {
     this.o = {
       intervalMs: 30_000,
-      debounceMs: 1500,
+      debounceMs: 150,
       pullLimit: 200,
       compactThreshold: 200,
       backoffBaseMs: 2000,
@@ -139,10 +140,17 @@ export class SyncEngine {
       this.cleanup.push(() => document.removeEventListener('visibilitychange', vis))
     }
     void this.runLoop()
+    if (this.o.api.changes) {
+      const controller = new AbortController()
+      this.changesController = controller
+      void this.watchChanges(controller.signal)
+    }
   }
 
   stop(): void {
     this.running = false
+    this.changesController?.abort()
+    this.changesController = null
     for (const c of this.cleanup) c()
     this.cleanup = []
     if (this.timer) clearTimeout(this.timer)
@@ -157,13 +165,50 @@ export class SyncEngine {
     this.publish()
     if (!this.running) return
     const prev = this.debounceTimers.get(docId)
-    if (prev) clearTimeout(prev)
+    if (prev) return
     this.debounceTimers.set(docId, setTimeout(() => {
       this.debounceTimers.delete(docId)
       // While backing off or signed out the periodic loop does the retrying.
       if (!this.running || this.failures > 0 || this.failure?.state === 'signed-out') return
+      if (this.chains.has(docId)) { this.notifyLocalChange(docId); return }
       this.syncDoc(docId).catch(() => { /* recorded in status */ })
     }, this.o.debounceMs))
+  }
+
+  private async watchChanges(signal: AbortSignal): Promise<void> {
+    const changes = this.o.api.changes!
+    let cursor = 0
+    let failures = 0
+    while (!signal.aborted) {
+      try {
+        const result = await changes.call(this.o.api, cursor, signal)
+        if (signal.aborted) return
+        const local = new Set(await this.o.storage.listDocIds())
+        // The workspace supplies the notebook library; merge it before notebooks.
+        const docs = [...result.docs].sort((a, b) => Number(b.docId === WORKSPACE_DOC_ID) - Number(a.docId === WORKSPACE_DOC_ID))
+        for (const remote of docs) {
+          if (signal.aborted) return
+          const state = await this.o.storage.getSyncState(remote.docId)
+          if ((state?.pulledSeq ?? 0) >= remote.latestSeq) continue
+          await this.track(() => this.syncDocInner(remote.docId, remote.docId !== WORKSPACE_DOC_ID && !local.has(remote.docId)))
+        }
+        cursor = result.cursor
+        failures = 0
+      } catch (e) {
+        if (signal.aborted) return
+        this.o.logger?.warn?.('realtime sync reconnecting', e)
+        const delay = Math.max(
+          Math.min(30_000, this.o.backoffBaseMs * 2 ** Math.min(failures++, 4)),
+          e instanceof SyncHttpError ? (e.retryAfter ?? 0) * 1000 : 0,
+        )
+        await new Promise<void>((resolve) => {
+          const done = () => { clearTimeout(timer); signal.removeEventListener('abort', done); resolve() }
+          const timer = setTimeout(done, delay)
+          signal.addEventListener('abort', done, { once: true })
+          if (signal.aborted) done()
+        })
+      }
+    }
   }
 
   private async runLoop(): Promise<void> {

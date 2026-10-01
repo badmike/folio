@@ -1,5 +1,7 @@
 //! Replication endpoints. Update and snapshot payloads are opaque CRDT blobs.
 
+use std::time::Duration;
+
 use axum::extract::{Query, State};
 use axum::Json;
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
@@ -110,6 +112,7 @@ async fn push_inner(st: &AppState, user: &AuthUser, req: PushReq) -> AppResult<P
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
+    let _ = st.sync_changes.send(user.user_id.clone());
     Ok(PushRes { seq })
 }
 
@@ -387,4 +390,59 @@ pub async fn list_docs(
             })
             .collect(),
     ))
+}
+
+#[derive(Deserialize)]
+pub struct ChangesQuery {
+    #[serde(default)]
+    pub since: i64,
+}
+
+#[derive(Serialize)]
+pub struct ChangesRes {
+    pub cursor: i64,
+    pub docs: Vec<DocItem>,
+}
+
+/// Authenticated long poll. Durable sequences also cover updates between requests.
+pub async fn changes(
+    State(st): State<AppState>,
+    user: AuthUser,
+    Query(q): Query<ChangesQuery>,
+) -> AppResult<Json<ChangesRes>> {
+    if q.since < 0 {
+        return Err(AppError::BadRequest("since must be >= 0".into()));
+    }
+    // Subscribe before reading so a push during the query cannot be missed.
+    let mut notifications = st.sync_changes.subscribe();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let rows = sqlx::query(
+            "SELECT doc_id, latest_seq, updated_at FROM docs
+             WHERE user_id = ? AND latest_seq > ? ORDER BY latest_seq",
+        )
+        .bind(&user.user_id)
+        .bind(q.since)
+        .fetch_all(&st.db)
+        .await?;
+        let docs: Vec<DocItem> = rows
+            .iter()
+            .map(|r| DocItem {
+                doc_id: r.get("doc_id"),
+                latest_seq: r.get("latest_seq"),
+                updated_at: r.get("updated_at"),
+            })
+            .collect();
+        if !docs.is_empty() || tokio::time::Instant::now() >= deadline {
+            let cursor = docs.iter().map(|d| d.latest_seq).max().unwrap_or(q.since);
+            return Ok(Json(ChangesRes { cursor, docs }));
+        }
+        loop {
+            match tokio::time::timeout_at(deadline, notifications.recv()).await {
+                Ok(Ok(owner)) if owner != user.user_id => continue,
+                // Lagged notifications are recovered by the next database read.
+                _ => break,
+            }
+        }
+    }
 }

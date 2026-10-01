@@ -54,7 +54,7 @@ export class SyncService {
     })
     this.stopLocal = ws.onLocalChange((docId) => engine.notifyLocalChange(docId))
     await this.registerDevice(api)
-    engine.start()
+    if (this.engine === engine) engine.start()
   }
 
   private async registerDevice(api: SyncApi): Promise<void> {

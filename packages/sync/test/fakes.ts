@@ -46,6 +46,9 @@ export class FakeStorage {
 
 export class FakeServer {
   docs = new Map<string, { updates: { seq: number; update: string }[]; latest: number; snapshot?: { uptoSeq: number; data: string } }>()
+  private changesCursor = 0
+  private changed = new Map<string, number>()
+  private changeListeners = new Set<() => void>()
   token = 'tok'
   down = false
   pushes = 0 // pushes of non-workspace docs
@@ -74,6 +77,8 @@ export class FakeServer {
       const d = this.doc(body.docId)
       d.latest++
       d.updates.push({ seq: d.latest, update: body.update })
+      this.changed.set(body.docId, ++this.changesCursor)
+      for (const notify of [...this.changeListeners]) notify()
       return json(200, { seq: d.latest })
     }
     if (url.pathname === '/sync/pull') {
@@ -90,6 +95,24 @@ export class FakeServer {
       d.snapshot = { uptoSeq: body.uptoSeq, data: body.snapshot }
       d.updates = d.updates.filter((u) => u.seq > body.uptoSeq)
       return json(200, {})
+    }
+    if (url.pathname === '/sync/changes') {
+      const since = Number(url.searchParams.get('since'))
+      return new Promise<Response>((resolve, reject) => {
+        const cleanup = () => { this.changeListeners.delete(notify); init?.signal?.removeEventListener('abort', abort) }
+        const abort = () => { cleanup(); reject(new DOMException('aborted', 'AbortError')) }
+        const notify = () => {
+          const docs = [...this.changed].filter(([, revision]) => revision > since)
+            .map(([docId]) => ({ docId, latestSeq: this.docs.get(docId)!.latest, updatedAt: 0 }))
+          if (!docs.length) return
+          cleanup()
+          resolve(json(200, { cursor: this.changesCursor, docs }))
+        }
+        this.changeListeners.add(notify)
+        init?.signal?.addEventListener('abort', abort, { once: true })
+        if (init?.signal?.aborted) abort()
+        else notify()
+      })
     }
     if (url.pathname === '/sync/docs') {
       return json(200, [...this.docs].map(([docId, d]) => ({ docId, latestSeq: d.latest, updatedAt: 0 })))

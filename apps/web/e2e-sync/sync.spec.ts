@@ -84,7 +84,29 @@ test('device A creates a notebook and draws; device B receives notebook and stro
   expect(await objectIds(B)).toEqual(await objectIds(A))
 })
 
+test('continuous strokes sync automatically in both directions while both devices stay open', async () => {
+  const initial = await typeCount(A, 'ink')
+  const strokes = 8
+  let finishedWriting = false
+  const writing = (async () => {
+    for (let i = 0; i < strokes; i++) await drawStroke(A, wave(260, 260 + i * 45, 20), 1)
+    finishedWriting = true
+  })()
+  try {
+    await expect.poll(() => typeCount(B, 'ink'), { timeout: 5000, intervals: [100] }).toBeGreaterThan(initial)
+    expect(finishedWriting).toBe(false)
+  } finally {
+    await writing
+  }
+  await expect.poll(() => typeCount(B, 'ink'), { timeout: 5000, intervals: [100] }).toBe(initial + strokes)
+
+  await drawStroke(B, wave(720, 280, 20), 1)
+  await expect.poll(() => typeCount(A, 'ink'), { timeout: 5000, intervals: [100] }).toBe(initial + strokes + 1)
+  expect(await objectIds(B)).toEqual(await objectIds(A))
+})
+
 test('concurrent offline edits on both devices converge after reconnecting', async () => {
+  const initialInks = await typeCount(A, 'ink')
   // B reloads offline at the end: its service worker must finish precaching while still online
   await B.evaluate(async () => { await navigator.serviceWorker.ready })
   await ctxA.setOffline(true)
@@ -92,7 +114,7 @@ test('concurrent offline edits on both devices converge after reconnecting', asy
 
   await drawStroke(A, wave(700, 380))
   await drawStroke(A, wave(700, 440))
-  await expect.poll(() => typeCount(A, 'ink')).toBe(5)
+  await expect.poll(() => typeCount(A, 'ink')).toBe(initialInks + 2)
 
   await B.getByTestId('tool-text').click()
   const host = (await B.getByTestId('editor-host').boundingBox())!
@@ -106,7 +128,7 @@ test('concurrent offline edits on both devices converge after reconnecting', asy
   await expect(A.getByTestId('sync-dot')).toHaveClass(/offline/)
   await expect(B.getByTestId('sync-dot')).toHaveClass(/offline/)
   expect(await typeCount(A, 'text')).toBe(0)
-  expect(await typeCount(B, 'ink')).toBe(3)
+  expect(await typeCount(B, 'ink')).toBe(initialInks)
 
   await ctxA.setOffline(false)
   await ctxB.setOffline(false)
@@ -116,10 +138,10 @@ test('concurrent offline edits on both devices converge after reconnecting', asy
       const [a, b] = [await objectIds(A), await objectIds(B)]
       return JSON.stringify(a) === JSON.stringify(b) ? a.length : -1
     }, { timeout: 90_000, intervals: [2000] })
-    .toBe(6) // 3 + 2 ink from A, 1 text from B
-  expect(await typeCount(A, 'ink')).toBe(5)
+    .toBe(initialInks + 3) // existing ink + 2 ink from A + 1 text from B
+  expect(await typeCount(A, 'ink')).toBe(initialInks + 2)
   expect(await typeCount(A, 'text')).toBe(1)
-  expect(await typeCount(B, 'ink')).toBe(5)
+  expect(await typeCount(B, 'ink')).toBe(initialInks + 2)
 
   // the merged state was persisted locally on B (survives a reload, even without the network)
   const merged = await objectIds(B)

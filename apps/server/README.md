@@ -41,6 +41,7 @@ Binary values are base64 (standard alphabet) strings. Ids (`docId`, `deviceId`, 
 - `GET /sync/pull?docId=&since=<seq>&limit=` -> `{updates:[{seq, update}], latestSeq, hasMore, snapshot?:{uptoSeq, data}}`.
   If a snapshot newer than `since` exists it is returned and `updates` are those after it. When `hasMore`, pull again with `since` = last returned seq (or `snapshot.uptoSeq` if no updates were returned).
 - `POST /sync/compact` `{docId, uptoSeq, snapshot}` -> `{uptoSeq, deletedUpdates}`. The client provides a merged snapshot covering all updates `<= uptoSeq`; the server stores it in the object store and deletes those updates. 409 if a newer snapshot exists.
+- `GET /sync/changes?since=<cursor>` -> `{cursor, docs:[{docId, latestSeq, updatedAt}]}`. Authenticated long poll, up to 20 seconds. Returns committed changes for this account immediately; pass the returned cursor on the next request. Durable sequences recover missed updates after reconnecting.
 - `GET /sync/docs` -> `[{docId, latestSeq, updatedAt}]` (ms epoch)
 - `POST /devices` `{deviceId, name}` register / heartbeat
 - `POST /assets?id=<optional client id>` raw body + `Content-Type` -> `{id}`; `GET /assets/{id}` -> bytes (owner only; served `nosniff` + CSP sandbox)

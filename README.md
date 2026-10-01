@@ -48,6 +48,12 @@ pnpm --filter @folio/web exec playwright test   # e2e against the preview build 
 
 **With a server:** `FOLIO_AUTH_DEV=true pnpm server` (port 8989), start the web app with `VITE_API_BASE=/api`, then in the browser console run `localStorage['folio.devToken']='dev:alice'` and reload to sync without Clerk. Set `OPENROUTER_API_KEY` on the server for AI features (all AI requests go through OpenRouter). `localStorage['folio.debug']='1'` exposes `window.__folio` (used by the e2e tests).
 
+### Live sync across devices
+
+Sign in to the same folio account on both devices and open the same notebook. Completed strokes and other edits sync automatically while you write, with local updates batched every 150 ms. Devices receive server notifications immediately and catch up after reconnecting. Writing and autosave still work offline.
+
+For presenting, lock the notebook on the display device (`Alt+R`, or the notebook menu) and write on the iPad. The lock is local to that device and incoming edits still appear. Each device keeps its own camera and page selection. Unfinished strokes appear on the other device when you lift the Pencil.
+
 ## Self-hosting
 
 Each release publishes one image with the web app and the server: `ghcr.io/badmike/folio`. The server serves the app at `/`, the API under `/api` and `/health` for probes.

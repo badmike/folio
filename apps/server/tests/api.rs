@@ -670,3 +670,50 @@ async fn cors_preflight_allows_configured_origin_only() {
     let (_, h, _) = app.send(preflight("http://evil.example")).await;
     assert!(h.get("access-control-allow-origin").is_none());
 }
+
+#[tokio::test]
+async fn realtime_changes_wake_and_catch_up_without_leaking_other_accounts() {
+    let app = TestApp::new().await;
+    let alice_seq = push(&app, "alice", "alice-notebook", b"secret").await;
+    let (_, first) = app
+        .json(
+            "GET",
+            "/api/sync/changes?since=0",
+            Some(&dev("alice")),
+            None,
+        )
+        .await;
+    assert_eq!(first["cursor"], alice_seq);
+    assert_eq!(first["docs"][0]["docId"], "alice-notebook");
+    app.state.ensure_user("bob").await.unwrap();
+    let poll = app.json("GET", "/api/sync/changes?since=0", Some("dev:bob"), None);
+    let edits = async {
+        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        push(&app, "alice", "another-secret", b"private").await;
+        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        push(&app, "bob", "presenter", b"stroke").await
+    };
+    let ((status, changes), bob_seq) =
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            tokio::join!(poll, edits)
+        })
+        .await
+        .unwrap();
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(changes["cursor"], bob_seq);
+    assert_eq!(changes["docs"].as_array().unwrap().len(), 1);
+    assert_eq!(changes["docs"][0]["docId"], "presenter");
+    // The cursor catches up to pushes made between long-poll requests.
+    let next_seq = push(&app, "bob", "presenter", b"next stroke").await;
+    let (_, caught_up) = app
+        .json(
+            "GET",
+            &format!("/api/sync/changes?since={bob_seq}"),
+            Some("dev:bob"),
+            None,
+        )
+        .await;
+    assert_eq!(caught_up["cursor"], next_seq);
+    let (status, _) = app.json("GET", "/api/sync/changes", None, None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}

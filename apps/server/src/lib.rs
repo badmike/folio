@@ -64,6 +64,7 @@ pub fn build_router(state: AppState) -> Router {
             post(routes::sync::compact).layer(DefaultBodyLimit::max(sync_limit)),
         )
         .route("/sync/docs", get(routes::sync::list_docs))
+        .route("/sync/changes", get(routes::sync::changes))
         .route("/devices", post(routes::devices::register))
         .route(
             "/assets",
