@@ -164,7 +164,7 @@ describe('bounds & text layout', () => {
     expect(l.lines.join('')).toBe('abcdefghij')
   })
   it('font families', () => {
-    expect(FONT_FAMILIES.hand).toContain('Caveat')
+    expect(FONT_FAMILIES.hand).toContain('Excalifont')
     expect(FONT_FAMILIES.mono).toContain('Fira Code')
   })
 })
