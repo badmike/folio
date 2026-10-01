@@ -6,17 +6,18 @@ import { useRouter } from 'vue-router'
 import { requireServices } from '../app'
 import FolderTree from '../components/FolderTree.vue'
 import Icon from '../components/Icon.vue'
+import Logo from '../components/Logo.vue'
 import Menu, { type MenuItem } from '../components/Menu.vue'
 import NewNotebookDialog from '../components/NewNotebookDialog.vue'
 import NotebookCard from '../components/NotebookCard.vue'
 import SettingsDialog from '../components/SettingsDialog.vue'
 import { renderSnippet, useLibrary } from '../composables'
+import { diagnostics } from '../services/diagnostics'
 import { chooseDialog, confirmDialog, promptDialog } from '../services/dialogs'
 import { exportFolioFile, exportMarkdownFor, importNotebookFile } from '../services/export'
-import { offlineReady, isIosSafariNotInstalled } from '../services/pwa'
+import { isIosSafariNotInstalled, offlineReady } from '../services/pwa'
 import type { DefaultPageType } from '../services/settings'
 import { toast, toastError } from '../services/toast'
-import { diagnostics } from '../services/diagnostics'
 
 const router = useRouter()
 const { workspace: ws, auth, sync } = requireServices()
@@ -188,14 +189,21 @@ function dismissHint() { showIosHint.value = false; try { sessionStorage.setItem
 <template>
   <div class="lib">
     <header class="top">
-      <button class="icon-btn only-narrow" aria-label="Folders" @click="drawer = !drawer"><Icon name="folder" /></button>
-      <div class="brand"><Icon name="logo" :size="26" /><span>folio</span></div>
+      <button class="icon-btn only-narrow" aria-label="Folders" @click="drawer = !drawer">
+        <Icon name="folder" />
+      </button>
+      <Logo class="brand" />
       <div class="search">
         <Icon name="search" :size="18" />
-        <input v-model="query" type="search" placeholder="Search notes, handwriting, labels…" aria-label="Search all notebooks" data-testid="search-input" />
-        <button v-if="query" class="icon-btn mini" aria-label="Clear search" @click="query = ''"><Icon name="x" :size="16" /></button>
+        <input v-model="query" type="search" placeholder="Search notes, handwriting, labels…"
+          aria-label="Search all notebooks" data-testid="search-input" />
+        <button v-if="query" class="icon-btn mini" aria-label="Clear search" @click="query = ''">
+          <Icon name="x" :size="16" />
+        </button>
       </div>
-      <span v-if="offlineReady" class="badge" title="folio works without a connection" data-testid="offline-ready"><Icon name="check" :size="14" /> Offline ready</span>
+      <span v-if="offlineReady" class="badge" title="folio works without a connection" data-testid="offline-ready">
+        <Icon name="check" :size="14" /> Offline ready
+      </span>
       <button class="icon-btn" aria-label="Settings" data-testid="open-settings" @click="showSettings = true">
         <Icon :name="auth.signedIn.value ? 'cloud' : 'settings'" />
         <span v-if="syncLabel" class="sdot" :class="syncLabel" />
@@ -205,13 +213,13 @@ function dismissHint() { showIosHint.value = false; try { sessionStorage.setItem
     <div class="body">
       <aside class="side" :class="{ open: drawer }">
         <FolderTree :folders="folders" :selected="selected" :counts="counts"
-                    @select="(id) => { selected = id; drawer = false; query = '' }"
-                    @create="newFolder" @rename="renameFolder" @move="moveFolder" @delete="deleteFolder"
-                    @drop="(fid, nid) => ws.moveNotebook(nid, fid)" />
+          @select="(id) => { selected = id; drawer = false; query = '' }" @create="newFolder" @rename="renameFolder"
+          @move="moveFolder" @delete="deleteFolder" @drop="(fid, nid) => ws.moveNotebook(nid, fid)" />
         <div v-if="tags.length" class="tagbox">
           <div class="label">Tags</div>
           <div class="tagrow">
-            <button v-for="t in tags" :key="t" class="chip" :class="{ on: tagFilter === t }" @click="tagFilter = tagFilter === t ? null : t">{{ t }}</button>
+            <button v-for="t in tags" :key="t" class="chip" :class="{ on: tagFilter === t }"
+              @click="tagFilter = tagFilter === t ? null : t">{{ t }}</button>
           </div>
         </div>
       </aside>
@@ -220,19 +228,26 @@ function dismissHint() { showIosHint.value = false; try { sessionStorage.setItem
       <main class="main">
         <div v-if="showIosHint" class="hint panel">
           <Icon name="download" :size="20" />
-          <span>Install folio: tap <strong>Share</strong>, then <strong>Add to Home Screen</strong> for the full-screen app.</span>
-          <button class="icon-btn mini" aria-label="Dismiss" @click="dismissHint"><Icon name="x" :size="16" /></button>
+          <span>Install folio: tap <strong>Share</strong>, then <strong>Add to Home Screen</strong> for the full-screen
+            app.</span>
+          <button class="icon-btn mini" aria-label="Dismiss" @click="dismissHint">
+            <Icon name="x" :size="16" />
+          </button>
         </div>
 
         <!-- search results -->
         <section v-if="query.trim()" class="results" data-testid="search-results">
           <h2>Search results</h2>
-          <p v-if="!searching && !liveHits.length" class="muted" data-testid="no-results">Nothing found for “{{ query }}”.</p>
+          <p v-if="!searching && !liveHits.length" class="muted" data-testid="no-results">Nothing found for “{{ query
+          }}”.</p>
           <ul>
             <li v-for="(h, i) in liveHits" :key="i">
               <button class="hit" data-testid="search-hit" @click="openHit(h)">
-                <span class="hit-title"><Icon :name="h.kind === 'handwriting' ? 'pen' : h.kind === 'tag' ? 'tag' : 'doc'" :size="16" /> {{ titleOf(h.notebookId) }}
-                  <span class="chip">{{ h.kind }}</span></span>
+                <span class="hit-title">
+                  <Icon :name="h.kind === 'handwriting' ? 'pen' : h.kind === 'tag' ? 'tag' : 'doc'" :size="16" /> {{
+                    titleOf(h.notebookId) }}
+                  <span class="chip">{{ h.kind }}</span>
+                </span>
                 <span class="snippet" v-html="renderSnippet(h.snippet)" />
               </button>
             </li>
@@ -241,25 +256,34 @@ function dismissHint() { showIosHint.value = false; try { sessionStorage.setItem
 
         <template v-else>
           <div class="bar">
-            <h2>{{ heading }}<span v-if="tagFilter" class="chip on tagsel">{{ tagFilter }} <button class="x" aria-label="Clear tag filter" @click="tagFilter = null">×</button></span></h2>
+            <h2>{{ heading }}<span v-if="tagFilter" class="chip on tagsel">{{ tagFilter }} <button class="x"
+                  aria-label="Clear tag filter" @click="tagFilter = null">×</button></span></h2>
             <span class="spacer" />
             <Menu align="right" :items="[
               { label: 'Recently modified', checked: sort === 'modified', action: () => (sort = 'modified') },
               { label: 'Recently created', checked: sort === 'created', action: () => (sort = 'created') },
               { label: 'Title', checked: sort === 'title', action: () => (sort = 'title') },
             ]">
-              <button class="btn small ghost" aria-label="Sort"><Icon name="sort" :size="18" /> <span class="hide-narrow">Sort</span></button>
+              <button class="btn small ghost" aria-label="Sort">
+                <Icon name="sort" :size="18" /> <span class="hide-narrow">Sort</span>
+              </button>
             </Menu>
-            <button class="btn small" data-testid="import-folio" @click="fileInput?.click()"><Icon name="upload" :size="18" /> <span class="hide-narrow">Import</span></button>
-            <input ref="fileInput" type="file" accept=".folio,.excalidraw,application/zip,application/json" multiple hidden data-testid="import-input" @change="onImport" />
-            <button class="btn primary" data-testid="new-notebook" @click="showNew = true"><Icon name="plus" :size="18" /> New notebook</button>
+            <button class="btn small" data-testid="import-folio" @click="fileInput?.click()">
+              <Icon name="upload" :size="18" /> <span class="hide-narrow">Import</span>
+            </button>
+            <input ref="fileInput" type="file" accept=".folio,.excalidraw,application/zip,application/json" multiple
+              hidden data-testid="import-input" @change="onImport" />
+            <button class="btn primary" data-testid="new-notebook" @click="showNew = true">
+              <Icon name="plus" :size="18" /> New notebook
+            </button>
           </div>
           <div v-if="!visible.length" class="empty muted">
             <Icon name="notebook" :size="44" />
             <p>No notebooks here yet.</p>
           </div>
           <div class="grid" data-testid="notebook-grid">
-            <NotebookCard v-for="n in visible" :key="n.id" :entry="n" :ws="ws" :items="menuFor(n)" @open="open(n.id)" @tag="(t) => (tagFilter = t)" />
+            <NotebookCard v-for="n in visible" :key="n.id" :entry="n" :ws="ws" :items="menuFor(n)" @open="open(n.id)"
+              @tag="(t) => (tagFilter = t)" />
           </div>
         </template>
       </main>
@@ -271,45 +295,267 @@ function dismissHint() { showIosHint.value = false; try { sessionStorage.setItem
 </template>
 
 <style scoped>
-.lib { height: 100%; display: flex; flex-direction: column; padding-left: var(--safe-left); padding-right: var(--safe-right); }
-.top { display: flex; align-items: center; gap: 8px; padding: calc(8px + var(--safe-top)) 12px 8px; background: var(--surface); border-bottom: 1px solid var(--border); }
-.brand { display: flex; align-items: center; gap: 6px; font-weight: 750; font-size: 20px; color: var(--accent-strong); letter-spacing: -0.02em; }
-.search { flex: 1; max-width: 560px; margin: 0 auto 0 12px; display: flex; align-items: center; gap: 8px; padding: 0 6px 0 12px; background: var(--surface-2); border-radius: 12px; min-height: var(--target); border: 1px solid transparent; }
-.search:focus-within { border-color: var(--accent); background: var(--surface); }
-.search input { flex: 1; min-width: 0; border: 0; background: transparent; outline: none; min-height: 40px; }
-.badge { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--ok); background: var(--surface-2); padding: 4px 10px; border-radius: 99px; }
-.sdot { position: absolute; right: 8px; top: 8px; width: 9px; height: 9px; border-radius: 50%; background: var(--ok); border: 2px solid var(--surface); }
-.sdot.syncing { background: var(--accent); }
-.sdot.offline, .sdot.signed-out { background: var(--warn); }
-.sdot.error { background: var(--danger); }
-.body { flex: 1; min-height: 0; display: flex; }
-.side { width: 250px; flex: none; padding: 14px 10px; overflow: auto; border-right: 1px solid var(--border); background: var(--surface); }
-.tagbox { margin-top: 18px; padding: 0 6px; }
-.tagrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-.main { flex: 1; min-width: 0; overflow: auto; padding: 18px 20px calc(24px + var(--safe-bottom)); }
-.bar { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
-.bar h2 { font-size: 22px; display: flex; align-items: center; gap: 10px; }
-.tagsel .x { border: 0; background: transparent; padding: 0 2px; font-size: 16px; }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 16px; }
-.empty { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 60px 0; }
-.hint { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 14px; margin-bottom: 14px; }
-.hint span { flex: 1; font-size: 14px; }
-.mini { width: 34px; height: 34px; }
-.results h2 { font-size: 20px; margin-bottom: 12px; }
-.results ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
-.hit { width: 100%; text-align: left; display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); }
-.hit:hover { border-color: var(--accent); }
-.hit-title { font-weight: 600; display: flex; align-items: center; gap: 6px; }
-.snippet { color: var(--muted); overflow-wrap: anywhere; }
-.only-narrow, .scrim { display: none; }
+.lib {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: calc(8px + var(--safe-top)) 12px 8px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand {
+  color: var(--text-strong);
+  margin: 0 4px;
+}
+
+.search {
+  flex: 1;
+  max-width: 560px;
+  margin: 0 auto 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px 0 12px;
+  background: var(--surface-2);
+  border-radius: 12px;
+  min-height: var(--target);
+  border: 1px solid transparent;
+}
+
+.search:focus-within {
+  border-color: var(--accent);
+  background: var(--surface);
+}
+
+.search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  outline: none;
+  min-height: 40px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ok);
+  background: var(--surface-2);
+  padding: 4px 10px;
+  border-radius: 99px;
+}
+
+.sdot {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ok);
+  border: 2px solid var(--surface);
+}
+
+.sdot.syncing {
+  background: var(--accent);
+}
+
+.sdot.offline,
+.sdot.signed-out {
+  background: var(--warn);
+}
+
+.sdot.error {
+  background: var(--danger);
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.side {
+  width: 250px;
+  flex: none;
+  padding: 14px 10px;
+  overflow: auto;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.tagbox {
+  margin-top: 18px;
+  padding: 0 6px;
+}
+
+.tagrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 18px 20px calc(24px + var(--safe-bottom));
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.bar h2 {
+  font-size: 22px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tagsel .x {
+  border: 0;
+  background: transparent;
+  padding: 0 2px;
+  font-size: 16px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 16px;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 60px 0;
+}
+
+.hint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px 8px 14px;
+  margin-bottom: 14px;
+}
+
+.hint span {
+  flex: 1;
+  font-size: 14px;
+}
+
+.mini {
+  width: 34px;
+  height: 34px;
+}
+
+.results h2 {
+  font-size: 20px;
+  margin-bottom: 12px;
+}
+
+.results ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hit {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.hit:hover {
+  border-color: var(--accent);
+}
+
+.hit-title {
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.snippet {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.only-narrow,
+.scrim {
+  display: none;
+}
+
 @media (max-width: 760px) {
-  .only-narrow { display: inline-flex; }
-  .hide-narrow, .badge { display: none; }
-  .brand span { display: none; }
-  .side { position: fixed; z-index: 500; top: 0; bottom: 0; left: 0; padding-top: calc(14px + var(--safe-top)); transform: translateX(-102%); transition: transform 0.18s; box-shadow: var(--shadow); }
-  .side.open { transform: none; }
-  .scrim { display: block; position: fixed; inset: 0; z-index: 400; background: rgba(10, 10, 20, 0.35); }
-  .main { padding: 14px 14px calc(24px + var(--safe-bottom)); }
-  .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .only-narrow {
+    display: inline-flex;
+  }
+
+  .hide-narrow,
+  .badge {
+    display: none;
+  }
+
+  .side {
+    position: fixed;
+    z-index: 500;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    padding-top: calc(14px + var(--safe-top));
+    transform: translateX(-102%);
+    transition: transform 0.18s;
+    box-shadow: var(--shadow);
+  }
+
+  .side.open {
+    transform: none;
+  }
+
+  .scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 400;
+    background: rgba(10, 10, 20, 0.35);
+  }
+
+  .main {
+    padding: 14px 14px calc(24px + var(--safe-bottom));
+  }
+
+  .grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 12px;
+  }
 }
 </style>
