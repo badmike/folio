@@ -93,6 +93,33 @@ describe('SyncEngine', () => {
     expect(b.storage.states.get('nb1')!.pulledSeq).toBe(1)
   })
 
+  it.each(['pull', 'persist'] as const)('pushes a local stroke written during a remote %s', async (during) => {
+    const s = new FakeServer()
+    const a = device(s, 'A'), b = device(s, 'B')
+    a.doc().edit('first')
+    await a.engine.syncDoc('nb1')
+    await b.engine.syncDoc('nb1')
+    b.doc().edit('remote')
+    await b.engine.syncDoc('nb1')
+
+    let written = false
+    const write = () => {
+      if (written) return
+      written = true
+      a.doc().edit('while-pulling')
+      a.engine.notifyLocalChange('nb1')
+    }
+    if (during === 'pull') s.hook = async (path) => { if (path === '/sync/pull') write() }
+    else {
+      const persist = a.storage.setSyncState.bind(a.storage)
+      vi.spyOn(a.storage, 'setSyncState').mockImplementation(async (state) => { write(); await persist(state) })
+    }
+    await a.engine.syncDoc('nb1')
+    s.hook = null
+    await b.engine.syncDoc('nb1')
+    expect(b.doc().texts()).toEqual(['first', 'remote', 'while-pulling'])
+  })
+
   it('leaves pulledSeq when others pushed concurrently', async () => {
     const s = new FakeServer()
     const a = device(s, 'A'), b = device(s, 'B')

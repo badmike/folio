@@ -303,7 +303,8 @@ export class SyncEngine {
 
     // Did the doc hold changes the server has not seen before we pull?
     const versionBefore = doc.version()
-    const cleanBefore = fresh || (state.pushedVersion !== null && bytesEqual(versionBefore, state.pushedVersion))
+    let cleanAfterPull = fresh || (state.pushedVersion !== null && bytesEqual(versionBefore, state.pushedVersion))
+    let importedVersion = versionBefore
 
     // ---- pull (paged) ----
     let pulledSeq = state.pulledSeq
@@ -311,6 +312,8 @@ export class SyncEngine {
     let importedAny = false
     for (;;) {
       const res = await api.pull(docId, pulledSeq, this.o.pullLimit)
+      // Local edits during network or persistence waits have not reached the server.
+      if (!bytesEqual(doc.version(), importedVersion)) cleanAfterPull = false
       let seq = pulledSeq
       if (res.snapshot && res.snapshot.uptoSeq > pulledSeq) {
         doc.importUpdates(res.snapshot.data)
@@ -322,6 +325,7 @@ export class SyncEngine {
         importedAny = true
         if (u.seq > seq) seq = u.seq
       }
+      importedVersion = doc.version()
       pulledCount += res.updates.length
       if (seq !== pulledSeq) {
         // The merged state must be durable before we claim to have consumed these updates.
@@ -336,7 +340,7 @@ export class SyncEngine {
     // Everything that was pulled came from the server, so if we had nothing unpushed
     // beforehand the merged version is already "pushed" — no need to echo it back.
     let pushedVersion = state.pushedVersion
-    if (cleanBefore && importedAny) pushedVersion = doc.version()
+    if (cleanAfterPull && importedAny) pushedVersion = importedVersion
 
     // ---- push ----
     // Capture the version BEFORE exporting: edits made while the request is in flight
