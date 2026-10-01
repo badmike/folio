@@ -1,10 +1,10 @@
+import vue from '@vitejs/plugin-vue'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import vue from '@vitejs/plugin-vue'
 import { defineConfig } from 'vite'
-import { viteStaticCopy } from 'vite-plugin-static-copy'
 import { VitePWA } from 'vite-plugin-pwa'
+import { viteStaticCopy } from 'vite-plugin-static-copy'
 import { TESSERACT_ASSETS } from '../../packages/recognition/src/assets'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -83,7 +83,7 @@ export default defineConfig({
   worker: { format: 'es' },
   build: { target: 'es2022', sourcemap: false },
   server: {
-    proxy: { '/api': { target: 'http://localhost:8787', changeOrigin: true, rewrite: (p) => p.replace(/^\/api/, '') } },
+    proxy: { '/api': { target: 'http://localhost:8989', changeOrigin: true, rewrite: (p) => p.replace(/^\/api/, '') } },
   },
   preview: { port: 4173 },
 })

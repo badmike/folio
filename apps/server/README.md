@@ -48,7 +48,7 @@ Binary values are base64 (standard alphabet) strings. Ids (`docId`, `deviceId`, 
 
 ## Deploy notes
 
-- Docker: `docker build -t folio-server apps/server && docker run -p 8787:8787 -v folio-data:/app/data --env-file .env folio-server`. The image is multi-stage, runs as a non-root user, and exposes a `--healthcheck` probe.
+- Docker: `docker build -t folio-server apps/server && docker run -p 8989:8989 -v folio-data:/app/data --env-file .env folio-server`. The image is multi-stage, runs as a non-root user, and exposes a `--healthcheck` probe.
 - SQLite (WAL) is a single-node store: run one replica and back up the `data/` volume (or use Litestream). Snapshots and assets live in the object store, so use S3 for durability.
 - Terminate TLS in front (Caddy, nginx, a platform router). Set `CLERK_ISSUER` and a strict `FOLIO_CORS_ORIGINS`; keep `FOLIO_AUTH_DEV` off.
 - Logs are JSON on stdout. Failures carry a `counter` field (`auth_failure`, `sync_failure`, `storage_error`, `ai_failure`, `db_error`, `internal_error`) for log-based metrics; every request carries an `x-request-id`.
