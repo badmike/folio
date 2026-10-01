@@ -26,7 +26,7 @@ const active = (v: T) => typeof v === 'number' && typeof props.modelValue === 'n
 <style scoped>
 .opt-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .opt {
-  width: 40px; height: 38px; border-radius: 9px; border: 1px solid transparent; background: var(--surface-2); color: var(--text);
+  width: 36px; height: 34px; border-radius: var(--radius); border: 1px solid transparent; background: var(--surface-2); color: var(--text);
   display: inline-flex; align-items: center; justify-content: center; padding: 0;
 }
 .opt:hover { background: var(--surface-3); }

@@ -347,7 +347,8 @@ export class NotebookController {
     } else this.setBackground({ pattern: this.lastPattern ?? 'grid' })
   }
   private lastPattern: BackgroundPattern | undefined
-  get gridShown(): boolean { return (this.page?.background.pattern ?? 'blank') !== 'blank' }
+  /** Reads the reactive page list (not the document) so the menu check mark follows the pattern. */
+  get gridShown(): boolean { return (this.pages.value.find((p) => p.id === this.pageId.value)?.background.pattern ?? 'blank') !== 'blank' }
 
   /** Excalidraw JSON pasted from the clipboard: converted and inserted at the view centre. */
   async pasteExternal(text: string): Promise<boolean> {
@@ -485,6 +486,13 @@ export class NotebookController {
     const vs = e.viewportSize
     const c = e.screenToWorld({ x: vs.width / 2, y: vs.height / 2 })
     e.setCamera({ zoom: 1, x: c.x - vs.width / 2, y: c.y - vs.height / 2 })
+  }
+  /** Zoom around the view centre (same step as Cmd +/-). */
+  zoomBy(factor: number) {
+    const e = this.editor.value
+    if (!e) return
+    const vs = e.viewportSize
+    e.zoomAt({ x: vs.width / 2, y: vs.height / 2 }, factor)
   }
   fit() {
     const e = this.editor.value

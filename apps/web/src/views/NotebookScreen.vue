@@ -40,7 +40,8 @@ function armFade() {
 function wake() { clearTimeout(fadeTimer); faded.value = false }
 /**
  * Auto-hide: drawing ink (pen, highlighter, eraser) slides the HUD off screen; it stays hidden
- * until a plain finger tap on the canvas (a pan or pinch does not count). The compact tool options stay.
+ * until a plain finger tap on the canvas (a pan or pinch does not count) or Esc / Space on a
+ * keyboard. The compact tool options stay.
  */
 const hudHidden = ref(false)
 const touches = new Map<number, { x: number; y: number; t: number; moved: boolean }>()
@@ -75,9 +76,11 @@ const excalInput = ref<HTMLInputElement | null>(null)
 
 /** App-level keys (the editor handles tools and editing itself and marks those events as handled). */
 function onKeyDown(e: KeyboardEvent) {
-  if (e.defaultPrevented) return
   const t = e.target as HTMLElement | null
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+  // Before the handled check: the editor also uses Esc (deselect) and Space (pan), and both still apply.
+  if (e.key === 'Escape' || e.key === ' ') hudHidden.value = false
+  if (e.defaultPrevented) return
   const mod = e.metaKey || e.ctrlKey
   if (e.altKey && !mod && e.code === 'KeyZ') { e.preventDefault(); toggleZen(); return }
   if (e.altKey && !mod && e.code === 'KeyR') { e.preventDefault(); ctl.setLocked(!ctl.locked.value); return }
@@ -86,13 +89,6 @@ function onKeyDown(e: KeyboardEvent) {
   if (!mod && !e.altKey && e.key === '?') { e.preventDefault(); showShortcuts.value = !showShortcuts.value; return }
   if (e.key === 'Escape' && panel.value) { panel.value = null }
 }
-
-// Toolbar goes to the bottom on touch devices / narrow screens, top-centre otherwise.
-const narrow = ref(false)
-function measureLayout() {
-  narrow.value = (window.matchMedia?.('(pointer: coarse)').matches ?? false) || window.innerWidth < 720
-}
-const placement = computed<'top' | 'bottom'>(() => (narrow.value ? 'bottom' : 'top'))
 
 function togglePanel(p: 'pages' | 'search' | 'ai') {
   panel.value = panel.value === p ? null : p
@@ -141,10 +137,8 @@ function applyRouteFocus() {
 
 const onPageHide = () => ctl.flushPending()
 // The installed iPad app changes its viewport (status bar, rotation, keyboard) without a window resize.
-const onViewport = () => { measureLayout(); ctl.remeasure() }
+const onViewport = () => ctl.remeasure()
 onMounted(async () => {
-  measureLayout()
-  window.addEventListener('resize', measureLayout)
   window.visualViewport?.addEventListener('resize', onViewport)
   window.addEventListener('orientationchange', onViewport)
   window.addEventListener('pagehide', onPageHide, true)
@@ -158,7 +152,6 @@ watch(() => [route.query.page, route.query.obj], applyRouteFocus)
 watch(() => settings.theme, (t) => ctl.editor.value?.setTheme(t))
 watch(() => settings.penMode, (m) => ctl.editor.value?.setPenMode(m))
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', measureLayout)
   window.visualViewport?.removeEventListener('resize', onViewport)
   window.removeEventListener('orientationchange', onViewport)
   window.removeEventListener('pagehide', onPageHide, true)
@@ -183,10 +176,12 @@ const mainItems = computed<MenuItem[]>(() => [
   ...(canFullscreen ? [{ label: 'Full screen', icon: 'fullscreen', checked: fullscreen.value, action: () => void toggleFullscreen() }] : []),
   { divider: true },
   { label: 'Import from Excalidraw…', icon: 'upload', action: () => excalInput.value?.click() },
-  { label: 'Export as Markdown (.md)', icon: 'doc', action: () => void run(async () => exportMarkdownFile(ctl.title.value, await ws.exportMarkdownText(ctl.id))) },
-  { label: 'Export page as image (.png)', icon: 'download', action: () => void run(() => exportPng(ctl.doc, ctl.pageId.value, settings.theme, ctl.editor.value)) },
-  { label: 'Export as PDF', icon: 'download', action: () => void run(() => exportPdf(ctl.doc, settings.theme)) },
-  { label: 'Export as folio file (.folio)', icon: 'download', action: () => void run(() => exportFolioFile(ws, ctl.id, ctl.title.value)) },
+  { label: 'Export', icon: 'download', children: [
+    { label: 'Markdown (.md)', action: () => void run(async () => exportMarkdownFile(ctl.title.value, await ws.exportMarkdownText(ctl.id))) },
+    { label: 'Page as image (.png)', action: () => void run(() => exportPng(ctl.doc, ctl.pageId.value, settings.theme, ctl.editor.value)) },
+    { label: 'PDF', action: () => void run(() => exportPdf(ctl.doc, settings.theme)) },
+    { label: 'folio file (.folio)', action: () => void run(() => exportFolioFile(ws, ctl.id, ctl.title.value)) },
+  ] },
   { divider: true },
   ...(hasKeyboard.value ? [{ label: 'Keyboard shortcuts', icon: 'keyboard', action: () => { showShortcuts.value = true } }] : []),
   { label: 'Settings', icon: 'settings', action: () => { showSettings.value = true } },
@@ -232,13 +227,15 @@ const zoomPct = computed(() => Math.round(ctl.zoom.value * 100))
     </header>
     <input ref="excalInput" type="file" accept=".excalidraw,application/json" hidden data-testid="excalidraw-input" @change="onExcalidrawFile" />
 
-    <Toolbar :placement="placement" :zen="zen" :faded="zen && faded" @wake="wake" />
-    <PropertiesPanel :placement="placement" :zen="zen" :hud-hidden="hudHidden" />
+    <Toolbar :zen="zen" :faded="zen && faded" @wake="wake" />
+    <PropertiesPanel :zen="zen" :hud-hidden="hudHidden" />
     <button v-if="zen" class="zen-exit panel floating" data-testid="zen-exit" @click="toggleZen(false)">Exit zen mode</button>
 
-    <div v-if="!zen" class="zoom panel floating" :class="placement">
-      <button class="icon-btn small" aria-label="Fit to content" title="Fit (Shift+1)" data-testid="zoom-fit" @click="ctl.fit()"><Icon name="fit" :size="18" /></button>
+    <div v-if="!zen" class="zoom panel floating">
+      <button class="icon-btn" aria-label="Zoom out" title="Zoom out (⌘-)" data-testid="zoom-out" @click="ctl.zoomBy(1 / 1.2)"><Icon name="minus" :size="18" /></button>
       <button class="zoom-pct" aria-label="Reset zoom to 100%" title="Reset zoom (⌘0)" data-testid="zoom-pct" @click="ctl.resetZoom()">{{ zoomPct }}%</button>
+      <button class="icon-btn" aria-label="Zoom in" title="Zoom in (⌘+)" data-testid="zoom-in" @click="ctl.zoomBy(1.2)"><Icon name="plus" :size="18" /></button>
+      <button class="icon-btn" aria-label="Fit to content" title="Fit (Shift+1)" data-testid="zoom-fit" @click="ctl.fit()"><Icon name="fit" :size="18" /></button>
     </div>
 
     <template v-if="!zen">
@@ -255,8 +252,8 @@ const zoomPct = computed(() => Math.round(ctl.zoom.value * 100))
 .screen { position: fixed; top: 0; left: 0; width: var(--app-w); height: var(--app-h); overflow: hidden; background: var(--bg); touch-action: none; }
 /* auto-hide: the HUD slides off its edge; the compact properties bar stays and slides to the corner */
 .screen > .topbar, .screen > .zoom, .screen :deep(.dock), .screen :deep(.sheet) { transition: transform 0.28s ease, opacity 0.28s ease; }
-.screen.hud-hidden > .topbar, .screen.hud-hidden :deep(.dock.top), .screen.hud-hidden > .zoom.bottom { transform: translateY(-140%); opacity: 0; pointer-events: none; }
-.screen.hud-hidden :deep(.dock.bottom), .screen.hud-hidden > .zoom.top { transform: translateY(140%); opacity: 0; pointer-events: none; }
+.screen.hud-hidden > .topbar, .screen.hud-hidden > .zoom { transform: translateY(-140%); opacity: 0; pointer-events: none; }
+.screen.hud-hidden :deep(.dock) { transform: translateY(140%); opacity: 0; pointer-events: none; }
 .screen.hud-hidden :deep(.sheet) { transform: translateX(110%); opacity: 0; pointer-events: none; }
 .screen.hud-hidden :deep(.dock > *) { pointer-events: none; }
 .canvas-host { position: absolute; inset: 0; touch-action: none; }
@@ -276,14 +273,13 @@ const zoomPct = computed(() => Math.round(ctl.zoom.value * 100))
 .dot.local { background: var(--surface-3); box-shadow: inset 0 0 0 2px var(--muted); }
 .actions { display: flex; padding: 2px; }
 .actions .icon-btn { width: 40px; height: 40px; }
-.zoom { position: absolute; z-index: 18; left: calc(8px + var(--safe-left)); display: flex; align-items: center; }
-.zoom.top { bottom: calc(8px + var(--safe-bottom)); }
-.zoom.bottom { top: calc(60px + var(--safe-top)); left: auto; right: calc(8px + var(--safe-right)); }
-.zoom-pct { border: 0; background: transparent; min-height: 40px; padding: 0 10px; font-variant-numeric: tabular-nums; font-size: 13px; }
+.zoom { position: absolute; z-index: 18; top: calc(60px + var(--safe-top)); right: calc(8px + var(--safe-right)); display: flex; align-items: center; padding: 2px; }
+.zoom .icon-btn { width: 36px; height: 36px; }
+.zoom-pct { border: 0; background: transparent; min-width: 50px; min-height: 36px; padding: 0 4px; border-radius: var(--radius); font-variant-numeric: tabular-nums; font-size: 13px; }
+.zoom-pct:hover { background: var(--surface-2); }
 .zen-exit {
   position: absolute; z-index: 26; top: calc(12px + var(--safe-top)); right: calc(12px + var(--safe-right)); min-height: 36px; padding: 0 14px;
   font-size: 13px; color: var(--muted); opacity: 0.75; border-radius: 99px;
 }
 .zen-exit:hover, .zen-exit:focus-visible { opacity: 1; color: var(--text); }
-.icon-btn.small { width: 40px; height: 40px; }
 </style>

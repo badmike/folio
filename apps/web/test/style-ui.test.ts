@@ -135,7 +135,7 @@ function fakeController(ctx: StyleContext, over: Record<string, unknown> = {}) {
 }
 const shapeValues = { strokeColor: '#e03131', backgroundColor: 'transparent', fillStyle: 'hachure', strokeWidth: 2, strokeStyle: 'solid', roughness: 1, opacity: 1 } as StyleContext['values']
 const mountPanel = (ctl: unknown, props: Record<string, unknown> = {}) =>
-  mount(PropertiesPanel, { props: { placement: 'top', ...props }, global: { provide: { [NOTEBOOK_KEY as symbol]: ctl }, stubs: { teleport: true } } })
+  mount(PropertiesPanel, { props, global: { provide: { [NOTEBOOK_KEY as symbol]: ctl }, stubs: { teleport: true } } })
 
 describe('PropertiesPanel', () => {
   it('shows only the applicable sections, in Excalidraw order', () => {
@@ -187,10 +187,12 @@ describe('PropertiesPanel', () => {
     })
     const w = mountPanel(ctl)
     expect(w.get('[data-testid="font-size-28"]').classes()).toContain('on')
-    expect(w.get('[data-testid="font-family-btn"]').text()).toBe('Normal')
-    await w.get('[data-testid="font-family-btn"]').trigger('click')
     expect(w.get('[data-testid="font-family-sans"]').classes()).toContain('on')
-    await w.get('[data-testid="font-family-kalam"]').trigger('click')
+    await w.get('[data-testid="font-family-hand"]').trigger('click')
+    expect(setStyle).toHaveBeenLastCalledWith({ fontFamily: 'hand' })
+    // every other font sits in the "more fonts" popover
+    await w.get('[data-testid="font-family-more"]').trigger('click')
+    await w.findAll('[role="menuitem"]').find((b) => b.text() === 'Kalam')!.trigger('click')
     expect(setStyle).toHaveBeenLastCalledWith({ fontFamily: 'kalam' })
     expect(w.get('[data-testid="text-align-center"]').classes()).toContain('on')
     await w.get('[data-testid="font-size-36"]').trigger('click')
@@ -318,7 +320,7 @@ describe('zen mode', () => {
     const { ctl } = fakeController({ source: 'tool', types: [], canvasBackground: '#fff', values: {}, applicable: [] }, {
       canUndo: ref(false), canRedo: ref(false), undo: vi.fn(), redo: vi.fn(), setTool: vi.fn(),
     })
-    const w = mount(Toolbar, { props: { placement: 'top', zen: true, faded: true }, global: { provide: { [NOTEBOOK_KEY as symbol]: ctl } } })
+    const w = mount(Toolbar, { props: { zen: true, faded: true }, global: { provide: { [NOTEBOOK_KEY as symbol]: ctl } } })
     expect(w.findAll('[data-testid^="tool-"]').map((b) => b.attributes('data-testid'))).toEqual(['tool-lock', 'tool-select', 'tool-pen', 'tool-highlighter', 'tool-eraser'])
     expect(w.find('[data-testid="redo"]').exists()).toBe(false)
     expect(w.classes()).toContain('faded')

@@ -72,7 +72,7 @@ test.describe('properties panel', () => {
     // the item style default was restored with the notebook
     expect(await page.evaluate(() => (window as any).__folio.editor.itemStyle.strokeColor)).toBe('#12ab34')
     await page.getByTestId('tool-shape').click()
-    await drawStroke(page, [[700, 500], [760, 540], [820, 580]]) // clear of the left-hand properties panel
+    await drawStroke(page, [[700, 200], [760, 240], [820, 280]]) // clear of the properties panel above the toolbar
     await expect.poll(async () => (await objectsOf(page, 'shape')).length).toBe(2)
     expect((await objectsOf(page, 'shape'))[1].style.strokeColor).toBe('#12ab34')
   })
@@ -90,7 +90,6 @@ test.describe('properties panel', () => {
     await expect(page.getByTestId('sec-fontSize')).toBeVisible()
     await page.getByTestId('font-size-36').click()
     await expect.poll(async () => (await objectsOf(page, 'text'))[0].fontSize).toBe(36)
-    await page.getByTestId('font-family-btn').click()
     await page.getByTestId('font-family-mono').click()
     await expect.poll(async () => (await objectsOf(page, 'text'))[0].fontFamily).toBe('mono')
     await page.getByTestId('text-align-center').click()
@@ -185,7 +184,7 @@ test.describe('zen mode', () => {
     await expect(page.getByTestId('zen-exit')).toHaveCount(0)
     // persisted setting: exit pill also works
     await page.getByTestId('main-menu').click()
-    await page.getByRole('menuitem', { name: 'Zen mode' }).click()
+    await page.getByRole('menuitemcheckbox', { name: 'Zen mode' }).click()
     await expect(page.getByTestId('zen-exit')).toBeVisible()
     await page.getByTestId('zen-exit').click()
     await expect(page.getByTestId('main-menu')).toBeVisible()

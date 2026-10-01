@@ -136,6 +136,7 @@ test('leaving the notebook and searching finds the text and navigates to it', as
 
 test('export markdown contains the typed text', async () => {
   await page.getByTestId('main-menu').click()
+  await page.getByRole('menuitem', { name: 'Export' }).click()
   const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: /Markdown/ }).click()])
   expect(dl.suggestedFilename()).toBe('E2E Notes.md')
   const path = await dl.path()
@@ -168,7 +169,7 @@ test('handwriting is recognized offline (Tesseract) and becomes searchable', asy
     L: [[[0, 0], [0, 80], [40, 80]]],
     O: [[[20, 0], [40, 15], [40, 65], [20, 80], [0, 65], [0, 15], [20, 0]]],
   }
-  let x0 = 300
+  let x0 = 40 // left of the properties panel, which sits above the toolbar
   for (const ch of 'HELLO') {
     for (const st of letters[ch]) await drawStroke(page, st.map(([x, y]) => [x0 + x, 640 + y] as [number, number]), 12)
     x0 += 70
@@ -195,7 +196,7 @@ test('cleanup mode "ask" offers to convert ink after a pause', async () => {
   await page.keyboard.press('Escape')
   await page.getByTestId('tool-pen').click()
   const before = await countType(page, 'shape')
-  await drawStroke(page, [[700, 560], [850, 562], [852, 660], [702, 662], [700, 563]], 30)
+  await drawStroke(page, [[60, 150], [210, 152], [212, 250], [62, 252], [60, 153]], 30) // clear of the properties panel
   await expect(page.getByTestId('cleanup-prompt')).toBeVisible({ timeout: 30_000 })
   await shot('09d-ask-toast')
   await page.getByTestId('cleanup-apply').click()
