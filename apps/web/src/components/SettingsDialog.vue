@@ -160,6 +160,30 @@ const STORAGE: Record<typeof svc.storageKind, string> = { 'sqlite-opfs': 'SQLite
             </div>
             <div class="setting">
               <div class="text">
+                <div class="name">Selection</div>
+                <p>What dragging a selection box or lasso picks up.</p>
+              </div>
+              <div class="seg soft" role="radiogroup" aria-label="Selection">
+                <button :class="{ on: settings.selectionMode === 'overlap' }" @click="settings.selectionMode = 'overlap'">Touching</button>
+                <button :class="{ on: settings.selectionMode === 'wrap' }" @click="settings.selectionMode = 'wrap'">Fully inside</button>
+              </div>
+            </div>
+            <div class="setting">
+              <div class="text">
+                <div class="name">Snap to objects</div>
+                <p>Moving, resizing and drawing shapes snaps to the edges and centres of nearby objects. Hold <kbd>⌘</kbd> or <kbd>Ctrl</kbd> to place freely.</p>
+              </div>
+              <Switch v-model="settings.snapToObjects" label="Snap to objects" data-testid="settings-snap-objects" />
+            </div>
+            <div class="setting">
+              <div class="text">
+                <div class="name">Snap to grid</div>
+                <p>Snaps to the page pattern, or a 20 point grid on blank pages.</p>
+              </div>
+              <Switch v-model="settings.snapToGrid" label="Snap to grid" data-testid="settings-snap-grid" />
+            </div>
+            <div class="setting">
+              <div class="text">
                 <div class="name">Scribble to erase</div>
                 <p>Scribble back and forth over ink with the pen to erase it.</p>
               </div>

@@ -182,6 +182,8 @@ watch(() => [route.query.page, route.query.obj], applyRouteFocus)
 watch(() => settings.theme, (t) => ctl.editor.value?.setTheme(t))
 watch(() => settings.penMode, (m) => ctl.editor.value?.setPenMode(m))
 watch(() => settings.scribbleErase, (v) => ctl.editor.value?.setScribbleErase(v))
+watch(() => settings.selectionMode, (m) => ctl.editor.value?.setSelectionMode(m))
+watch(() => [settings.snapToObjects, settings.snapToGrid] as const, ([objects, grid]) => ctl.editor.value?.setSnapping({ objects, grid }))
 onBeforeUnmount(() => {
   window.visualViewport?.removeEventListener('resize', onViewport)
   window.removeEventListener('orientationchange', onViewport)

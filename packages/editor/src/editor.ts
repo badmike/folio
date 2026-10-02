@@ -2,7 +2,7 @@ import type {
   ArrowObject, CanvasObject, DocChangeEvent, GroupObject, InkStroke, NotebookDocumentApi, ObjectId, ObjectPatch,
   Operation, Page, PageId, Rect, ShapeObject, TextObject, Vec2,
 } from '@folio/document'
-import { arrowHandleSpecs, lineHandleSpecs } from '@folio/renderer'
+import { arrowHandleSpecs, backgroundLevels, lineHandleSpecs } from '@folio/renderer'
 import type { ArrowHandleSpec, Camera, LiveInkLayer, Renderer, Scene, SelectionOverlay, Size, VisualTheme } from '@folio/renderer'
 import {
   MAX_ZOOM, MIN_ZOOM, cameraForRect, clampCameraToPage, clampZoom, screenToWorld as s2w, worldToScreen as w2s, zoomCameraAt,
@@ -10,13 +10,14 @@ import {
 import { createDefaultLiveLayer, createDefaultRenderer, exportPageImage } from './defaults'
 import { Emitter } from './emitter'
 import {
-  createId, hitTestObject, inflate, localBounds, objectIntersectsLasso, rectContainsRect, rectsIntersect, resolveArrowEndpoints,
+  createId, geometricBounds, hitTestObject, inflate, insideLasso, localBounds, objectIntersectsLasso, rectContainsRect, rectsIntersect, resolveArrowEndpoints,
   unionRects, worldBounds, worldToLocal,
 } from './geometry'
 import { InputController } from './input'
 import { HANDLE_IDS, applyPatch, cloneObjects, computeFrame, computeMovePatches } from './manipulate'
 import type { ObjectPatchEntry, SelectionFrame } from './manipulate'
 import { scribbleCovers } from './scribble'
+import type { SnapContext } from './snap'
 import { SpatialIndex } from './spatial-index'
 import { TextEditor } from './text-edit'
 import {
@@ -26,7 +27,7 @@ import {
 import { ONE_SHOT_TOOLS } from './types'
 import type {
   AlignMode, CleanupPlan, ClipboardPayload, DistributeAxis, EditorEvents, EditorOptions, ExecuteOptions, ExportImageOptions, ItemStyle,
-  PenMode, SelectionStylePatch, StyleContext, StylePatch, Tool, ToolColors, ToolOptionsMap,
+  PenMode, SelectionMode, SelectionStylePatch, StyleContext, StylePatch, Tool, ToolColors, ToolOptionsMap,
 } from './types'
 
 const HISTORY_LIMIT = 500
@@ -63,6 +64,11 @@ const raf = (cb: () => void): number =>
   typeof requestAnimationFrame === 'function' ? requestAnimationFrame(cb) : (setTimeout(cb, 16) as unknown as number)
 const caf = (id: number): void => (typeof cancelAnimationFrame === 'function' ? cancelAnimationFrame(id) : clearTimeout(id))
 
+/** Snap distance in screen pixels. */
+const SNAP_PX = 8
+
+type OverlayExtra = Pick<SelectionOverlay, 'marquee' | 'lasso' | 'bindingTargetId' | 'guides'>
+
 export class Editor {
   readonly document: NotebookDocumentApi
   readonly events = new Emitter<EditorEvents>()
@@ -93,6 +99,9 @@ export class Editor {
   private _penMode: PenMode
   private _toolLock: boolean
   private _scribbleErase: boolean
+  private _selectionMode: SelectionMode
+  private _snapToObjects: boolean
+  private _snapToGrid: boolean
   private switchingTool = false
   /** Colours remembered per one-shot tool (shape, arrow, text, frame, blur); empty until a tool's colour was changed. */
   private _toolColors: ToolColors = {}
@@ -109,7 +118,7 @@ export class Editor {
   private overrides = new Map<ObjectId, CanvasObject>()
   private previewObjects: CanvasObject[] = []
   private hiddenExtra = new Set<ObjectId>()
-  private overlayExtra: Pick<SelectionOverlay, 'marquee' | 'lasso' | 'bindingTargetId'> = {}
+  private overlayExtra: OverlayExtra = {}
   private highlights: Rect[] | undefined
   private hideHandles = false
 
@@ -135,6 +144,9 @@ export class Editor {
     this._penMode = opts.penMode ?? 'auto'
     this._toolLock = !!opts.toolLock
     this._scribbleErase = opts.scribbleErase ?? true
+    this._selectionMode = opts.selectionMode ?? 'overlap'
+    this._snapToObjects = !!opts.snapToObjects
+    this._snapToGrid = !!opts.snapToGrid
 
     const container = opts.container
     try {
@@ -202,6 +214,7 @@ export class Editor {
   get penMode(): PenMode { return this._penMode }
   get toolLock(): boolean { return this._toolLock }
   get scribbleErase(): boolean { return this._scribbleErase }
+  get selectionMode(): SelectionMode { return this._selectionMode }
   /** Per-tool colour memory (persist with the notebook). */
   get toolColors(): Readonly<ToolColors> { return this._toolColors }
   setToolColors(colors: ToolColors): void {
@@ -234,6 +247,37 @@ export class Editor {
   setPenMode(m: PenMode): void { this._penMode = m }
 
   setScribbleErase(v: boolean): void { this._scribbleErase = v }
+
+  setSelectionMode(m: SelectionMode): void { this._selectionMode = m }
+
+  setSnapping(o: { objects?: boolean; grid?: boolean }): void {
+    if (o.objects !== undefined) this._snapToObjects = o.objects
+    if (o.grid !== undefined) this._snapToGrid = o.grid
+  }
+
+  /** Snap targets (visible objects outside `exclude`, ink aside) and grid, or undefined when snapping is off. */
+  snapContext(exclude: Iterable<ObjectId>): SnapContext | undefined {
+    if (!this._snapToObjects && !this._snapToGrid) return undefined
+    const zoom = this._camera.zoom
+    const skip = new Set(exclude)
+    const view = { x: this._camera.x, y: this._camera.y, width: this.viewport.width / zoom, height: this.viewport.height / zoom }
+    const targets: Rect[] = []
+    if (this._snapToObjects) {
+      for (const o of this.queryRect(view)) {
+        if (skip.has(o.id) || o.type === 'ink') continue
+        const b = geometricBounds(this.resolve(o.id) ?? o, this.resolve)
+        if (b) targets.push(b)
+      }
+    }
+    return { targets, grid: this._snapToGrid ? this.gridSpacing() : undefined, tolerance: SNAP_PX / zoom }
+  }
+
+  /** Spacing of the visible page pattern (its primary level when it scales with zoom); 20 on blank pages. */
+  private gridSpacing(): number {
+    const bg = this.page?.background
+    if (!bg || bg.pattern === 'blank') return 20
+    return backgroundLevels(bg, this._camera.zoom)[0]?.spacing ?? bg.spacing
+  }
 
   /** Tool lock: one-shot tools stay active after creating an object (Excalidraw "Q"). */
   setToolLock(v: boolean): void {
@@ -621,8 +665,33 @@ export class Editor {
       minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x)
       minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y)
     }
-    return this.queryRect({ x: minX, y: minY, width: maxX - minX, height: maxY - minY })
+    const hits = this.queryRect({ x: minX, y: minY, width: maxX - minX, height: maxY - minY })
       .filter((o) => objectIntersectsLasso(o, poly, this.resolve))
+    return this.wrapped(hits, (o) => insideLasso(this.resolve(o.id) ?? o, poly, this.resolve))
+  }
+
+  /** Objects a marquee selects, following the selection mode. */
+  objectsInMarquee(r: Rect): CanvasObject[] {
+    return this.wrapped(this.objectsInRect(r), (o) => {
+      const b = worldBounds(this.resolve(o.id) ?? o, this.resolve)
+      return !!b && rectContainsRect(r, b)
+    })
+  }
+
+  /** In 'wrap' mode keep only objects inside, and groups only when every member is inside. */
+  private wrapped(hits: CanvasObject[], inside: (o: CanvasObject) => boolean): CanvasObject[] {
+    if (this._selectionMode === 'overlap') return hits
+    const ok = new Map<ObjectId, boolean>()
+    const isInside = (o: CanvasObject) => {
+      let v = ok.get(o.id)
+      if (v === undefined) ok.set(o.id, (v = inside(o)))
+      return v
+    }
+    return hits.filter((o) => {
+      if (!isInside(o)) return false
+      const top = this.topGroupOf(o.id)
+      return top === o.id || this.leavesOf([top]).every(isInside)
+    })
   }
 
   /** Ink strokes that lie mostly inside a scribble outline (world space). */
@@ -712,8 +781,8 @@ export class Editor {
   }
 
   private buildOverlay(): SelectionOverlay | undefined {
-    const { marquee, lasso, bindingTargetId } = this.overlayExtra
-    if (!this._selection.length && !marquee && !lasso && !bindingTargetId) return undefined
+    const { marquee, lasso, bindingTargetId, guides } = this.overlayExtra
+    if (!this._selection.length && !marquee && !lasso && !bindingTargetId && !guides?.length) return undefined
     const frame = this.selectionFrame()
     const arrowHandles = !this._readOnly && this._tool === 'select' && !this.hideHandles && !this.textEditor.editingId
       ? this.selectedPathHandles() : undefined
@@ -726,6 +795,7 @@ export class Editor {
       lasso,
       bindingTargetId,
       arrowHandles,
+      guides,
     }
   }
 
@@ -779,7 +849,7 @@ export class Editor {
     this.requestRender()
   }
 
-  setOverlayExtra(x: Pick<SelectionOverlay, 'marquee' | 'lasso' | 'bindingTargetId'>): void {
+  setOverlayExtra(x: OverlayExtra): void {
     this.overlayExtra = x
     this.requestRender()
   }

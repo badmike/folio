@@ -17,6 +17,8 @@ export type ToolColors = Partial<Record<Tool, { strokeColor: string; backgroundC
 export type DistributeAxis = 'horizontal' | 'vertical'
 export type PenMode = 'auto' | 'pen-only' | 'any'
 export type SelectMode = 'auto' | 'rect' | 'lasso'
+/** What a marquee or lasso selects: objects touching it, or only objects fully inside it. */
+export type SelectionMode = 'overlap' | 'wrap'
 
 /**
  * NOTE: the shape / arrow / text entries are a read-only VIEW derived from
@@ -79,6 +81,12 @@ export interface EditorOptions {
   toolLock?: boolean
   /** Scribbling over ink with the pen erases it. Default true. */
   scribbleErase?: boolean
+  /** Default 'overlap'. */
+  selectionMode?: SelectionMode
+  /** Snap moves, resizes and new shapes to other objects' edges and centres. Default false. */
+  snapToObjects?: boolean
+  /** Snap moves, resizes and new shapes to the page grid. Default false. */
+  snapToGrid?: boolean
   /**
    * Text pasted from the system clipboard. Return true when handled (e.g. Excalidraw JSON was
    * converted and inserted); otherwise the editor inserts it as a text object.

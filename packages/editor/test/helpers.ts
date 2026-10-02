@@ -102,13 +102,13 @@ export function addRaw(h: Harness, objects: CanvasObject[]): void {
 /** Dispatch a synthetic pointer event onto the editor root. */
 export function pointer(
   h: Harness, type: 'pointerdown' | 'pointermove' | 'pointerup' | 'pointercancel', x: number, y: number,
-  o: { id?: number; pointerType?: string; pressure?: number; button?: number; shiftKey?: boolean; tiltX?: number; coalesced?: [number, number][] } = {},
+  o: { id?: number; pointerType?: string; pressure?: number; button?: number; shiftKey?: boolean; ctrlKey?: boolean; tiltX?: number; coalesced?: [number, number][] } = {},
 ): void {
   const ev = new Event(type, { bubbles: true, cancelable: true }) as Event & Record<string, unknown>
   const rect = h.editor.root.getBoundingClientRect()
   const props: Record<string, unknown> = {
     pointerId: o.id ?? 1, pointerType: o.pointerType ?? 'mouse', clientX: x + rect.left, clientY: y + rect.top,
-    pressure: o.pressure ?? 0.5, button: o.button ?? 0, buttons: o.button === 5 ? 32 : 1, shiftKey: !!o.shiftKey, tiltX: o.tiltX ?? 0, tiltY: 0,
+    pressure: o.pressure ?? 0.5, button: o.button ?? 0, buttons: o.button === 5 ? 32 : 1, shiftKey: !!o.shiftKey, ctrlKey: !!o.ctrlKey, tiltX: o.tiltX ?? 0, tiltY: 0,
     timeStamp: performance.now(),
   }
   const define = (t: object, p: Record<string, unknown>) => { for (const [k, v] of Object.entries(p)) Object.defineProperty(t, k, { value: v, configurable: true }) }

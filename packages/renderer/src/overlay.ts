@@ -3,6 +3,8 @@ import type { Camera, Scene } from './contract'
 import { worldCorners } from './bounds'
 
 export const ACCENT = '#3b82f6'
+/** Snap guide lines. */
+const GUIDE = '#f43f5e'
 /** Handle square size in screen pixels. */
 export const HANDLE_SIZE = 10
 /** Distance of the rotation handle above the top edge, in screen pixels. */
@@ -87,6 +89,9 @@ export function buildOverlay(scene: Scene, camera: Camera): OverlayPoly[] {
   }
   if (sel.lasso && sel.lasso.length > 1) {
     out.push({ points: sel.lasso.map((p) => worldToScreen(camera, p)), closed: false, stroke: ACCENT, strokeWidth: 1.5 })
+  }
+  if (sel.guides) {
+    for (const g of sel.guides) out.push({ points: [worldToScreen(camera, g.a), worldToScreen(camera, g.b)], closed: false, stroke: GUIDE, strokeWidth: 1 })
   }
   if (sel.arrowHandles) {
     for (const h of sel.arrowHandles) {

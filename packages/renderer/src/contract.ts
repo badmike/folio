@@ -32,6 +32,8 @@ export interface SelectionOverlay {
    * waypoints and 'virtual' mid-segment handles (drag to create a bend).
    */
   arrowHandles?: ArrowHandle[]
+  /** Snap guide lines (world) while moving, resizing or drawing. */
+  guides?: { a: Vec2; b: Vec2 }[]
 }
 
 export interface ArrowHandle {

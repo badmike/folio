@@ -1,6 +1,6 @@
 import type { BackgroundPattern } from '@folio/document'
 import type { Storage } from '@folio/persistence'
-import type { PenMode } from '@folio/editor'
+import type { PenMode, SelectionMode } from '@folio/editor'
 import type { VisualTheme } from '@folio/renderer'
 import { reactive, watch } from 'vue'
 
@@ -25,6 +25,10 @@ export interface AppSettings {
   autoHideHud: boolean
   /** Scribbling over ink with the pen erases it. */
   scribbleErase: boolean
+  /** Marquee and lasso select objects they touch ('overlap') or only objects fully inside ('wrap'). */
+  selectionMode: SelectionMode
+  snapToObjects: boolean
+  snapToGrid: boolean
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -40,6 +44,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   toolLock: false,
   autoHideHud: false,
   scribbleErase: true,
+  selectionMode: 'overlap',
+  snapToObjects: false,
+  snapToGrid: false,
 }
 
 const KEY = 'settings'
@@ -63,6 +70,9 @@ export function sanitizeSettings(raw: unknown): AppSettings {
   if (typeof r.toolLock === 'boolean') out.toolLock = r.toolLock
   if (typeof r.autoHideHud === 'boolean') out.autoHideHud = r.autoHideHud
   if (typeof r.scribbleErase === 'boolean') out.scribbleErase = r.scribbleErase
+  out.selectionMode = oneOf(r.selectionMode, ['overlap', 'wrap'], out.selectionMode)
+  if (typeof r.snapToObjects === 'boolean') out.snapToObjects = r.snapToObjects
+  if (typeof r.snapToGrid === 'boolean') out.snapToGrid = r.snapToGrid
   if (typeof r.cloudRefinement === 'boolean') out.cloudRefinement = r.cloudRefinement
   if (Array.isArray(r.languages)) {
     const langs = r.languages.filter((l): l is string => typeof l === 'string' && /^[a-z]{2,3}$/.test(l))

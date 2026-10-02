@@ -5,13 +5,14 @@
  * pointerup → build InkStroke → deferred commit. Nothing in here runs
  * recognition, persistence or sync.
  */
-import { DRAWABLE_SHAPE_KINDS, type ArrowObject, type CanvasObject, type InkPoint, type ObjectId, type ObjectPatch, type ShapeKind, type ShapeObject, type Vec2 } from '@folio/document'
+import { DRAWABLE_SHAPE_KINDS, type ArrowObject, type CanvasObject, type InkPoint, type ObjectId, type ObjectPatch, type Rect, type ShapeKind, type ShapeObject, type Vec2 } from '@folio/document'
 import { ROTATE_HANDLE_OFFSET, arrowPath, elbowWaypointsAfterDrag, linePointsAfterDrag } from '@folio/renderer'
 import { buildArrow, buildShape, shapeGeometry, snapAngle } from './create'
 import type { Editor } from './editor'
-import { createId, rectFromPoints, segmentTouchesObject } from './geometry'
+import { createId, geometricBounds, rectFromPoints, segmentTouchesObject, unionRects } from './geometry'
 import { buildInkStroke } from './ink'
 import { scribbleHull } from './scribble'
+import { snapBox, snapPoint, type SnapContext, type SnapGuide } from './snap'
 import {
   HANDLE_IDS, computeMovePatches, computeRotatePatches, computeScalePatches, handlePosition, rotationHandlePosition,
   scaleFromHandle,
@@ -31,6 +32,8 @@ interface Sample {
   time: number
   shift: boolean
   alt: boolean
+  /** Ctrl or Cmd held: snapping is off while it is. */
+  mod: boolean
   pointerType: 'pen' | 'touch' | 'mouse'
 }
 
@@ -113,7 +116,7 @@ const cafFrame = (id: number): void => (typeof cancelAnimationFrame === 'functio
 export class InputController {
   private el: HTMLElement
   private sample: Sample = {
-    x: 0, y: 0, wx: 0, wy: 0, pressure: 0.5, tiltX: 0, tiltY: 0, time: 0, shift: false, alt: false, pointerType: 'mouse',
+    x: 0, y: 0, wx: 0, wy: 0, pressure: 0.5, tiltX: 0, tiltY: 0, time: 0, shift: false, alt: false, mod: false, pointerType: 'mouse',
   }
   private rect = { left: 0, top: 0 }
   private interaction?: Interaction
@@ -179,6 +182,7 @@ export class InputController {
     s.time = e.timeStamp
     s.shift = !!e.shiftKey
     s.alt = !!e.altKey
+    s.mod = !!(e.ctrlKey || e.metaKey)
     return s
   }
 
@@ -684,6 +688,10 @@ class SelectInteraction implements Interaction {
   private lastBindTarget?: ObjectId
   /** Line point edit: which point moves, or which segment gets a new point. */
   private lineEdit?: { index: number } | { insertAfter: number }
+  /** Snap targets, computed on the first snapped move (null: snapping is off). */
+  private snapCtx?: SnapContext | null
+  /** World bounds of the moved objects before the drag. */
+  private box0?: Rect
 
   constructor(private ed: Editor, public pointerId: number, s: Sample, private onTap: (s: Sample, hit: CanvasObject | undefined) => void) {
     this.sx = s.x
@@ -765,6 +773,12 @@ class SelectInteraction implements Interaction {
   }
   private resolveSnap = (id: ObjectId): CanvasObject | undefined => this.snap.get(id) ?? this.ed.resolve(id)
 
+  private snapping(s: Sample): SnapContext | undefined {
+    if (s.mod) return undefined
+    if (this.snapCtx === undefined) this.snapCtx = this.ed.snapContext(this.leaves.map((l) => l.id)) ?? null
+    return this.snapCtx ?? undefined
+  }
+
   private beginTransform(mode: 'resize' | 'rotate', leaves: CanvasObject[], frame: SelectionFrame): void {
     this.mode = mode
     this.leaves = leaves
@@ -813,15 +827,30 @@ class SelectInteraction implements Interaction {
       case 'move': {
         if (!this.moved && dscreen < 3) return
         this.moved = true
-        const dx = s.wx - this.startW.x
-        const dy = s.wy - this.startW.y
+        let dx = s.wx - this.startW.x
+        let dy = s.wy - this.startW.y
+        const ctx = this.snapping(s)
+        this.box0 ??= unionRects(this.leaves.flatMap((l) => geometricBounds(l, this.resolveSnap) ?? []))
+        if (ctx && this.box0) {
+          const r = snapBox({ ...this.box0, x: this.box0.x + dx, y: this.box0.y + dy }, ctx)
+          dx += r.dx
+          dy += r.dy
+          ed.setOverlayExtra({ guides: r.guides })
+        } else ed.setOverlayExtra({})
         this.patches = computeMovePatches(this.leaves, dx, dy, this.resolveSnap)
         ed.setPreview(this.patches)
         break
       }
       case 'resize': {
         this.moved = true
-        const spec = scaleFromHandle(this.frame!, this.handle!, { x: s.wx, y: s.wy }, s.shift)
+        let p = { x: s.wx, y: s.wy }
+        const ctx = this.frame!.rotation === 0 ? this.snapping(s) : undefined
+        if (ctx) {
+          const r = snapPoint(p, ctx)
+          p = r.point
+          ed.setOverlayExtra({ guides: r.guides })
+        }
+        const spec = scaleFromHandle(this.frame!, this.handle!, p, s.shift)
         this.patches = computeScalePatches(this.leaves, spec, this.resolveSnap)
         ed.setPreview(this.patches)
         break
@@ -922,7 +951,7 @@ class SelectInteraction implements Interaction {
         const rect = rectFromPoints(this.startW, { x: s.wx, y: s.wy })
         ed.setOverlayExtra({})
         if (this.moved) {
-          const ids = ed.objectsInRect(rect).map((o) => o.id)
+          const ids = ed.objectsInMarquee(rect).map((o) => o.id)
           ed.select(this.shift ? [...ed.selection, ...ids] : ids)
         } else this.onTap(s, undefined)
         break
@@ -991,15 +1020,23 @@ class ShapeInteraction implements Interaction {
   private sx: number
   private sy: number
   private frameName?: string
+  private snapCtx?: SnapContext
   constructor(private ed: Editor, public pointerId: number, s: Sample, private kind: ShapeKind) {
-    this.start = { x: s.wx, y: s.wy }
+    this.snapCtx = ed.snapContext([])
+    this.start = this.snapped(s).point
     this.sx = s.x
     this.sy = s.y
     if (kind === 'frame') this.frameName = ed.nextFrameName()
   }
+  private snapped(s: Sample): { point: Vec2; guides: SnapGuide[] } {
+    const p = { x: s.wx, y: s.wy }
+    return this.snapCtx && !s.mod ? snapPoint(p, this.snapCtx) : { point: p, guides: [] }
+  }
   private build(s: Sample): ShapeObject {
     const kind = this.kind
-    const geo = shapeGeometry(kind, this.start, { x: s.wx, y: s.wy }, s.shift)
+    const end = this.snapped(s)
+    this.ed.setOverlayExtra({ guides: end.guides })
+    const geo = shapeGeometry(kind, this.start, end.point, s.shift)
     const seed = this.obj?.style.seed
     const shape = buildShape(this.obj?.id ?? createId(), kind, geo, kind === 'frame' ? this.ed.frameStyle() : this.ed.shapeStyle(seed), this.ed.nextZ())
     if (kind === 'frame') shape.label = this.frameName
@@ -1020,6 +1057,7 @@ class ShapeInteraction implements Interaction {
     this.ed.setPreviewObjects([])
     if (!this.moved) return
     const obj = this.build(s)
+    this.ed.setOverlayExtra({})
     const zoom = this.ed.camera.zoom
     if (Math.max(obj.width, obj.height) * zoom < this.minPx) return
     this.ed.addObjects([obj])
@@ -1028,6 +1066,7 @@ class ShapeInteraction implements Interaction {
   }
   cancel(): void {
     this.ed.setPreviewObjects([])
+    this.ed.setOverlayExtra({})
   }
 }
 
@@ -1038,11 +1077,14 @@ class ArrowInteraction implements Interaction {
   private sx: number
   private sy: number
   private id = createId()
+  private snapCtx?: SnapContext
   constructor(private ed: Editor, public pointerId: number, s: Sample) {
     this.start = { x: s.wx, y: s.wy }
     this.sx = s.x
     this.sy = s.y
     this.startTarget = ed.findBindingTarget(this.start)?.id
+    this.snapCtx = s.mod ? undefined : ed.snapContext([])
+    if (!this.startTarget && this.snapCtx) this.start = snapPoint(this.start, this.snapCtx).point
     ed.setOverlayExtra({ bindingTargetId: this.startTarget })
   }
   private build(s: Sample) {
@@ -1051,6 +1093,8 @@ class ArrowInteraction implements Interaction {
     if (s.shift) end = snapAngle(this.start, end)
     const target = this.ed.findBindingTarget(end)
     const endTarget = target && target.id !== this.startTarget ? target.id : undefined
+    let guides: SnapGuide[] = []
+    if (!endTarget && !s.shift && !s.mod && this.snapCtx) ({ point: end, guides } = snapPoint(end, this.snapCtx))
     const arrowType = this.ed.itemStyle.arrowType
     // new curved arrows get a gentle default bend (drag the handles to reshape)
     const dx = end.x - this.start.x, dy = end.y - this.start.y
@@ -1063,14 +1107,15 @@ class ArrowInteraction implements Interaction {
         style: this.ed.arrowStyle(), arrowType, waypoints, startHead: o.startHead, endHead: o.endHead, startTarget: this.startTarget, endTarget, z: this.ed.nextZ(),
       }),
       endTarget,
+      guides,
     }
   }
   move(s: Sample): void {
     if (!this.moved && Math.hypot(s.x - this.sx, s.y - this.sy) < 4) return
     this.moved = true
-    const { arrow, endTarget } = this.build(s)
+    const { arrow, endTarget, guides } = this.build(s)
     this.ed.setPreviewObjects([arrow])
-    this.ed.setOverlayExtra({ bindingTargetId: endTarget ?? this.startTarget })
+    this.ed.setOverlayExtra({ bindingTargetId: endTarget ?? this.startTarget, guides })
   }
   up(s: Sample): void {
     this.ed.setPreviewObjects([])

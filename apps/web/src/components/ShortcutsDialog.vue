@@ -24,7 +24,7 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
     ['Group / Ungroup', mod + '+G · ' + mod + '+Shift+G'], ['Nudge', 'Arrows · Shift+Arrows'],
     ['Bring forward / Send backward', mod + '+] · ' + mod + '+['], ['Bring to front / Send to back', mod + '+Shift+] · ' + mod + '+Shift+['],
     ['Align left / right', mod + '+Shift+← · ' + mod + '+Shift+→'], ['Align top / bottom', mod + '+Shift+↑ · ' + mod + '+Shift+↓'],
-    ['Constrain (square, 45°)', 'Shift+drag'],
+    ['Constrain (square, 45°)', 'Shift+drag'], ['Move without snapping', mod + '+drag'],
   ] },
 ]
 </script>

@@ -101,6 +101,21 @@ export function worldBounds(o: CanvasObject, resolve: Resolve): Rect | undefined
   return objectWorldBounds(o, resolve, (a) => rendererResolveArrow(a, resolve))
 }
 
+/** World AABB of the geometry without stroke padding: what snapping aligns. Groups return undefined. */
+export function geometricBounds(o: CanvasObject, resolve: Resolve): Rect | undefined {
+  if (o.type === 'arrow') {
+    const { start, end } = resolveArrowEndpoints(o, resolve)
+    return rectFromPoints(start, end)
+  }
+  const b = localBounds(o)
+  if (!b) return undefined
+  const corners = [{ x: b.x, y: b.y }, { x: b.x + b.width, y: b.y }, { x: b.x, y: b.y + b.height }, { x: b.x + b.width, y: b.y + b.height }]
+  const w = corners.map((p) => localToWorld(o.transform, p))
+  const xs = w.map((p) => p.x)
+  const ys = w.map((p) => p.y)
+  return rectFromPoints({ x: Math.min(...xs), y: Math.min(...ys) }, { x: Math.max(...xs), y: Math.max(...ys) })
+}
+
 export function hitTestObject(o: CanvasObject, p: Vec2, tol: number, resolve: Resolve): boolean {
   if (o.type === 'group') return false
   return rendererHitTest(o, p, tol, resolve)
@@ -111,6 +126,21 @@ export const pointInPolygon = rendererPip
 export function objectIntersectsLasso(o: CanvasObject, lasso: Vec2[], resolve: Resolve): boolean {
   if (o.type === 'group') return false
   return rendererLasso(o, lasso, resolve)
+}
+
+/** True when the object lies fully inside the lasso: every ink point, or every corner of the bounds. */
+export function insideLasso(o: CanvasObject, lasso: Vec2[], resolve: Resolve): boolean {
+  if (o.type === 'ink') {
+    const step = 6 * Math.max(1, Math.floor(o.points.length / 6 / 64))
+    for (let i = 0; i + 1 < o.points.length; i += step) {
+      if (!pointInPolygon(localToWorld(o.transform, { x: o.points[i], y: o.points[i + 1] }), lasso)) return false
+    }
+    return true
+  }
+  const b = worldBounds(o, resolve)
+  if (!b) return false
+  const corners = [{ x: b.x, y: b.y }, { x: b.x + b.width, y: b.y }, { x: b.x, y: b.y + b.height }, { x: b.x + b.width, y: b.y + b.height }]
+  return corners.every((p) => pointInPolygon(p, lasso))
 }
 
 /** Does the eraser segment a→b (radius r) touch the object? */

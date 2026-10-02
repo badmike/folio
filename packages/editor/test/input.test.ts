@@ -306,6 +306,52 @@ describe('select tool', () => {
     expect(h.editor.selection).toEqual(['c'])
   })
 
+  const filled = { style: { strokeColor: '#000', strokeWidth: 2, opacity: 1, roughness: 0, seed: 1, fillColor: '#fff' } }
+
+  it('wrap mode selects only objects fully inside the marquee', () => {
+    h = setup({ selectionMode: 'wrap' })
+    addRaw(h, [shape('a', 0, 0, 50, 50), shape('b', 100, 0, 50, 50)])
+    h.editor.setTool('select')
+    drag(h, [-10, -10], [120, 60])
+    expect(h.editor.selection).toEqual(['a'])
+  })
+
+  it('snaps a moved object to edges of other objects with guides, unless Ctrl is held', () => {
+    h = setup({ snapToObjects: true })
+    addRaw(h, [shape('a', 0, 0, 100, 60, filled), shape('b', 300, 0, 100, 60)])
+    h.editor.setTool('select')
+    pointer(h, 'pointerdown', 50, 30)
+    pointer(h, 'pointermove', 150, 30)
+    pointer(h, 'pointermove', 247, 33)
+    h.editor.renderNow()
+    expect(h.renderer.last.selection?.guides).toHaveLength(2)
+    pointer(h, 'pointerup', 247, 33)
+    expect((h.doc.object(h.pageId, 'a') as ShapeObject).transform).toMatchObject({ x: 200, y: 0 })
+    drag(h, [250, 30], [247, 33], { ctrlKey: true })
+    expect((h.doc.object(h.pageId, 'a') as ShapeObject).transform).toMatchObject({ x: 197, y: 3 })
+  })
+
+  it('snaps to the spacing used between neighbours and to the middle between two objects', () => {
+    h = setup({ snapToObjects: true })
+    addRaw(h, [shape('a', 0, 0, 100, 60), shape('b', 150, 0, 100, 60), shape('c', 400, 200, 100, 60, filled), shape('d', 600, 0, 100, 60)])
+    h.editor.setTool('select')
+    drag(h, [450, 230], [347, 33]) // c lands near x 297: repeats the 50 gap after b
+    expect((h.doc.object(h.pageId, 'c') as ShapeObject).transform).toMatchObject({ x: 300, y: 0 })
+    h.editor.renderNow()
+    drag(h, [350, 30], [422, 30], {}, 8) // c near x 372: centred between b (ends 250) and d (starts 600)
+    expect((h.doc.object(h.pageId, 'c') as ShapeObject).transform.x).toBe(375)
+    h.editor.renderNow()
+    expect(h.renderer.last.selection?.guides).toBeUndefined() // guides end with the drag
+  })
+
+  it('snaps moves to the grid', () => {
+    h = setup({ snapToGrid: true })
+    addRaw(h, [shape('a', 0, 0, 100, 60, filled)])
+    h.editor.setTool('select')
+    drag(h, [50, 30], [83, 78])
+    expect((h.doc.object(h.pageId, 'a') as ShapeObject).transform).toMatchObject({ x: 40, y: 40 })
+  })
+
   it('drag moves selection with one commit and one undo step; preview does not commit', () => {
     h = setup()
     addRaw(h, [shape('a', 0, 0, 100, 60, { style: { strokeColor: '#000', strokeWidth: 2, opacity: 1, roughness: 0, seed: 1, fillColor: '#fff' } })])
