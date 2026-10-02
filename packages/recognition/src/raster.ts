@@ -54,15 +54,7 @@ const ENVELOPE_BINS = 24
  * a Theil-Sen line through them: the median of pairwise slopes ignores descenders.
  */
 export function estimateSkew(polys: Vec2[][]): number {
-  const all = polys.flat()
-  const bb = boundsOf(all)
-  if (bb.width <= 0) return 0
-  const low: Vec2[] = []
-  for (const p of all) {
-    const i = Math.min(ENVELOPE_BINS - 1, Math.floor(((p.x - bb.x) / bb.width) * ENVELOPE_BINS))
-    if (!low[i] || p.y > low[i].y) low[i] = p
-  }
-  const pts = low.filter(Boolean)
+  const pts = lowerEnvelope(polys.flat())
   const slopes: number[] = []
   for (let i = 0; i < pts.length; i++) {
     for (let j = i + 1; j < pts.length; j++) {
@@ -71,6 +63,18 @@ export function estimateSkew(polys: Vec2[][]): number {
     }
   }
   return slopes.length < 3 ? 0 : Math.atan(median(slopes))
+}
+
+/** Lowest point in each of a few vertical slices of the ink, left to right. */
+export function lowerEnvelope(pts: Vec2[]): Vec2[] {
+  const bb = boundsOf(pts)
+  if (bb.width <= 0) return []
+  const low: Vec2[] = []
+  for (const p of pts) {
+    const i = Math.min(ENVELOPE_BINS - 1, Math.floor(((p.x - bb.x) / bb.width) * ENVELOPE_BINS))
+    if (!low[i] || p.y > low[i].y) low[i] = p
+  }
+  return low.filter(Boolean)
 }
 
 /** Rotate by -angle about the centre of the ink so a baseline at `angle` becomes horizontal. */

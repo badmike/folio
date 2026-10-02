@@ -1,7 +1,7 @@
 import type { CanvasObject, InkStroke, Recognition } from '@folio/document'
 import type { Editor } from '@folio/editor'
 import {
-  AUTO_CLEANUP_MIN_CONFIDENCE, WebHandwritingRecognizer, createRecognitionCoordinator, planCleanup,
+  AUTO_CLEANUP_MIN_CONFIDENCE, WebHandwritingRecognizer, createRecognitionCoordinator, planCleanup, planTidy,
   type CleanupProposal, type RecognitionCoordinator,
 } from '@folio/recognition'
 import { ref, shallowRef } from 'vue'
@@ -258,6 +258,15 @@ export class AttachedRecognition {
     const ids = this.editor.applyCleanup(plans)
     if (ids.length) this.editor.select(ids)
     return ids.length
+  }
+
+  /** Straighten and evenly space the selected handwriting, on the page rules if there are any. Returns the number of moved strokes. */
+  tidySelection(): number {
+    const bg = this.editor.page?.background
+    const ruled = !!bg && (bg.pattern === 'ruled' || bg.pattern === 'grid') && bg.scaling !== 'dynamic'
+    const moves = planTidy(this.selectedInk(), { ruleSpacing: ruled ? bg.spacing : undefined })
+    this.editor.updateObjects(moves.map((m) => ({ id: m.id, patch: { transform: m.transform } })))
+    return moves.length
   }
 
   /** True if the selection contains derived (cleaned-up) objects or their superseded source ink. */
