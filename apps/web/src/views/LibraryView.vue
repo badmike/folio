@@ -10,8 +10,9 @@ import Logo from '../components/Logo.vue'
 import Menu, { type MenuItem } from '../components/Menu.vue'
 import NewNotebookDialog from '../components/NewNotebookDialog.vue'
 import NotebookCard from '../components/NotebookCard.vue'
+import SearchResults from '../components/SearchResults.vue'
 import SettingsDialog from '../components/SettingsDialog.vue'
-import { renderSnippet, useLibrary } from '../composables'
+import { useLibrary } from '../composables'
 import { diagnostics } from '../services/diagnostics'
 import { chooseDialog, confirmDialog, promptDialog } from '../services/dialogs'
 import { exportFolioFile, exportMarkdownFor, importNotebookFile } from '../services/export'
@@ -269,18 +270,7 @@ function dismissHint() { showIosHint.value = false; try { sessionStorage.setItem
 
         <section v-if="query.trim()" class="results" data-testid="search-results">
           <p v-if="!searching && !liveHits.length" class="muted" data-testid="no-results">Nothing found for “{{ query }}”.</p>
-          <ul>
-            <li v-for="(h, i) in liveHits" :key="i">
-              <button class="hit" data-testid="search-hit" @click="openHit(h)">
-                <span class="hit-title">
-                  <Icon :name="h.kind === 'handwriting' ? 'pen' : h.kind === 'tag' ? 'tag' : 'doc'" :size="16" />
-                  {{ titleOf(h.notebookId) }}
-                  <span class="chip">{{ h.kind }}</span>
-                </span>
-                <span class="snippet" v-html="renderSnippet(h.snippet)" />
-              </button>
-            </li>
-          </ul>
+          <SearchResults :hits="liveHits" :group-of="(h) => h.notebookId" :title-of="titleOf" testid="search-hit" @pick="openHit" />
         </section>
 
         <template v-else>
@@ -510,44 +500,8 @@ function dismissHint() { showIosHint.value = false; try { sessionStorage.setItem
   height: 28px;
 }
 
-.results ul {
-  list-style: none;
+.results {
   max-width: 760px;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.hit {
-  width: 100%;
-  text-align: left;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 12px 14px;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border);
-  background: var(--surface);
-}
-
-.hit:hover {
-  border-color: var(--border-strong);
-  box-shadow: var(--shadow);
-}
-
-.hit-title {
-  font-weight: 600;
-  color: var(--text-strong);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.snippet {
-  color: var(--muted);
-  overflow-wrap: anywhere;
 }
 
 .only-narrow,

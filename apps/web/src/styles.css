@@ -168,6 +168,13 @@ input[type='range'] { width: 100%; accent-color: var(--accent); height: 28px; }
 .seg button { border: 0; background: var(--surface); min-height: 38px; padding: 0 12px; border-right: 1px solid var(--border); }
 .seg button:last-child { border-right: 0; }
 .seg button.on { background: var(--accent-soft); color: var(--accent-strong); font-weight: 650; }
+/* Soft variant: a quiet track with the choice raised like a card. */
+.seg.soft { gap: 2px; padding: 2px; border: 0; background: var(--surface-2); }
+.seg.soft button { min-height: 30px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: 13.5px; }
+.seg.soft button:hover { color: var(--text-strong); }
+.seg.soft button.on { background: var(--surface); color: var(--text-strong); font-weight: 600; box-shadow: var(--shadow-sm); }
+@media (prefers-color-scheme: dark) { .seg.soft button.on { background: var(--gray-700); } }
+@media (pointer: coarse) { .seg.soft button { min-height: 36px; } }
 .chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 99px; background: var(--surface-2); font-size: 12px; color: var(--muted); border: 0; }
 .chip.on { background: var(--accent-soft); color: var(--accent-strong); }
 mark { background: #ffe066; color: #1e1e1e; border-radius: 3px; padding: 0 1px; }

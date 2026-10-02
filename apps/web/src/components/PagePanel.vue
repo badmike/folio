@@ -28,6 +28,16 @@ async function remove(i: number) {
     ctl.deletePage(p.id)
   }
 }
+function menuFor(i: number): MenuItem[] {
+  const p = pages.value[i]
+  return [
+    { label: 'Rename', icon: 'edit', action: () => void rename(i) },
+    { label: 'Move up', icon: 'up', disabled: i === 0, action: () => ctl.movePage(p.id, -1) },
+    { label: 'Move down', icon: 'down', disabled: i === pages.value.length - 1, action: () => ctl.movePage(p.id, 1) },
+    { divider: true },
+    { label: 'Delete page', icon: 'trash', danger: true, disabled: pages.value.length <= 1, action: () => void remove(i) },
+  ]
+}
 const addItems: MenuItem[] = (['infinite', 'A4', 'Letter', 'iPad'] as const).map((k) => ({
   label: k === 'infinite' ? 'Infinite page' : `${k} page`, icon: 'plus', action: () => ctl.addPage(k as 'infinite' | PageFormat),
 }))
@@ -35,32 +45,52 @@ const addItems: MenuItem[] = (['infinite', 'A4', 'Letter', 'iPad'] as const).map
 
 <template>
   <Sheet title="Pages" @close="$emit('close')">
+    <div class="section">
+      <span class="label">{{ pages.length }} {{ pages.length === 1 ? 'page' : 'pages' }}</span>
+      <Menu :items="addItems" align="right">
+        <button class="icon-btn mini" aria-label="Add page" title="Add page" data-testid="add-page"><Icon name="plus" :size="16" /></button>
+      </Menu>
+    </div>
     <ul class="pages" data-testid="page-list">
       <li v-for="(p, i) in pages" :key="p.id" :class="{ on: p.id === ctl.pageId.value }">
         <button class="name" data-testid="page-item" @click="ctl.setPage(p.id)">
-          <strong>{{ label(i) }}</strong><span class="muted">{{ kindLabel(i) }}</span>
+          <Icon :name="p.kind === 'infinite' ? 'grid' : 'doc'" :size="16" />
+          <span class="title">{{ label(i) }}</span>
+          <span class="kind">{{ kindLabel(i) }}</span>
         </button>
-        <button class="icon-btn mini" :disabled="i === 0" aria-label="Move up" @click="ctl.movePage(p.id, -1)"><Icon name="up" :size="18" /></button>
-        <button class="icon-btn mini" :disabled="i === pages.length - 1" aria-label="Move down" @click="ctl.movePage(p.id, 1)"><Icon name="down" :size="18" /></button>
-        <button class="icon-btn mini" aria-label="Rename page" @click="rename(i)"><Icon name="edit" :size="18" /></button>
-        <button class="icon-btn mini danger" :disabled="pages.length <= 1" aria-label="Delete page" @click="remove(i)"><Icon name="trash" :size="18" /></button>
+        <Menu :items="menuFor(i)" align="right">
+          <button class="icon-btn mini act" :aria-label="`Actions for ${label(i)}`"><Icon name="more" :size="16" /></button>
+        </Menu>
       </li>
     </ul>
-    <Menu :items="addItems" up>
-      <button class="btn add" data-testid="add-page"><Icon name="plus" :size="18" /> Add page</button>
-    </Menu>
 
     <BackgroundSection v-if="cur" :page="cur" />
   </Sheet>
 </template>
 
 <style scoped>
-.pages { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.pages li { display: flex; align-items: center; border-radius: 10px; padding-right: 2px; }
-.pages li.on { background: var(--accent-soft); }
-.name { flex: 1; min-width: 0; display: flex; flex-direction: column; text-align: left; border: 0; background: transparent; padding: 6px 10px; min-height: 44px; }
-.name span { font-size: 12px; }
-.name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mini { width: 36px; height: 36px; }
-.add { width: 100%; }
+.section { display: flex; align-items: center; padding: 0 0 4px 10px; }
+.label { flex: 1; font-size: 12px; font-weight: 600; color: var(--muted); }
+.pages { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.pages li { display: flex; align-items: center; border-radius: var(--radius); padding-right: 4px; }
+.pages li:hover { background: var(--surface-2); }
+.pages li.on { background: var(--surface-3); }
+.name {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 0 6px 0 10px;
+  border: 0; background: transparent; text-align: left; font-size: 14px;
+}
+.name :deep(svg) { flex: none; color: var(--muted); }
+.on .name { color: var(--text-strong); font-weight: 600; }
+.on .name :deep(svg) { color: var(--accent); }
+.title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kind { font-size: 12px; font-weight: 400; color: var(--muted); }
+.mini { width: 26px; height: 26px; color: var(--muted); }
+@media (hover: hover) {
+  .act { visibility: hidden; }
+  li:hover .act, li:focus-within .act { visibility: visible; }
+}
+@media (pointer: coarse) {
+  .name { min-height: 44px; }
+  .mini { width: 36px; height: 36px; }
+}
 </style>

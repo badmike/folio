@@ -76,7 +76,7 @@ const STORAGE: Record<typeof svc.storageKind, string> = { 'sqlite-opfs': 'SQLite
                 <div class="name">Clean up handwriting</div>
                 <p>Turn ink into text and shapes. Cleanup never deletes your ink, you can always restore it.</p>
               </div>
-              <div class="seg" role="radiogroup" aria-label="Clean up handwriting">
+              <div class="seg soft" role="radiogroup" aria-label="Clean up handwriting">
                 <button :class="{ on: settings.cleanupMode === 'keep' }" @click="settings.cleanupMode = 'keep'">Keep my ink</button>
                 <button :class="{ on: settings.cleanupMode === 'ask' }" @click="settings.cleanupMode = 'ask'">Ask</button>
                 <button :class="{ on: settings.cleanupMode === 'auto' }" @click="settings.cleanupMode = 'auto'">Automatic</button>
@@ -87,7 +87,7 @@ const STORAGE: Record<typeof svc.storageKind, string> = { 'sqlite-opfs': 'SQLite
                 <div class="name">Recognition languages</div>
                 <p>Languages your handwriting is read in. Both work offline.</p>
               </div>
-              <div class="seg multi" aria-label="Recognition languages">
+              <div class="seg soft" aria-label="Recognition languages">
                 <button v-for="l in LANGS" :key="l.code" :class="{ on: settings.languages.includes(l.code) }"
                   :aria-pressed="settings.languages.includes(l.code)" @click="toggleLang(l.code)">{{ l.label }}</button>
               </div>
@@ -108,7 +108,7 @@ const STORAGE: Record<typeof svc.storageKind, string> = { 'sqlite-opfs': 'SQLite
                 <div class="name">Shape style</div>
                 <p>How shapes, arrows and cleaned-up drawings look.</p>
               </div>
-              <div class="seg" role="radiogroup" aria-label="Shape style">
+              <div class="seg soft" role="radiogroup" aria-label="Shape style">
                 <button :class="{ on: settings.theme === 'rough' }" @click="settings.theme = 'rough'">Hand-drawn</button>
                 <button :class="{ on: settings.theme === 'clean' }" @click="settings.theme = 'clean'">Clean</button>
               </div>
@@ -241,16 +241,10 @@ kbd { font-size: 11px; font-weight: 500; }
 .pair { display: flex; gap: 8px; }
 .pair .input { min-width: 0; }
 
-/* Segmented control: a quiet track, the choice raised like a card. */
-.seg { flex: none; display: inline-flex; gap: 2px; padding: 2px; border: 0; border-radius: var(--radius); background: var(--surface-2); }
-.seg button { min-height: 30px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: 13.5px; }
-.seg button:hover { color: var(--text-strong); }
-.seg button.on { background: var(--surface); color: var(--text-strong); font-weight: 600; box-shadow: var(--shadow-sm); }
-@media (prefers-color-scheme: dark) { .seg button.on { background: var(--gray-700); } }
+.seg { flex: none; }
 
 @media (pointer: coarse) {
   .tab, .input { min-height: 40px; }
-  .seg button { min-height: 36px; }
 }
 
 @media (max-width: 640px) {

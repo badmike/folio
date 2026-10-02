@@ -142,7 +142,7 @@ test.describe('canvas colour schemes and backgrounds', () => {
     await page.getByTestId('open-pages').click()
     await page.getByTestId('bg-grid').click()
     await page.getByTestId('bg-scaling-dynamic').click()
-    await expect(page.getByText('Dynamic: grid adapts to zoom')).toBeVisible()
+    await expect(page.getByText('The grid adapts to the zoom level.')).toBeVisible()
     await page.getByTestId('bg-sub-4').click()
     await page.getByTestId('bg-major-5').click()
     await expect.poll(() => page.evaluate(() => { const f = (window as any).__folio; const bg = f.doc.page(f.editor.pageId).background; return [bg.pattern, bg.scaling, bg.subdivisions, bg.majorEvery].join() })).toBe('grid,dynamic,4,5')

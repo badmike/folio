@@ -33,10 +33,10 @@ const num = (e: Event) => Number((e.target as HTMLInputElement).value)
 
 <template>
   <div class="bg" data-testid="background-section">
-    <h4>Background of this page</h4>
+    <h4>Background</h4>
 
-    <div class="field">
-      <span class="lbl">Paper</span>
+    <div class="setting stack">
+      <span class="name">Paper</span>
       <div class="swatches" role="group" aria-label="Paper colour">
         <button v-for="c in CANVAS_BACKGROUNDS_LIGHT" :key="c" type="button" class="sw" :class="{ on: sameColor(c, bg.color) }" :style="{ background: c }"
                 :aria-label="`Light paper ${c}`" :aria-pressed="sameColor(c, bg.color)" :data-testid="`paper-${c}`" @click="setPaper(c)" />
@@ -48,50 +48,56 @@ const num = (e: Event) => Number((e.target as HTMLInputElement).value)
       <ColorPicker v-if="pickPaper" class="inline-picker" :model-value="bg.color" :allow-transparent="false" title="Paper colour" @update:model-value="setPaper" @close="pickPaper = false" />
     </div>
 
-    <div class="field">
-      <span class="lbl">Pattern</span>
-      <div class="seg">
+    <div class="setting stack">
+      <span class="name">Pattern</span>
+      <div class="seg soft fill" role="radiogroup" aria-label="Pattern">
         <button v-for="p in PATTERNS" :key="p.v" :class="{ on: bg.pattern === p.v }" :data-testid="`bg-${p.v}`" @click="ctl.setBackground({ pattern: p.v })">{{ p.label }}</button>
       </div>
     </div>
 
     <template v-if="patterned">
-      <label class="slider"><span>Spacing</span>
+      <label class="setting stack">
+        <span class="name">Spacing <b>{{ bg.spacing }}</b></span>
         <input type="range" min="12" max="96" step="2" :value="bg.spacing" aria-label="Spacing" @input="ctl.setBackground({ spacing: num($event) })" />
-        <b>{{ bg.spacing }}</b></label>
-      <label class="slider"><span>Line opacity</span>
+      </label>
+      <label class="setting stack">
+        <span class="name">Line opacity <b>{{ Math.round(bg.opacity * 100) }}%</b></span>
         <input type="range" min="0.1" max="1" step="0.05" :value="bg.opacity" aria-label="Line opacity" @input="ctl.setBackground({ opacity: num($event) })" />
-        <b>{{ Math.round(bg.opacity * 100) }}%</b></label>
+      </label>
 
-      <div class="field">
-        <span class="lbl">Line colour</span>
-        <div class="row">
-          <button type="button" class="chip big" :class="{ on: lineAuto }" data-testid="line-auto" :aria-pressed="lineAuto" @click="ctl.setBackground({ lineColor: defaultLineColor(bg.color) })">Auto</button>
-          <button type="button" class="sw line" data-picker-anchor :class="{ on: !lineAuto }" :style="{ background: bg.lineColor }" aria-label="Custom line colour" data-testid="line-custom" @click="pickLine = !pickLine" />
+      <div class="setting">
+        <span class="name">Line colour</span>
+        <div class="seg soft" role="group" aria-label="Line colour">
+          <button type="button" :class="{ on: lineAuto }" data-testid="line-auto" :aria-pressed="lineAuto" @click="ctl.setBackground({ lineColor: defaultLineColor(bg.color) })">Auto</button>
+          <button type="button" class="pick" data-picker-anchor :class="{ on: !lineAuto }" aria-label="Custom line colour" data-testid="line-custom" @click="pickLine = !pickLine">
+            <span class="dot" :style="{ background: bg.lineColor }" /> Custom
+          </button>
         </div>
-        <ColorPicker v-if="pickLine" class="inline-picker" :model-value="bg.lineColor" :background="bg.color" :allow-transparent="false" title="Line colour"
-                     @update:model-value="(c) => ctl.setBackground({ lineColor: c })" @close="pickLine = false" />
       </div>
+      <ColorPicker v-if="pickLine" class="inline-picker" :model-value="bg.lineColor" :background="bg.color" :allow-transparent="false" title="Line colour"
+                   @update:model-value="(c) => ctl.setBackground({ lineColor: c })" @close="pickLine = false" />
 
-      <div class="field">
-        <span class="lbl">Scaling</span>
-        <div class="seg" role="radiogroup" aria-label="Scaling">
+      <div class="setting">
+        <div class="text">
+          <span class="name">Scaling</span>
+          <p>{{ scaling === 'dynamic' ? 'The grid adapts to the zoom level.' : 'Spacing stays the same on the page.' }}</p>
+        </div>
+        <div class="seg soft" role="radiogroup" aria-label="Scaling">
           <button role="radio" :aria-checked="scaling === 'fixed'" :class="{ on: scaling === 'fixed' }" data-testid="bg-scaling-fixed" @click="ctl.setBackground({ scaling: 'fixed' })">Fixed</button>
           <button role="radio" :aria-checked="scaling === 'dynamic'" :class="{ on: scaling === 'dynamic' }" data-testid="bg-scaling-dynamic" @click="ctl.setBackground({ scaling: 'dynamic' })">Dynamic</button>
         </div>
-        <span class="hint muted">{{ scaling === 'dynamic' ? 'Dynamic: grid adapts to zoom' : 'Fixed: spacing stays constant on the page' }}</span>
       </div>
 
-      <div v-if="scaling === 'dynamic'" class="field">
-        <span class="lbl">Subdivisions</span>
-        <div class="seg" role="radiogroup" aria-label="Subdivisions">
+      <div v-if="scaling === 'dynamic'" class="setting">
+        <span class="name">Subdivisions</span>
+        <div class="seg soft" role="radiogroup" aria-label="Subdivisions">
           <button v-for="n in SUBDIVISIONS" :key="n" role="radio" :aria-checked="(bg.subdivisions ?? 5) === n" :class="{ on: (bg.subdivisions ?? 5) === n }" :data-testid="`bg-sub-${n}`"
                   @click="ctl.setBackground({ subdivisions: n })">{{ n }}</button>
         </div>
       </div>
-      <div v-if="hasMajor" class="field">
-        <span class="lbl">Emphasise every Nth line</span>
-        <div class="seg" role="radiogroup" aria-label="Emphasise every Nth line">
+      <div v-if="hasMajor" class="setting stack">
+        <span class="name">Emphasise every nth line</span>
+        <div class="seg soft fill" role="radiogroup" aria-label="Emphasise every Nth line">
           <button v-for="n in MAJOR" :key="n" role="radio" :aria-checked="(bg.majorEvery ?? 0) === n" :class="{ on: (bg.majorEvery ?? 0) === n }" :data-testid="`bg-major-${n}`"
                   @click="ctl.setBackground({ majorEvery: n })">{{ n === 0 ? 'Off' : n }}</button>
         </div>
@@ -101,21 +107,27 @@ const num = (e: Event) => Number((e.target as HTMLInputElement).value)
 </template>
 
 <style scoped>
-.bg { margin-top: 20px; display: flex; flex-direction: column; gap: 12px; }
-h4 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
-.field { margin: 0; gap: 6px; }
-.lbl { font-size: 13px; color: var(--muted); font-weight: 550; }
-.hint { font-size: 12.5px; }
+.bg { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+h4 { margin: 0 0 2px; padding-left: 10px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.setting { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0 12px 10px; border-bottom: 1px solid var(--border); }
+.setting:last-child { border-bottom: 0; }
+.setting.stack { flex-direction: column; align-items: stretch; gap: 8px; }
+.text { min-width: 0; }
+.text p { margin: 2px 0 0; font-size: 12.5px; color: var(--muted); }
+.name { display: flex; justify-content: space-between; font-size: 13.5px; font-weight: 600; color: var(--text-strong); }
+.name b { font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; }
+.seg { flex: none; }
+.seg.fill { display: flex; }
+.seg.fill button { flex: 1; padding: 0 6px; }
+.pick { display: inline-flex; align-items: center; gap: 6px; }
+.dot { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(127, 127, 127, 0.4); }
 .swatches { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.sw { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--border); padding: 0; }
+.sw { width: 28px; height: 28px; border-radius: 7px; border: 1px solid var(--border); padding: 0; }
 .sw.dark { border-color: #555; }
 .sw.on { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent); }
 .sw:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .sw.custom { background: conic-gradient(red, yellow, lime, aqua, blue, magenta, red); }
-.div { width: 1px; height: 24px; background: var(--border); margin: 0 2px; }
+.div { width: 1px; height: 22px; background: var(--border); margin: 0 2px; }
 .inline-picker { width: 100%; box-shadow: none; }
-.slider { display: grid; grid-template-columns: 84px 1fr 42px; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
-.slider b { color: var(--text); text-align: right; font-size: 12.5px; }
-.chip.big { min-height: 34px; padding: 0 14px; font-size: 14px; border: 1px solid var(--border); }
-.seg { flex-wrap: wrap; }
+input[type='range'] { height: 22px; }
 </style>
