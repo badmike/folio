@@ -168,6 +168,7 @@ test.describe('zen mode', () => {
     await expect(page.getByTestId('zen-exit')).toBeVisible()
     await expect(page.getByTestId('tool-pen')).toBeVisible()
     await expect(page.getByTestId('tool-shape')).toHaveCount(0)
+    await page.getByTestId('tool-pen').click()
     await expect(page.getByTestId('props-quick')).toBeVisible() // ink tools keep the quick colour bar
     // still draws; the strip fades after drawing and wakes on hover
     await drawStroke(page, [[400, 400], [500, 450], [600, 400]], 8)

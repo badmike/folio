@@ -70,7 +70,7 @@ function lsSet(k: string, v: string) { try { localStorage.setItem(k, v) } catch 
 export class NotebookController {
   readonly editor = shallowRef<Editor | null>(null)
   readonly title = ref('')
-  readonly tool = ref<Tool>('pen')
+  readonly tool = ref<Tool>('select')
   readonly options = shallowRef<ToolOptionsMap | null>(null)
   readonly canUndo = ref(false)
   readonly canRedo = ref(false)
@@ -134,7 +134,7 @@ export class NotebookController {
       pageId,
       theme: settings.theme,
       penMode: settings.penMode as PenMode,
-      initialTool: 'pen',
+      initialTool: 'select',
       toolLock: settings.toolLock,
       readOnly: lsGet(lockKey(this.id)) === '1',
       onOperations: (ops) => this.session.recorded(ops),

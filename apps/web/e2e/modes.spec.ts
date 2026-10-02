@@ -15,6 +15,7 @@ test.describe('cleanup modes', () => {
   test('keep: ink is never converted, even after a long pause', async ({ page }) => {
     await newNotebook(page, 'Keep mode')
     await setCleanupMode(page, 'Keep my ink')
+    await page.getByTestId('tool-pen').click()
     await drawStroke(page, rect(600, 300), 30)
     await expect.poll(() => inkCount(page)).toBe(1)
     // wait well beyond the idle delay (2.5 s) plus recognition time
@@ -27,6 +28,7 @@ test.describe('cleanup modes', () => {
   test('auto: converts high-confidence ink after inactivity, never while drawing', async ({ page }) => {
     await newNotebook(page, 'Auto mode')
     await setCleanupMode(page, 'Automatic')
+    await page.getByTestId('tool-pen').click()
     await drawStroke(page, rect(500, 300), 30)
     // Keep the pointer down (drawing) for longer than the idle delay: nothing may convert meanwhile.
     const b = await hostBox(page)
@@ -50,6 +52,7 @@ test.describe('cleanup modes', () => {
 test.describe('selection style', () => {
   test('changing colour and width with a selection restyles it as separate undo steps', async ({ page }) => {
     await newNotebook(page, 'Style')
+    await page.getByTestId('tool-pen').click()
     await drawStroke(page, [[400, 400], [500, 460], [600, 400]], 6)
     await expect.poll(() => inkCount(page)).toBe(1)
     await page.getByTestId('tool-select').click()
