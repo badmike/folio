@@ -127,17 +127,84 @@ float sdBox(vec2 p, vec2 c, vec2 hs) {
 
 float levelCov(vec2 w, float s, float a) {
   if (s <= 0.0 || a <= 0.0) return 0.0;
-  vec2 m = mod(w, s);
-  vec2 dd = min(m, s - m) * u_cam.z;
-  vec2 wt = vec2(1.0);
-  if (u_pat.z > 1.5) {
-    vec2 idx = floor(w / s + 0.5);
-    wt = vec2(mod(idx.x, u_pat.z) < 0.5 ? 1.0 : u_pat.w, mod(idx.y, u_pat.z) < 0.5 ? 1.0 : u_pat.w);
-  }
+  float z = u_cam.z;
   float c = 0.0;
-  if (u_pat.x < 1.5) c = cov(dd.y) * wt.y;
-  else if (u_pat.x < 2.5) c = max(cov(dd.x) * wt.x, cov(dd.y) * wt.y);
-  else c = clamp(${(DOT_RADIUS_PX + 0.5).toFixed(2)} - length(dd), 0.0, 1.0) * min(wt.x, wt.y);
+  float k = u_pat.x;
+  if (k > 11.5) {
+    vec2 ctr = u_hasPage > 0.5 ? u_page.xy + u_page.zw * 0.5 : vec2(0.0);
+    vec2 dv = w - ctr;
+    float r = length(dv);
+    float rm = mod(r, s);
+    c = cov(min(rm, s - rm) * z);
+    if (r >= s) {
+      float am = mod(atan(dv.y, dv.x), ${POLAR_STEP});
+      c = max(c, cov(r * abs(sin(min(am, ${POLAR_STEP} - am))) * z));
+    }
+  } else if (k > 9.5) {
+    float h = s * 0.8660254;
+    if (k > 10.5) {
+      float g = s * 0.2;
+      float period = s * 2.5;
+      float m = mod(w.y, period);
+      float i = clamp(floor(m / g + 0.5), 0.0, 5.0);
+      c = cov(min(abs(m - i * g), period - m) * z);
+    } else {
+      float i = floor(w.x / h + 0.5);
+      float yOff = mod(i, 2.0) > 0.5 ? s * 0.5 : 0.0;
+      float ym = mod(w.y - yOff, s);
+      c = clamp(${(DOT_RADIUS_PX + 0.5).toFixed(2)} - length(vec2(w.x - i * h, min(ym, s - ym))) * z, 0.0, 1.0);
+    }
+  } else if (k > 8.5) {
+    vec2 m = mod(w, s);
+    vec2 dd = min(m, s - m) * z;
+    float ms = s * 0.2;
+    vec2 mm = mod(w, ms);
+    vec2 dm = min(mm, ms - mm) * z;
+    float fade = clamp((ms * z - ${FADE_MIN_PX.toFixed(1)}) / ${(FADE_FULL_PX - FADE_MIN_PX).toFixed(1)}, 0.0, 1.0);
+    c = max(max(cov(dd.x), cov(dd.y)), u_pat.w * fade * max(cov(dm.x), cov(dm.y)));
+  } else if (k > 7.5) {
+    float period = s * 1.5;
+    float m = mod(w.y, period);
+    c = cov(min(min(m, abs(m - s)), period - m) * z);
+    float dash = s * 0.25;
+    if (mod(w.x, dash) < dash * 0.5) c = max(c, cov(abs(m - s * 0.5) * z));
+  } else if (k > 6.5) {
+    float cueX = u_hasPage > 0.5 ? u_page.x + ${CORNELL_CUE} * u_page.z : 0.0;
+    float my = mod(w.y, s);
+    c = max(cov(min(my, s - my) * z), cov(abs(w.x - cueX) * z));
+    if (u_hasPage > 0.5) c = max(c, cov(abs(w.y - (u_page.y + ${CORNELL_SUMMARY} * u_page.w)) * z));
+  } else if (k > 5.5) {
+    vec2 p = w / s;
+    vec2 S = vec2(1.0, 1.7320508);
+    vec2 off = vec2(0.5, 0.8660254);
+    vec2 qa = p - (floor(p / S) + 0.5) * S;
+    vec2 qb = p - ((floor((p - off) / S) + 0.5) * S + off);
+    vec2 q = abs(dot(qa, qa) < dot(qb, qb) ? qa : qb);
+    c = cov((0.5 - max(dot(q, off), q.x)) * s * z);
+  } else if (k > 4.5) {
+    float h = s * 0.8660254;
+    vec3 t = vec3(w.x, dot(w, vec2(-0.5, 0.8660254)), dot(w, vec2(-0.5, -0.8660254)));
+    vec3 m = mod(t, h);
+    vec3 d = min(m, h - m) * z;
+    c = max(cov(d.x), max(cov(d.y), cov(d.z)));
+  } else if (k > 3.5) {
+    float g = s * 0.25;
+    float period = s * 2.5;
+    float m = mod(w.y, period);
+    float i = clamp(floor(m / g + 0.5), 0.0, 4.0);
+    c = cov(min(abs(m - i * g), period - m) * z);
+  } else {
+    vec2 m = mod(w, s);
+    vec2 dd = min(m, s - m) * z;
+    vec2 wt = vec2(1.0);
+    if (u_pat.z > 1.5) {
+      vec2 idx = floor(w / s + 0.5);
+      wt = vec2(mod(idx.x, u_pat.z) < 0.5 ? 1.0 : u_pat.w, mod(idx.y, u_pat.z) < 0.5 ? 1.0 : u_pat.w);
+    }
+    if (u_pat.x < 1.5) c = cov(dd.y) * wt.y;
+    else if (u_pat.x < 2.5) c = max(cov(dd.x) * wt.x, cov(dd.y) * wt.y);
+    else c = clamp(${(DOT_RADIUS_PX + 0.5).toFixed(2)} - length(dd), 0.0, 1.0) * min(wt.x, wt.y);
+  }
   return c * a;
 }
 

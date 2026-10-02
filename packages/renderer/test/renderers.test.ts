@@ -79,7 +79,8 @@ describe('Canvas2DRenderer', () => {
   })
 
   it('draws fixed pages with desk and every pattern', () => {
-    for (const pattern of ['blank', 'ruled', 'grid', 'dot'] as const) {
+    for (const pattern of ['blank', 'ruled', 'grid', 'dot', 'music', 'isometric', 'hex',
+      'cornell', 'handwriting', 'engineering', 'isodot', 'tablature', 'polar'] as const) {
       const ctx = mockCtx()
       const r = new Canvas2DRenderer(mockCanvas(ctx))
       const page = { ...PAGE, kind: 'fixed' as const, width: 500, height: 600, background: { ...PAGE.background, pattern } }

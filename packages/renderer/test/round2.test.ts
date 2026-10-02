@@ -5,7 +5,7 @@ import { Canvas2DRenderer } from '../src/canvas2d'
 import { arrowHandleSpecs, arrowPath, elbowWaypointsAfterDrag, resolveArrowEndpoints } from '../src/arrows'
 import { backgroundLevels, patternColor, patternCoverageLevels, patternFade, patternLevels } from '../src/background'
 import { catmullRom, dashPattern, dashPolyline, orthogonalRoute } from '../src/geometry/curves'
-import { arrowheadParts, buildArrowGeometry, buildShapeGeometry, pathEndTangent } from '../src/geometry/rough'
+import { arrowHeadLength, arrowheadParts, buildArrowGeometry, buildShapeGeometry, pathEndTangent } from '../src/geometry/rough'
 import { createLiveInkLayer } from '../src/live-ink'
 import { objectWorldBounds } from '../src/bounds'
 import { hitTestObject, objectIntersectsRect } from '../src/hit'
@@ -374,6 +374,79 @@ describe('dynamic background scaling', () => {
     expect(major).toBeCloseTo(1)
     expect(minor).toBeCloseTo(0.55)
     expect(patternCoverageLevels(2, 80, 7, lv, 1, 0)).toBeCloseTo(1)
+  })
+  it('music paper covers staff lines and not the gap between staves', () => {
+    const lv = [{ spacing: 32, alpha: 1 }] // lines every 8, staves every 80
+    expect(patternCoverageLevels(4, 5, 16, lv, 1)).toBeCloseTo(1)
+    expect(patternCoverageLevels(4, 5, 80 + 24, lv, 1)).toBeCloseTo(1)
+    expect(patternCoverageLevels(4, 5, 60, lv, 1)).toBe(0)
+  })
+  it('isometric paper covers all three line families and not a triangle centre', () => {
+    const lv = [{ spacing: 32, alpha: 1 }]
+    const h = 32 * Math.sqrt(3) / 2
+    expect(patternCoverageLevels(5, 2 * h, 5, lv, 1)).toBeCloseTo(1)
+    expect(patternCoverageLevels(5, -0.5 * 3 * h, Math.sqrt(3) / 2 * 3 * h, lv, 1)).toBeCloseTo(1)
+    expect(patternCoverageLevels(5, -0.5 * 3 * h, -Math.sqrt(3) / 2 * 3 * h, lv, 1)).toBeCloseTo(1)
+    expect(patternCoverageLevels(5, 2 * h / 3, 0, lv, 1)).toBe(0)
+  })
+  it('hex paper covers hexagon edges and not hexagon centres', () => {
+    const lv = [{ spacing: 32, alpha: 1 }]
+    const cy = 32 * Math.sqrt(3) / 2 // centre of the hexagon at x = 16
+    expect(patternCoverageLevels(6, 32, cy, lv, 1)).toBeCloseTo(1)
+    expect(patternCoverageLevels(6, 16, cy, lv, 1)).toBe(0)
+  })
+  it('cornell paper covers ruled lines, the cue column and the summary line on a fixed page', () => {
+    const lv = [{ spacing: 32, alpha: 1 }]
+    const page = { x: 0, y: 0, width: 500, height: 600 }
+    expect(patternCoverageLevels(7, 50, 64, lv, 1, 0, page)).toBeCloseTo(1)
+    expect(patternCoverageLevels(7, 150, 50, lv, 1, 0, page)).toBeCloseTo(1) // cue column at 0.3 * 500
+    expect(patternCoverageLevels(7, 50, 468, lv, 1, 0, page)).toBeCloseTo(1) // summary line at 0.78 * 600
+    expect(patternCoverageLevels(7, 50, 48, lv, 1, 0, page)).toBe(0)
+    expect(patternCoverageLevels(7, 150, 464 + 6, lv, 1, 0)).toBe(0) // no summary line or cue column at 150 on infinite pages
+    expect(patternCoverageLevels(7, 0, 50, lv, 1, 0)).toBeCloseTo(1) // infinite page: cue line at x = 0
+  })
+  it('handwriting paper covers the baseline and a dashed midline', () => {
+    const lv = [{ spacing: 32, alpha: 1 }] // groups every 48, dashes every 8
+    expect(patternCoverageLevels(8, 3, 48, lv, 1)).toBeCloseTo(1) // top line of the second group
+    expect(patternCoverageLevels(8, 3, 32, lv, 1)).toBeCloseTo(1) // baseline
+    expect(patternCoverageLevels(8, 2, 16, lv, 1)).toBeCloseTo(1) // midline, in a dash
+    expect(patternCoverageLevels(8, 6, 16, lv, 1)).toBe(0) // midline, in a gap
+    expect(patternCoverageLevels(8, 3, 40, lv, 1)).toBe(0) // between the groups
+  })
+  it('engineering paper keeps major lines when the minor lines have faded', () => {
+    const lv = [{ spacing: 100, alpha: 1 }] // minor lines every 20
+    expect(patternCoverageLevels(9, 100, 7, lv, 1)).toBeCloseTo(1)
+    expect(patternCoverageLevels(9, 120, 7, lv, 1)).toBeCloseTo(0.55)
+    expect(patternCoverageLevels(9, 110, 10, lv, 1)).toBe(0)
+    expect(patternCoverageLevels(9, 120, 50, lv, 0.1)).toBe(0) // minor lines are 2px apart: faded
+    expect(patternCoverageLevels(9, 100, 7, lv, 0.1)).toBeCloseTo(1)
+  })
+  it('isodot paper covers lattice vertices of the isometric grid and not points between them', () => {
+    const lv = [{ spacing: 32, alpha: 1 }]
+    const h = 32 * Math.sqrt(3) / 2
+    expect(patternCoverageLevels(10, 2 * h, 64, lv, 1)).toBeCloseTo(1)
+    expect(patternCoverageLevels(10, 3 * h, 64 + 16, lv, 1)).toBeCloseTo(1) // odd column is shifted by s / 2
+    expect(patternCoverageLevels(10, 3 * h, 64, lv, 1)).toBe(0)
+  })
+  it('tablature paper covers six lines per group and not the gap between groups', () => {
+    const lv = [{ spacing: 50, alpha: 1 }] // lines every 10, groups every 125
+    expect(patternCoverageLevels(11, 5, 50, lv, 1)).toBeCloseTo(1) // sixth line
+    expect(patternCoverageLevels(11, 5, 125 + 20, lv, 1)).toBeCloseTo(1)
+    expect(patternCoverageLevels(11, 5, 80, lv, 1)).toBe(0)
+  })
+  it('polar paper covers rings and spokes, but no spokes inside the first ring', () => {
+    const lv = [{ spacing: 32, alpha: 1 }]
+    expect(patternCoverageLevels(12, 64, 0, lv, 1)).toBeCloseTo(1) // ring and spoke
+    expect(patternCoverageLevels(12, 100, 0, lv, 1)).toBeCloseTo(1) // spoke between rings
+    expect(patternCoverageLevels(12, 16, 0, lv, 1)).toBe(0) // inside the first ring
+    expect(patternCoverageLevels(12, 100, 100 * Math.tan(Math.PI / 24), lv, 1)).toBe(0) // halfway between spokes
+    const page = { x: 100, y: 100, width: 200, height: 200 }
+    expect(patternCoverageLevels(12, 232, 200, lv, 1, 0, page)).toBeCloseTo(1) // ring around the page centre
+  })
+  it('music, isometric and hex ignore scaling and fade by their own line density', () => {
+    const bg = { ...PAGE.background, spacing: 32, scaling: 'dynamic' as const, subdivisions: 4 }
+    expect(backgroundLevels({ ...bg, pattern: 'hex' }, 1)).toEqual([{ spacing: 32, alpha: 1 }])
+    expect(backgroundLevels({ ...bg, pattern: 'music' }, 0.5)[0].alpha).toBeCloseTo(0.333, 2) // 8px staff lines at 0.5x = 4px
   })
   it('stale default pattern colours are replaced on dark pages', () => {
     const light = { ...PAGE.background, lineColor: '#d0d4da', color: '#ffffff' }

@@ -64,7 +64,7 @@ export function sanitizeSettings(raw: unknown): AppSettings {
   out.theme = oneOf(r.theme, ['rough', 'clean'], out.theme)
   out.penMode = oneOf(r.penMode, ['auto', 'pen-only', 'any'], out.penMode)
   out.defaultPageType = oneOf(r.defaultPageType, ['infinite', 'A4', 'Letter', 'iPad'], out.defaultPageType)
-  out.defaultPattern = oneOf(r.defaultPattern, ['blank', 'ruled', 'grid', 'dot'], out.defaultPattern)
+  out.defaultPattern = oneOf(r.defaultPattern, ['blank', 'ruled', 'grid', 'dot', 'music', 'isometric', 'hex', 'cornell', 'handwriting', 'engineering', 'isodot', 'tablature', 'polar'], out.defaultPattern)
   if (typeof r.canvasFollowsTheme === 'boolean') out.canvasFollowsTheme = r.canvasFollowsTheme
   if (typeof r.zen === 'boolean') out.zen = r.zen
   if (typeof r.toolLock === 'boolean') out.toolLock = r.toolLock

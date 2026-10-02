@@ -338,7 +338,8 @@ export const PAGE_FORMATS: Record<Exclude<PageFormat, 'Custom'>, { width: number
   iPad: { width: 820, height: 1180 },
 }
 
-export type BackgroundPattern = 'blank' | 'ruled' | 'grid' | 'dot'
+export type BackgroundPattern = 'blank' | 'ruled' | 'grid' | 'dot' | 'music' | 'isometric' | 'hex'
+  | 'cornell' | 'handwriting' | 'engineering' | 'isodot' | 'tablature' | 'polar'
 
 export interface PageBackground {
   pattern: BackgroundPattern

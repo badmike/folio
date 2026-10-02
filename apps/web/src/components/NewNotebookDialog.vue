@@ -2,7 +2,9 @@
 import type { BackgroundPattern } from '@folio/document'
 import { onMounted, ref } from 'vue'
 import { settings, type DefaultPageType } from '../services/settings'
+import { PATTERN_OPTIONS } from '../patterns'
 import Modal from './Modal.vue'
+import PatternGlyph from './PatternGlyph.vue'
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -22,9 +24,7 @@ const TYPES: { v: DefaultPageType; label: string; sub: string; w: number; h: num
   { v: 'Letter', label: 'Letter', sub: 'Fixed pages', w: 40, h: 52 },
   { v: 'iPad', label: 'iPad', sub: 'Screen-sized', w: 36, h: 52 },
 ]
-const PATTERNS: { v: BackgroundPattern; label: string }[] = [
-  { v: 'blank', label: 'Blank' }, { v: 'ruled', label: 'Ruled' }, { v: 'grid', label: 'Grid' }, { v: 'dot', label: 'Dots' },
-]
+const PATTERNS = PATTERN_OPTIONS
 function submit() {
   emit('create', { title: title.value, pageType: pageType.value, pattern: pattern.value })
 }
@@ -45,7 +45,7 @@ function submit() {
             :aria-checked="pageType === t.v" :data-testid="`type-${t.v}`" @click="pageType = t.v"
           >
             <span class="stage">
-              <span class="sheet" :class="[pattern, { open: t.v === 'infinite' }]" :style="{ width: `${t.w}px`, height: `${t.h}px` }" />
+              <span class="sheet" :class="{ open: t.v === 'infinite' }" :style="{ width: `${t.w}px`, height: `${t.h}px` }"><PatternGlyph class="lines" :pattern="pattern" /></span>
             </span>
             <span class="name">{{ t.label }}</span>
             <span class="sub">{{ t.sub }}</span>
@@ -54,17 +54,20 @@ function submit() {
       </div>
       <div class="field">
         <span id="nb-bg" class="label">Background</span>
-        <div class="seg soft" role="radiogroup" aria-labelledby="nb-bg">
+        <div class="seg soft patterns" role="radiogroup" aria-labelledby="nb-bg">
           <button
             v-for="p in PATTERNS" :key="p.v" type="button" role="radio" :aria-checked="pattern === p.v" :class="{ on: pattern === p.v }"
             :data-testid="`pattern-${p.v}`" @click="pattern = p.v"
-          >{{ p.label }}</button>
+          >
+            <PatternGlyph class="glyph" :pattern="p.v" />
+            <span>{{ p.label }}</span>
+          </button>
         </div>
       </div>
     </form>
     <template #footer>
-      <button class="btn small ghost" type="button" @click="emit('close')">Cancel</button>
-      <button class="btn small primary" type="submit" form="new-nb" data-testid="create-notebook">Create</button>
+      <button class="btn" type="button" @click="emit('close')">Cancel</button>
+      <button class="btn primary" type="submit" form="new-nb" data-testid="create-notebook">Create notebook</button>
     </template>
   </Modal>
 </template>
@@ -80,7 +83,6 @@ function submit() {
 .type:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .stage { height: 56px; display: flex; align-items: center; justify-content: center; margin-bottom: 4px; }
 .sheet {
-  --line: color-mix(in srgb, var(--text) 22%, transparent);
   display: block; border-radius: 3px; background-color: var(--surface); border: 1px solid var(--border-strong);
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
 }
@@ -89,16 +91,13 @@ function submit() {
   -webkit-mask-image: radial-gradient(ellipse at center, #000 55%, transparent 100%);
   mask-image: radial-gradient(ellipse at center, #000 55%, transparent 100%);
 }
-.sheet.ruled { background-image: repeating-linear-gradient(to bottom, transparent 0 6px, var(--line) 6px 7px); }
-.sheet.grid {
-  background-image:
-    repeating-linear-gradient(to bottom, transparent 0 6px, var(--line) 6px 7px),
-    repeating-linear-gradient(to right, transparent 0 6px, var(--line) 6px 7px);
-}
-.sheet.dot { background-image: radial-gradient(circle, var(--line) 0 0.8px, transparent 1.2px); background-size: 7px 7px; background-position: 3px 3px; }
 .name { font-size: 13.5px; font-weight: 600; }
 .sub { font-size: 11.5px; color: var(--muted); }
 .type.on .sub { color: inherit; opacity: 0.75; }
 .seg { display: flex; }
 .seg button { flex: 1; }
+.seg.patterns { display: grid; grid-template-columns: repeat(4, 1fr); }
+.seg.patterns button { padding: 6px 4px 5px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.seg.patterns .glyph { width: 100%; height: 22px; border-radius: 3px; }
+.sheet .lines { width: 100%; height: 100%; }
 </style>

@@ -227,6 +227,15 @@ const STORAGE: Record<typeof svc.storageKind, string> = { 'sqlite-opfs': 'SQLite
                   <option value="ruled">Ruled</option>
                   <option value="grid">Grid</option>
                   <option value="dot">Dots</option>
+                  <option value="music">Music</option>
+                  <option value="isometric">Isometric</option>
+                  <option value="hex">Hexagon</option>
+                  <option value="cornell">Cornell</option>
+                  <option value="handwriting">Handwriting</option>
+                  <option value="engineering">Engineering</option>
+                  <option value="isodot">Iso dots</option>
+                  <option value="tablature">Tablature</option>
+                  <option value="polar">Polar</option>
                 </select>
               </div>
             </div>

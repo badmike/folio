@@ -176,6 +176,12 @@ export function drawBackground(ctx: Ctx2D, page: Page, camera: Camera, width: nu
   const major = bg.majorEvery && bg.majorEvery > 1 ? Math.round(bg.majorEvery) : 0
   const wx0 = camera.x + cx0 / z, wx1 = camera.x + cx1 / z
   const wy0 = camera.y + cy0 / z, wy1 = camera.y + cy1 / z
+  if (isFixedOnlyPattern(bg.pattern)) {
+    ctx.globalAlpha = opacity * levels[0].alpha
+    drawFixedOnlyPattern(ctx, bg.pattern, levels[0].spacing, camera, cx0, cy0, cx1, cy1, pr)
+    ctx.restore()
+    return
+  }
   const coarse = levels[0].spacing
   const isMajor = (k: number) => ((k % major) + major) % major === 0
   for (let li = 0; li < levels.length; li++) {
@@ -227,6 +233,138 @@ export function drawBackground(ctx: Ctx2D, page: Page, camera: Camera, width: nu
     }
   }
   ctx.restore()
+}
+
+/** Fixed-only patterns as 1 px paths over the clip rect (screen px). Mirrors the shader. `page` is set on fixed pages. */
+function drawFixedOnlyPattern(
+  ctx: Ctx2D, pattern: BackgroundPattern, s: number, camera: Camera, cx0: number, cy0: number, cx1: number, cy1: number, page?: Rect,
+): void {
+  const z = camera.zoom
+  const wx0 = camera.x + cx0 / z, wx1 = camera.x + cx1 / z
+  const wy0 = camera.y + cy0 / z, wy1 = camera.y + cy1 / z
+  const sx = (x: number) => (x - camera.x) * z
+  const sy = (y: number) => (y - camera.y) * z
+  const hLine = (wy: number) => {
+    const y = Math.round(sy(wy)) + 0.5
+    ctx.moveTo(cx0, y)
+    ctx.lineTo(cx1, y)
+  }
+  const vLine = (wx: number) => {
+    const x = Math.round(sx(wx)) + 0.5
+    ctx.moveTo(x, cy0)
+    ctx.lineTo(x, cy1)
+  }
+  if (pattern === 'engineering') {
+    const base = ctx.globalAlpha
+    const minor = s / 5
+    const minorFade = patternFade(minor, z)
+    if (minorFade > 0) {
+      ctx.globalAlpha = base * MINOR_WEIGHT * minorFade
+      ctx.beginPath()
+      for (let k = Math.ceil(wy0 / minor); k <= Math.floor(wy1 / minor); k++) if (k % 5) hLine(k * minor)
+      for (let k = Math.ceil(wx0 / minor); k <= Math.floor(wx1 / minor); k++) if (k % 5) vLine(k * minor)
+      ctx.stroke()
+      ctx.globalAlpha = base
+    }
+    ctx.beginPath()
+    for (let k = Math.ceil(wy0 / s); k <= Math.floor(wy1 / s); k++) hLine(k * s)
+    for (let k = Math.ceil(wx0 / s); k <= Math.floor(wx1 / s); k++) vLine(k * s)
+    ctx.stroke()
+    return
+  }
+  if (pattern === 'isodot') {
+    const h = s * Math.sqrt(3) / 2, r = DOT_RADIUS_PX
+    const i0 = Math.ceil(wx0 / h), i1 = Math.floor(wx1 / h)
+    if ((i1 - i0 + 1) * (Math.ceil((wy1 - wy0) / s) + 1) > 90000) return
+    ctx.beginPath()
+    for (let i = i0; i <= i1; i++) {
+      const yOff = ((i % 2) + 2) % 2 === 1 ? s / 2 : 0
+      for (let j = Math.ceil((wy0 - yOff) / s); j <= Math.floor((wy1 - yOff) / s); j++) {
+        const x = sx(i * h), y = sy(j * s + yOff)
+        ctx.moveTo(x + r, y)
+        ctx.arc(x, y, r, 0, Math.PI * 2)
+      }
+    }
+    ctx.fill()
+    return
+  }
+  if (pattern === 'polar') {
+    const [cx, cy] = polarCenter(page)
+    const farX = Math.max(Math.abs(wx0 - cx), Math.abs(wx1 - cx)), farY = Math.max(Math.abs(wy0 - cy), Math.abs(wy1 - cy))
+    const near = Math.hypot(Math.max(0, wx0 - cx, cx - wx1), Math.max(0, wy0 - cy, cy - wy1))
+    const far = Math.hypot(farX, farY)
+    const k0 = Math.max(1, Math.floor(near / s)), k1 = Math.ceil(far / s)
+    if (k1 - k0 > 4000) return
+    ctx.beginPath()
+    const ox = sx(cx), oy = sy(cy)
+    for (let k = k0; k <= k1; k++) {
+      ctx.moveTo(ox + k * s * z, oy)
+      ctx.arc(ox, oy, k * s * z, 0, Math.PI * 2)
+    }
+    for (let i = 0; i < 24; i++) {
+      const dx = Math.cos(i * POLAR_STEP), dy = Math.sin(i * POLAR_STEP)
+      ctx.moveTo(ox + dx * s * z, oy + dy * s * z)
+      ctx.lineTo(ox + dx * far * z, oy + dy * far * z)
+    }
+    ctx.stroke()
+    return
+  }
+  ctx.beginPath()
+  if (pattern === 'music' || pattern === 'tablature') {
+    const [n, g, period] = staffLayout(patternKind(pattern), s)
+    for (let k = Math.floor((wy0 - s) / period); k <= Math.ceil(wy1 / period); k++) {
+      for (let i = 0; i < n; i++) hLine(k * period + i * g)
+    }
+  } else if (pattern === 'cornell') {
+    for (let k = Math.ceil(wy0 / s); k <= Math.floor(wy1 / s); k++) hLine(k * s)
+    vLine(page ? page.x + CORNELL_CUE * page.width : 0)
+    if (page) hLine(page.y + CORNELL_SUMMARY * page.height)
+  } else if (pattern === 'handwriting') {
+    const period = s * 1.5, dash = s / 4
+    const d0 = Math.floor(wx0 / dash), d1 = Math.ceil(wx1 / dash)
+    for (let k = Math.floor((wy0 - s) / period); k <= Math.ceil(wy1 / period); k++) {
+      hLine(k * period)
+      hLine(k * period + s)
+      const y = Math.round(sy(k * period + s / 2)) + 0.5
+      if (y < cy0 - 1 || y > cy1 + 1 || d1 - d0 > 20000) continue
+      for (let d = d0; d <= d1; d++) {
+        ctx.moveTo(sx(d * dash), y)
+        ctx.lineTo(sx(d * dash + dash / 2), y)
+      }
+    }
+  } else if (pattern === 'isometric') {
+    const h = s * Math.sqrt(3) / 2
+    const reach = Math.hypot(wx1 - wx0, wy1 - wy0)
+    const cx = (wx0 + wx1) / 2, cy = (wy0 + wy1) / 2
+    for (const [nx, ny] of [[1, 0], [-0.5, Math.sqrt(3) / 2], [-0.5, -Math.sqrt(3) / 2]]) {
+      const ts = [nx * wx0 + ny * wy0, nx * wx1 + ny * wy0, nx * wx0 + ny * wy1, nx * wx1 + ny * wy1]
+      // point on the line closest to the rect centre, then extend along the line past the rect
+      const along = -ny * cx + nx * cy
+      for (let k = Math.ceil(Math.min(...ts) / h); k <= Math.floor(Math.max(...ts) / h); k++) {
+        const bx = nx * k * h - ny * along, by = ny * k * h + nx * along
+        ctx.moveTo(sx(bx + ny * reach), sy(by - nx * reach))
+        ctx.lineTo(sx(bx - ny * reach), sy(by + nx * reach))
+      }
+    }
+  } else {
+    const r = s / Math.sqrt(3), rowH = s * Math.sqrt(3) / 2
+    const r0 = Math.floor((wy0 - r) / rowH), r1 = Math.ceil((wy1 + r) / rowH)
+    const i0 = Math.floor(wx0 / s) - 1, i1 = Math.ceil(wx1 / s) + 1
+    if ((r1 - r0 + 1) * (i1 - i0 + 1) > 90000) return
+    // each hexagon strokes its two upper edges and right edge, so shared edges are drawn once
+    for (let row = r0; row <= r1; row++) {
+      const cy = row * rowH
+      const shift = ((row % 2) + 2) % 2 === 0 ? 1 : 0.5
+      for (let i = i0; i <= i1; i++) {
+        const cx = (i + shift) * s
+        ctx.moveTo(sx(cx - s / 2), sy(cy - r / 2))
+        ctx.lineTo(sx(cx), sy(cy - r))
+        ctx.lineTo(sx(cx + s / 2), sy(cy - r / 2))
+        ctx.lineTo(sx(cx + s / 2), sy(cy + r / 2))
+      }
+    }
+  }
+  ctx.stroke()
 }
 
 function drawImageObject(ctx: Ctx2D, obj: CanvasObject & { type: 'image' }, images: ImageCache): void {

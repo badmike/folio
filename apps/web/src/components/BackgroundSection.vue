@@ -5,19 +5,21 @@ import {
 import { computed, inject, ref } from 'vue'
 import { sameColor } from '../color-ui'
 import { NOTEBOOK_KEY, type NotebookController } from '../notebook'
+import { isFixedOnlyPattern } from '@folio/renderer'
+import { PATTERN_OPTIONS } from '../patterns'
 import ColorPicker from './ColorPicker.vue'
+import PatternGlyph from './PatternGlyph.vue'
 
 /** "Background of this page": paper colour presets (light + dark), pattern, spacing, scaling and grid emphasis. */
 const props = defineProps<{ page: Page }>()
 const ctl = inject<NotebookController>(NOTEBOOK_KEY)!
 const bg = computed(() => props.page.background)
-const PATTERNS: { v: BackgroundPattern; label: string }[] = [
-  { v: 'blank', label: 'Blank' }, { v: 'ruled', label: 'Ruled' }, { v: 'grid', label: 'Grid' }, { v: 'dot', label: 'Dots' },
-]
+const PATTERNS = PATTERN_OPTIONS
 const SUBDIVISIONS = [2, 4, 5, 10]
 const MAJOR = [0, 2, 4, 5, 10]
 const scaling = computed(() => bg.value.scaling ?? 'fixed')
 const patterned = computed(() => bg.value.pattern !== 'blank')
+const fixedOnly = computed(() => isFixedOnlyPattern(bg.value.pattern))
 const hasMajor = computed(() => bg.value.pattern === 'grid' || bg.value.pattern === 'ruled')
 
 /** The line colour is "auto" while it equals the scheme default for the paper (or the legacy default). */
@@ -50,8 +52,11 @@ const num = (e: Event) => Number((e.target as HTMLInputElement).value)
 
     <div class="setting stack">
       <span class="name">Pattern</span>
-      <div class="seg soft fill" role="radiogroup" aria-label="Pattern">
-        <button v-for="p in PATTERNS" :key="p.v" :class="{ on: bg.pattern === p.v }" :data-testid="`bg-${p.v}`" @click="ctl.setBackground({ pattern: p.v })">{{ p.label }}</button>
+      <div class="seg soft patterns" role="radiogroup" aria-label="Pattern">
+        <button v-for="p in PATTERNS" :key="p.v" :class="{ on: bg.pattern === p.v }" :data-testid="`bg-${p.v}`" @click="ctl.setBackground({ pattern: p.v })">
+          <PatternGlyph class="glyph" :pattern="p.v" />
+          <span>{{ p.label }}</span>
+        </button>
       </div>
     </div>
 
@@ -77,7 +82,7 @@ const num = (e: Event) => Number((e.target as HTMLInputElement).value)
       <ColorPicker v-if="pickLine" class="inline-picker" :model-value="bg.lineColor" :background="bg.color" :allow-transparent="false" title="Line colour"
                    @update:model-value="(c) => ctl.setBackground({ lineColor: c })" @close="pickLine = false" />
 
-      <div class="setting">
+      <div v-if="!fixedOnly" class="setting">
         <div class="text">
           <span class="name">Scaling</span>
           <p>{{ scaling === 'dynamic' ? 'The grid adapts to the zoom level.' : 'Spacing stays the same on the page.' }}</p>
@@ -88,7 +93,7 @@ const num = (e: Event) => Number((e.target as HTMLInputElement).value)
         </div>
       </div>
 
-      <div v-if="scaling === 'dynamic'" class="setting">
+      <div v-if="!fixedOnly && scaling === 'dynamic'" class="setting">
         <span class="name">Subdivisions</span>
         <div class="seg soft" role="radiogroup" aria-label="Subdivisions">
           <button v-for="n in SUBDIVISIONS" :key="n" role="radio" :aria-checked="(bg.subdivisions ?? 5) === n" :class="{ on: (bg.subdivisions ?? 5) === n }" :data-testid="`bg-sub-${n}`"
@@ -119,6 +124,9 @@ h4 { margin: 0 0 2px; padding-left: 10px; font-size: 12px; font-weight: 600; col
 .seg { flex: none; }
 .seg.fill { display: flex; }
 .seg.fill button { flex: 1; padding: 0 6px; }
+.seg.patterns { display: grid; grid-template-columns: repeat(4, 1fr); }
+.seg.patterns button { padding: 6px 4px 5px; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12.5px; }
+.seg.patterns .glyph { width: 100%; height: 22px; border-radius: 3px; }
 .pick { display: inline-flex; align-items: center; gap: 6px; }
 .dot { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(127, 127, 127, 0.4); }
 .swatches { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
