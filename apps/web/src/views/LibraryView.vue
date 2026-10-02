@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { BackgroundPattern, NotebookEntry } from '@folio/document'
 import type { SearchHit } from '@folio/persistence'
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { requireServices } from '../app'
 import FolderTree from '../components/FolderTree.vue'
@@ -33,6 +33,9 @@ const showNew = ref(false)
 const showSettings = ref(false)
 const drawer = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
+const searchInput = ref<HTMLInputElement | null>(null)
+const SORTS: Record<Sort, string> = { modified: 'Last modified', created: 'Date created', title: 'Title' }
+const sortItems = computed<MenuItem[]>(() => (Object.keys(SORTS) as Sort[]).map((k) => ({ label: SORTS[k], checked: sort.value === k, action: () => (sort.value = k) })))
 
 // ---- listing ------------------------------------------------------------------
 const visible = computed(() => {
@@ -180,6 +183,13 @@ async function onImport(e: Event) {
   }
 }
 
+/** Narrow screens: search lives in the drawer. */
+async function openSearch() {
+  drawer.value = true
+  await nextTick()
+  searchInput.value?.focus()
+}
+
 const syncLabel = computed(() => (sync.uiState.value === 'local' ? '' : sync.uiState.value))
 const showIosHint = ref(isIosSafariNotInstalled() && !sessionStorageGet('folio.iosHint'))
 function sessionStorageGet(k: string) { try { return sessionStorage.getItem(k) } catch { return null } }
@@ -188,64 +198,83 @@ function dismissHint() { showIosHint.value = false; try { sessionStorage.setItem
 
 <template>
   <div class="lib">
-    <header class="top">
-      <button class="icon-btn only-narrow" aria-label="Folders" @click="drawer = !drawer">
-        <Icon name="folder" />
-      </button>
-      <Logo class="brand" />
-      <div class="search">
-        <Icon name="search" :size="18" />
-        <input v-model="query" type="search" placeholder="Search notes, handwriting, labels…"
-          aria-label="Search all notebooks" data-testid="search-input" />
-        <button v-if="query" class="icon-btn mini" aria-label="Clear search" @click="query = ''">
-          <Icon name="x" :size="16" />
+    <aside class="side" :class="{ open: drawer }">
+      <div class="side-top">
+        <Logo class="brand" :height="28" />
+        <span class="spacer" />
+        <button class="icon-btn" aria-label="Settings" title="Settings" data-testid="open-settings" @click="showSettings = true">
+          <Icon :name="auth.signedIn.value ? 'cloud' : 'settings'" :size="20" />
+          <span v-if="syncLabel" class="sdot" :class="syncLabel" />
         </button>
       </div>
-      <span v-if="offlineReady" class="badge" title="folio works without a connection" data-testid="offline-ready">
+      <label class="search">
+        <Icon name="search" :size="16" />
+        <input ref="searchInput" v-model="query" type="search" placeholder="Search notebooks"
+          aria-label="Search all notebooks" data-testid="search-input" @keydown.enter="drawer = false" />
+        <button v-if="query" class="icon-btn mini" aria-label="Clear search" @click="query = ''">
+          <Icon name="x" :size="14" />
+        </button>
+      </label>
+      <FolderTree :folders="folders" :selected="selected" :counts="counts"
+        @select="(id) => { selected = id; drawer = false; query = '' }" @create="newFolder" @rename="renameFolder"
+        @move="moveFolder" @delete="deleteFolder" @drop="(fid, nid) => ws.moveNotebook(nid, fid)" />
+      <div v-if="tags.length" class="tagbox">
+        <div class="label">Tags</div>
+        <div class="tagrow">
+          <button v-for="t in tags" :key="t" class="chip" :class="{ on: tagFilter === t }"
+            @click="tagFilter = tagFilter === t ? null : t">#{{ t }}</button>
+        </div>
+      </div>
+      <span class="spacer" />
+      <div v-if="offlineReady" class="status" title="folio works without a connection" data-testid="offline-ready">
         <Icon name="check" :size="14" /> Offline ready
-      </span>
-      <button class="icon-btn" aria-label="Settings" data-testid="open-settings" @click="showSettings = true">
-        <Icon :name="auth.signedIn.value ? 'cloud' : 'settings'" />
-        <span v-if="syncLabel" class="sdot" :class="syncLabel" />
-      </button>
-    </header>
+      </div>
+    </aside>
+    <div v-if="drawer" class="scrim" @click="drawer = false" />
 
-    <div class="body">
-      <aside class="side" :class="{ open: drawer }">
-        <FolderTree :folders="folders" :selected="selected" :counts="counts"
-          @select="(id) => { selected = id; drawer = false; query = '' }" @create="newFolder" @rename="renameFolder"
-          @move="moveFolder" @delete="deleteFolder" @drop="(fid, nid) => ws.moveNotebook(nid, fid)" />
-        <div v-if="tags.length" class="tagbox">
-          <div class="label">Tags</div>
-          <div class="tagrow">
-            <button v-for="t in tags" :key="t" class="chip" :class="{ on: tagFilter === t }"
-              @click="tagFilter = tagFilter === t ? null : t">{{ t }}</button>
-          </div>
-        </div>
-      </aside>
-      <div v-if="drawer" class="scrim" @click="drawer = false" />
-
-      <main class="main">
-        <div v-if="showIosHint" class="hint panel">
-          <Icon name="download" :size="20" />
-          <span>Install folio: tap <strong>Share</strong>, then <strong>Add to Home Screen</strong> for the full-screen
-            app.</span>
-          <button class="icon-btn mini" aria-label="Dismiss" @click="dismissHint">
-            <Icon name="x" :size="16" />
+    <main class="main">
+      <header class="head">
+        <button class="icon-btn only-narrow" aria-label="Folders" @click="drawer = true"><Icon name="menu" :size="20" /></button>
+        <h1 v-if="query.trim()">Search results</h1>
+        <h1 v-else>{{ heading }}</h1>
+        <span v-if="tagFilter && !query.trim()" class="chip on">#{{ tagFilter }}
+          <button class="x" aria-label="Clear tag filter" @click="tagFilter = null"><Icon name="x" :size="12" /></button>
+        </span>
+        <span class="spacer" />
+        <button class="icon-btn only-narrow" aria-label="Search" @click="openSearch"><Icon name="search" :size="20" /></button>
+        <template v-if="!query.trim()">
+          <Menu align="right" :items="sortItems">
+            <button class="btn small ghost sort" aria-label="Sort">
+              <span class="hide-narrow">{{ SORTS[sort] }}</span><Icon name="down" :size="14" class="hide-narrow" />
+              <Icon name="sort" :size="18" class="only-narrow" />
+            </button>
+          </Menu>
+          <button class="icon-btn" aria-label="Import" title="Import .folio or .excalidraw" data-testid="import-folio" @click="fileInput?.click()">
+            <Icon name="upload" :size="20" />
           </button>
+          <input ref="fileInput" type="file" accept=".folio,.excalidraw,application/zip,application/json" multiple
+            hidden data-testid="import-input" @change="onImport" />
+          <button class="btn primary small" data-testid="new-notebook" @click="showNew = true">
+            <Icon name="plus" :size="16" /> <span class="hide-narrow">New notebook</span><span class="only-narrow">New</span>
+          </button>
+        </template>
+      </header>
+
+      <div class="content">
+        <div v-if="showIosHint" class="hint">
+          <Icon name="download" :size="18" />
+          <span>Install folio: tap <strong>Share</strong>, then <strong>Add to Home Screen</strong> for the full-screen app.</span>
+          <button class="icon-btn mini" aria-label="Dismiss" @click="dismissHint"><Icon name="x" :size="14" /></button>
         </div>
 
-        <!-- search results -->
         <section v-if="query.trim()" class="results" data-testid="search-results">
-          <h2>Search results</h2>
-          <p v-if="!searching && !liveHits.length" class="muted" data-testid="no-results">Nothing found for “{{ query
-          }}”.</p>
+          <p v-if="!searching && !liveHits.length" class="muted" data-testid="no-results">Nothing found for “{{ query }}”.</p>
           <ul>
             <li v-for="(h, i) in liveHits" :key="i">
               <button class="hit" data-testid="search-hit" @click="openHit(h)">
                 <span class="hit-title">
-                  <Icon :name="h.kind === 'handwriting' ? 'pen' : h.kind === 'tag' ? 'tag' : 'doc'" :size="16" /> {{
-                    titleOf(h.notebookId) }}
+                  <Icon :name="h.kind === 'handwriting' ? 'pen' : h.kind === 'tag' ? 'tag' : 'doc'" :size="16" />
+                  {{ titleOf(h.notebookId) }}
                   <span class="chip">{{ h.kind }}</span>
                 </span>
                 <span class="snippet" v-html="renderSnippet(h.snippet)" />
@@ -255,39 +284,18 @@ function dismissHint() { showIosHint.value = false; try { sessionStorage.setItem
         </section>
 
         <template v-else>
-          <div class="bar">
-            <h2>{{ heading }}<span v-if="tagFilter" class="chip on tagsel">{{ tagFilter }} <button class="x"
-                  aria-label="Clear tag filter" @click="tagFilter = null">×</button></span></h2>
-            <span class="spacer" />
-            <Menu align="right" :items="[
-              { label: 'Recently modified', checked: sort === 'modified', action: () => (sort = 'modified') },
-              { label: 'Recently created', checked: sort === 'created', action: () => (sort = 'created') },
-              { label: 'Title', checked: sort === 'title', action: () => (sort = 'title') },
-            ]">
-              <button class="btn small ghost" aria-label="Sort">
-                <Icon name="sort" :size="18" /> <span class="hide-narrow">Sort</span>
-              </button>
-            </Menu>
-            <button class="btn small" data-testid="import-folio" @click="fileInput?.click()">
-              <Icon name="upload" :size="18" /> <span class="hide-narrow">Import</span>
-            </button>
-            <input ref="fileInput" type="file" accept=".folio,.excalidraw,application/zip,application/json" multiple
-              hidden data-testid="import-input" @change="onImport" />
-            <button class="btn primary" data-testid="new-notebook" @click="showNew = true">
-              <Icon name="plus" :size="18" /> New notebook
-            </button>
-          </div>
-          <div v-if="!visible.length" class="empty muted">
-            <Icon name="notebook" :size="44" />
-            <p>No notebooks here yet.</p>
+          <div v-if="!visible.length" class="empty">
+            <Icon name="notebook" :size="36" />
+            <p class="muted">No notebooks here yet.</p>
+            <button class="btn small" @click="showNew = true"><Icon name="plus" :size="16" /> New notebook</button>
           </div>
           <div class="grid" data-testid="notebook-grid">
             <NotebookCard v-for="n in visible" :key="n.id" :entry="n" :ws="ws" :items="menuFor(n)" @open="open(n.id)"
               @tag="(t) => (tagFilter = t)" />
           </div>
         </template>
-      </main>
-    </div>
+      </div>
+    </main>
 
     <NewNotebookDialog v-if="showNew" @close="showNew = false" @create="createNotebook" />
     <SettingsDialog v-if="showSettings" @close="showSettings = false" />
@@ -298,73 +306,43 @@ function dismissHint() { showIosHint.value = false; try { sessionStorage.setItem
 .lib {
   height: 100%;
   display: flex;
-  flex-direction: column;
+  background: var(--sidebar);
   padding-left: var(--safe-left);
   padding-right: var(--safe-right);
 }
 
-.top {
+/* ---- sidebar: the frame (L0) ---- */
+.side {
+  width: 248px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: calc(10px + var(--safe-top)) 10px calc(10px + var(--safe-bottom));
+  overflow: auto;
+  background: var(--sidebar);
+  border-right: 1px solid var(--border);
+}
+
+.side-top {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: calc(8px + var(--safe-top)) 12px 8px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  padding-left: 8px;
 }
 
 .brand {
   color: var(--text-strong);
-  margin: 0 4px;
-}
-
-.search {
-  flex: 1;
-  max-width: 560px;
-  margin: 0 auto 0 12px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 6px 0 12px;
-  background: var(--surface-2);
-  border-radius: 12px;
-  min-height: var(--target);
-  border: 1px solid transparent;
-}
-
-.search:focus-within {
-  border-color: var(--accent);
-  background: var(--surface);
-}
-
-.search input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  background: transparent;
-  outline: none;
-  min-height: 40px;
-}
-
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  color: var(--ok);
-  background: var(--surface-2);
-  padding: 4px 10px;
-  border-radius: 99px;
 }
 
 .sdot {
   position: absolute;
-  right: 8px;
-  top: 8px;
-  width: 9px;
-  height: 9px;
+  right: 9px;
+  top: 9px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--ok);
-  border: 2px solid var(--surface);
+  box-shadow: 0 0 0 2px var(--sidebar);
 }
 
 .sdot.syncing {
@@ -380,82 +358,146 @@ function dismissHint() { showIosHint.value = false; try { sessionStorage.setItem
   background: var(--danger);
 }
 
-.body {
-  flex: 1;
-  min-height: 0;
+.search {
   display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 4px 0 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: text;
 }
 
-.side {
-  width: 250px;
-  flex: none;
-  padding: 14px 10px;
-  overflow: auto;
-  border-right: 1px solid var(--border);
-  background: var(--surface);
+.search:focus-within {
+  border-color: var(--accent);
+}
+
+.search input {
+  flex: 1;
+  min-width: 0;
+  min-height: 34px;
+  border: 0;
+  background: transparent;
+  outline: none;
+  font-size: 14px;
+  color: var(--text-strong);
+}
+
+.search input::-webkit-search-cancel-button {
+  display: none;
 }
 
 .tagbox {
-  margin-top: 18px;
-  padding: 0 6px;
+  padding: 4px 10px 0;
+}
+
+.label {
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .tagrow {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
+.status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.status svg {
+  color: var(--ok);
+}
+
+/* ---- main: the canvas (L1) ---- */
 .main {
   flex: 1;
   min-width: 0;
-  overflow: auto;
-  padding: 18px 20px calc(24px + var(--safe-bottom));
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
 }
 
-.bar {
+.head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
+  gap: 6px;
+  min-height: calc(60px + var(--safe-top));
+  padding: var(--safe-top) 20px 0 28px;
+  border-bottom: 1px solid var(--border);
 }
 
-.bar h2 {
-  font-size: 22px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
+.head h1 {
+  font-size: 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.tagsel .x {
+.head .chip {
+  font-size: 12.5px;
+  padding: 2px 4px 2px 10px;
+}
+
+.chip .x {
+  display: inline-flex;
+  padding: 2px;
   border: 0;
+  border-radius: 50%;
   background: transparent;
-  padding: 0 2px;
-  font-size: 16px;
+  color: inherit;
+}
+
+.sort {
+  gap: 4px;
+  color: var(--muted);
+}
+
+.content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px 28px calc(28px + var(--safe-bottom));
 }
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 20px;
 }
 
 .empty {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 60px 0;
+  gap: 8px;
+  padding: 72px 0;
+  color: var(--muted);
+}
+
+.empty p {
+  margin: 0 0 6px;
 }
 
 .hint {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 8px 8px 14px;
-  margin-bottom: 14px;
+  padding: 6px 6px 6px 14px;
+  margin-bottom: 20px;
+  border-radius: var(--radius-lg);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
 }
 
 .hint span {
@@ -464,17 +506,13 @@ function dismissHint() { showIosHint.value = false; try { sessionStorage.setItem
 }
 
 .mini {
-  width: 34px;
-  height: 34px;
-}
-
-.results h2 {
-  font-size: 20px;
-  margin-bottom: 12px;
+  width: 28px;
+  height: 28px;
 }
 
 .results ul {
   list-style: none;
+  max-width: 760px;
   padding: 0;
   margin: 0;
   display: flex;
@@ -489,17 +527,19 @@ function dismissHint() { showIosHint.value = false; try { sessionStorage.setItem
   flex-direction: column;
   gap: 4px;
   padding: 12px 14px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border);
   background: var(--surface);
 }
 
 .hit:hover {
-  border-color: var(--accent);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow);
 }
 
 .hit-title {
   font-weight: 600;
+  color: var(--text-strong);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -520,8 +560,7 @@ function dismissHint() { showIosHint.value = false; try { sessionStorage.setItem
     display: inline-flex;
   }
 
-  .hide-narrow,
-  .badge {
+  .hide-narrow {
     display: none;
   }
 
@@ -531,7 +570,7 @@ function dismissHint() { showIosHint.value = false; try { sessionStorage.setItem
     top: 0;
     bottom: 0;
     left: 0;
-    padding-top: calc(14px + var(--safe-top));
+    width: min(280px, 85vw);
     transform: translateX(-102%);
     transition: transform 0.18s;
     box-shadow: var(--shadow);
@@ -549,8 +588,13 @@ function dismissHint() { showIosHint.value = false; try { sessionStorage.setItem
     background: rgba(10, 10, 20, 0.35);
   }
 
-  .main {
-    padding: 14px 14px calc(24px + var(--safe-bottom));
+  .head {
+    padding: var(--safe-top) 10px 0 6px;
+    min-height: calc(56px + var(--safe-top));
+  }
+
+  .content {
+    padding: 16px 14px calc(24px + var(--safe-bottom));
   }
 
   .grid {

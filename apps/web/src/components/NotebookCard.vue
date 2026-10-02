@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { NotebookEntry } from '@folio/document'
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { formatDate } from '../composables'
+import { timeAgo } from '../composables'
 import type { Workspace } from '../services/workspace'
 import Icon from './Icon.vue'
 import Menu, { type MenuItem } from './Menu.vue'
@@ -25,37 +25,52 @@ function dragStart(e: DragEvent) {
 </script>
 
 <template>
-  <article class="card panel" draggable="true" @dragstart="dragStart" data-testid="notebook-card" :data-title="entry.title">
+  <article class="card" draggable="true" @dragstart="dragStart" data-testid="notebook-card" :data-title="entry.title">
     <button class="thumb" @click="$emit('open')" :aria-label="`Open ${entry.title}`">
       <img v-if="thumb" :src="thumb" alt="" loading="lazy" draggable="false" />
-      <Icon v-else name="notebook" :size="36" />
+      <Icon v-else name="notebook" :size="32" />
     </button>
     <div class="meta">
-      <div class="row">
+      <Icon name="notebook" :size="16" class="kind" />
+      <div class="text">
         <button class="title" @click="$emit('open')">{{ entry.title || 'Untitled' }}</button>
-        <Menu :items="items" align="right">
-          <button class="icon-btn mini" :aria-label="`Actions for ${entry.title}`" data-testid="card-menu"><Icon name="more" :size="18" /></button>
-        </Menu>
+        <div class="sub">
+          <span>Edited {{ timeAgo(entry.updatedAt) }}</span>
+          <button v-for="t in entry.tags" :key="t" class="tag" @click="$emit('tag', t)">#{{ t }}</button>
+        </div>
       </div>
-      <div class="sub muted">{{ formatDate(entry.updatedAt) }}</div>
-      <div v-if="entry.tags.length" class="tags">
-        <button v-for="t in entry.tags" :key="t" class="chip" @click="$emit('tag', t)">{{ t }}</button>
-      </div>
+      <Menu :items="items" align="right">
+        <button class="icon-btn mini" :aria-label="`Actions for ${entry.title}`" data-testid="card-menu"><Icon name="more" :size="18" /></button>
+      </Menu>
     </div>
   </article>
 </template>
 
 <style scoped>
-.card { overflow: hidden; display: flex; flex-direction: column; box-shadow: none; }
-.card:hover { box-shadow: var(--shadow); }
+.card {
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.card:hover { border-color: var(--border-strong); box-shadow: var(--shadow); }
 .thumb {
-  aspect-ratio: 4 / 3; border: 0; background: var(--surface-2); color: var(--muted); display: flex; align-items: center; justify-content: center; padding: 0;
-  border-bottom: 1px solid var(--border); overflow: hidden;
+  aspect-ratio: 16 / 10; border: 0; padding: 0; overflow: hidden; display: flex; align-items: center; justify-content: center;
+  background: var(--surface-2); color: var(--muted); border-bottom: 1px solid var(--border);
 }
 .thumb img { width: 100%; height: 100%; object-fit: cover; object-position: top left; background: #fff; }
-.meta { padding: 8px 6px 10px 12px; }
-.title { flex: 1; text-align: left; border: 0; background: transparent; font-weight: 600; padding: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-height: 34px; }
-.mini { width: 34px; height: 34px; }
-.sub { font-size: 12.5px; margin-top: -4px; }
-.tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.meta { display: flex; align-items: flex-start; gap: 10px; padding: 10px 6px 12px 12px; }
+.kind { flex: none; margin-top: 2px; color: var(--accent); }
+.text { flex: 1; min-width: 0; }
+.title {
+  display: block; width: 100%; padding: 0; border: 0; background: transparent; text-align: left;
+  font-size: 13.5px; font-weight: 600; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sub { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin-top: 2px; font-size: 12.5px; color: var(--muted); }
+.tag { padding: 0; border: 0; background: transparent; color: var(--muted); font-size: inherit; }
+.tag:hover { color: var(--accent); }
+.mini { width: 30px; height: 30px; margin-top: -4px; color: var(--muted); }
+@media (hover: hover) {
+  .mini { opacity: 0; }
+  .card:hover .mini, .card:focus-within .mini { opacity: 1; }
+}
 </style>

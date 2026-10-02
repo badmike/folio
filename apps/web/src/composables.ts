@@ -27,11 +27,14 @@ export function renderSnippet(snippet: string, open = '«', close = '»'): strin
   return esc.split(open).join('<mark>').split(close).join('</mark>')
 }
 
-export function formatDate(ts: number): string {
-  const d = new Date(ts)
-  const now = new Date()
-  const sameDay = d.toDateString() === now.toDateString()
-  return sameDay
-    ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    : d.toLocaleDateString([], { year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric', month: 'short', day: 'numeric' })
+const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [['year', 31_536_000], ['month', 2_592_000], ['week', 604_800], ['day', 86_400], ['hour', 3600], ['minute', 60]]
+const relative = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
+
+/** "just now", "5 minutes ago", "yesterday", "2 months ago". */
+export function timeAgo(ts: number, now = Date.now()): string {
+  const secs = Math.round((ts - now) / 1000)
+  for (const [unit, size] of UNITS) {
+    if (Math.abs(secs) >= size) return relative.format(Math.round(secs / size), unit)
+  }
+  return 'just now'
 }

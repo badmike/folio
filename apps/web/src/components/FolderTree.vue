@@ -53,10 +53,13 @@ function menuFor(f: FolderEntry): MenuItem[] {
 
 <template>
   <nav class="tree" aria-label="Folders">
-    <div class="row item" :class="{ on: selected === 'all' }" @click="emit('select', 'all')"
-         @dragover.prevent="dropTarget = null" @dragleave="dropTarget = undefined" @drop.prevent="onDrop($event, null)"
-         :data-drop="dropTarget === null">
-      <Icon name="notebook" :size="18" /><span class="name">All notebooks</span><span class="count">{{ counts.all ?? 0 }}</span>
+    <div class="row item" :class="{ on: selected === 'all', drop: dropTarget === null }" @click="emit('select', 'all')"
+         @dragover.prevent="dropTarget = null" @dragleave="dropTarget = undefined" @drop.prevent="onDrop($event, null)">
+      <Icon name="library" :size="18" /><span class="name">All notebooks</span><span class="count">{{ counts.all ?? 0 }}</span>
+    </div>
+    <div class="row section">
+      <span class="label">Folders</span>
+      <button class="icon-btn mini" aria-label="New folder" title="New folder" data-testid="new-folder" @click="emit('create', null)"><Icon name="plus" :size="16" /></button>
     </div>
     <div v-for="r in rows" :key="r.folder.id" class="row item" :class="{ on: selected === r.folder.id, drop: dropTarget === r.folder.id }"
          :style="{ paddingLeft: 10 + r.depth * 16 + 'px' }" @click="emit('select', r.folder.id)"
@@ -65,21 +68,32 @@ function menuFor(f: FolderEntry): MenuItem[] {
       <Icon name="folder" :size="18" /><span class="name">{{ r.folder.name }}</span>
       <span class="count">{{ counts[r.folder.id] ?? 0 }}</span>
       <Menu :items="menuFor(r.folder)" align="right">
-        <button class="icon-btn mini" :aria-label="`Folder actions for ${r.folder.name}`"><Icon name="more" :size="18" /></button>
+        <button class="icon-btn mini act" :aria-label="`Folder actions for ${r.folder.name}`"><Icon name="more" :size="16" /></button>
       </Menu>
     </div>
-    <button class="btn ghost small newf" data-testid="new-folder" @click="emit('create', null)"><Icon name="plus" :size="16" /> New folder</button>
   </nav>
 </template>
 
 <style scoped>
-.tree { display: flex; flex-direction: column; gap: 2px; }
-.item { min-height: 42px; padding: 0 4px 0 10px; border-radius: 10px; cursor: pointer; user-select: none; }
+.tree { display: flex; flex-direction: column; gap: 1px; }
+.item { min-height: 34px; padding: 0 4px 0 10px; border-radius: var(--radius); cursor: pointer; user-select: none; font-size: 14px; }
 .item:hover { background: var(--surface-2); }
-.item.on { background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
-.item.drop { outline: 2px dashed var(--accent); }
+.item.on { background: var(--surface-3); color: var(--text-strong); font-weight: 600; }
+.item.drop { outline: 2px dashed var(--accent); outline-offset: -2px; }
+.item :deep(svg) { flex: none; color: var(--muted); }
+.item.on :deep(svg) { color: var(--text-strong); }
+.section { margin: 14px 0 2px; padding: 0 4px 0 10px; }
+.label { flex: 1; font-size: 12px; font-weight: 600; color: var(--muted); }
 .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.count { font-size: 12px; color: var(--muted); min-width: 16px; text-align: right; }
-.mini { width: 34px; height: 34px; }
-.newf { align-self: flex-start; margin-top: 6px; color: var(--muted); }
+.count { font-size: 12px; color: var(--muted); min-width: 16px; padding-right: 6px; text-align: right; font-variant-numeric: tabular-nums; }
+.mini { width: 26px; height: 26px; color: var(--muted); }
+@media (hover: hover) {
+  .act { display: none; }
+  .item:hover .act, .item:focus-within .act { display: inline-flex; }
+  .item:hover .count:not(:last-child), .item:focus-within .count:not(:last-child) { display: none; }
+}
+@media (pointer: coarse) {
+  .item { min-height: 44px; }
+  .mini { width: 36px; height: 36px; }
+}
 </style>
