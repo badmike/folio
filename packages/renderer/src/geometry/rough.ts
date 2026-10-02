@@ -363,27 +363,41 @@ export function buildArrowGeometry(arrow: ArrowObject, path: Vec2[], theme: Visu
   const o: Options = {
     ...baseOptions(style, theme), fill: undefined,
     roughness: maxSize >= 50 ? roughness : Math.min(roughness / (maxSize < 10 ? 3 : 2), 2.5),
+    // ends stay pinned so heads and bindings stay attached; more bowing and offset make up for the
+    // corner jitter that gives shapes their hand-drawn look
     preserveVertices: true,
+    bowing: 2.5,
+    maxRandomnessOffset: 3,
     disableMultiStroke: roughness === 0 || dashed,
   }
   if (dashed && roughness > 0) geo.strokeWidth += 0.5
   const rough = o.roughness ?? 0
-  if (path.length === 2) collect(generator.line(path[0].x, path[0].y, path[1].x, path[1].y, o), geo)
-  else if (rough === 0) geo.strokes.push(path)
-  else if (arrow.arrowType === 'curved') {
-    const points = [path[0], ...(arrow.waypoints ?? []), path[path.length - 1]]
-    collect(generator.path(catmullRomSvg(points), o), geo)
+  // outline heads are hollow: stop the shaft where the head starts
+  const shaft = trimPath(path, arrowheadTrim(arrow.startHead, style, len), arrowheadTrim(arrow.endHead, style, len))
+  if (shaft) {
+    if (shaft.length === 2) collect(generator.line(shaft[0].x, shaft[0].y, shaft[1].x, shaft[1].y, o), geo)
+    else if (rough === 0) geo.strokes.push(shaft)
+    else if (arrow.arrowType === 'curved' && shaft === path) {
+      const points = [path[0], ...(arrow.waypoints ?? []), path[path.length - 1]]
+      collect(generator.path(catmullRomSvg(points), o), geo)
+    } else if (arrow.arrowType === 'curved') geo.strokes.push(wobblePath(shaft, style.seed, rough))
+    else collect(generator.linearPath(shaft.map((p) => [p.x, p.y] as [number, number]), o), geo)
+    applyDashes(geo, style)
   }
-  else collect(generator.linearPath(path.map((p) => [p.x, p.y] as [number, number]), o), geo)
-  applyDashes(geo, style)
   const head = (kind: Arrowhead, atEnd: boolean, seedOffset: number): void => {
     if (kind === 'none') return
     const tip = atEnd ? path[path.length - 1] : path[0]
     const parts = arrowheadParts(kind, tip, pathEndTangent(path, atEnd), style, len)
     const ho: Options = {
       ...o, seed: stableSeed(style.seed + seedOffset),
-      roughness: Math.min(kind === 'dot' ? 0.5 : 1, rough),
+      roughness: kind === 'dot' || kind === 'dot-outline' ? Math.min(0.5, rough) : rough,
       disableMultiStroke: rough === 0,
+    }
+    if (kind === 'dot-outline' && rough > 0) {
+      const r = dotRadius(style, arrowHeadLength(style, len))
+      const dir = pathEndTangent(path, atEnd)
+      collect(generator.ellipse(tip.x - dir.x * r, tip.y - dir.y * r, r * 2, r * 2, ho), geo)
+      return
     }
     for (const line of parts.strokes) {
       // heads stay solid even for dashed shafts
