@@ -194,6 +194,14 @@ describe('background math', () => {
     expect(patternCoverage(k, 32, 64, 32, 1)).toBeCloseTo(1)
     expect(patternCoverage(k, 48, 48, 32, 1)).toBe(0)
   })
+  it('dots and lines keep their screen size at every zoom', () => {
+    for (const zoom of [1, 1.5, 3, 8]) {
+      // 2px on screen from a node: outside the dot, outside a grid line
+      expect(patternCoverage(patternKind('dot'), 32 + 2 / zoom, 64, 32, zoom)).toBe(0)
+      expect(patternCoverage(patternKind('grid'), 32 + 2 / zoom, 16, 32, zoom)).toBe(0)
+      expect(patternCoverage(patternKind('dot'), 32 + 1 / zoom, 64, 32, zoom)).toBeCloseTo(0.75)
+    }
+  })
   it('fades when too dense', () => {
     expect(patternFade(32, 0.05)).toBe(0)
     expect(patternFade(32, 1)).toBe(1)

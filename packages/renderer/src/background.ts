@@ -76,6 +76,9 @@ export function backgroundLevels(bg: PageBackground, zoom: number): PatternLevel
   return patternLevels(bg.spacing, bg.subdivisions, zoom, bg.scaling ?? 'fixed')
 }
 
+/** Dot radius in screen px: dots keep their size at every zoom, like the 1px lines. */
+export const DOT_RADIUS_PX = 1.25
+
 /** Alpha weight of non-major lines when major lines are emphasised. */
 export const MINOR_WEIGHT = 0.55
 
@@ -108,9 +111,8 @@ export function patternCoverageLevels(
     if (kind === 1) c = line(dy) * weightY
     else if (kind === 2) c = Math.max(line(dx) * weightX, line(dy) * weightY)
     else {
-      const r = Math.max(1.25, zoom)
       const w = Math.min(weightX, weightY)
-      c = Math.max(0, Math.min(1, r + 0.5 - Math.hypot(dx, dy))) * (majorEvery > 1 ? w : 1)
+      c = Math.max(0, Math.min(1, DOT_RADIUS_PX + 0.5 - Math.hypot(dx, dy))) * (majorEvery > 1 ? w : 1)
     }
     best = Math.max(best, c * lv.alpha)
   }

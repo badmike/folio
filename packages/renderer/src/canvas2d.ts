@@ -3,7 +3,7 @@ import type { ArrowObject, CanvasObject, InkStroke, Page, Rect, ShapeObject, Vec
 import { arrowPath } from './arrows'
 import { worldCorners } from './bounds'
 import { FRAME_LABEL_SIZE } from './hit'
-import { DESK_COLOR, DESK_COLOR_DARK, MINOR_WEIGHT, backgroundLevels, frameColor, pageRect, patternColor } from './background'
+import { DESK_COLOR, DESK_COLOR_DARK, DOT_RADIUS_PX, MINOR_WEIGHT, backgroundLevels, frameColor, pageRect, patternColor } from './background'
 import { parseColor } from './color'
 import type { Camera, Renderer, Scene, Size, VisualTheme } from './contract'
 import { buildArrowGeometry, buildShapeGeometry, type PathGeometry } from './geometry/rough'
@@ -182,7 +182,7 @@ export function drawBackground(ctx: Ctx2D, page: Page, camera: Camera, width: nu
     const passes = major ? [false, true] : [true]
     if (bg.pattern === 'dot') {
       if ((kx1 - kx0 + 1) * (ky1 - ky0 + 1) > 90000) continue
-      const r = Math.max(1.25, z)
+      const r = DOT_RADIUS_PX
       for (const wantMajor of passes) {
         ctx.globalAlpha = opacity * alpha * (major && !wantMajor ? MINOR_WEIGHT : 1)
         ctx.beginPath()

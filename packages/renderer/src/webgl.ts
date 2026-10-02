@@ -1,7 +1,7 @@
 import { DEFAULT_BLUR_SIZE, adaptColor, isDarkColor } from '@folio/document'
 import type { ArrowObject, CanvasObject, ImageObject, InkStroke, ShapeObject, TextObject, Vec2 } from '@folio/document'
 import { arrowPath } from './arrows'
-import { DESK_COLOR, DESK_COLOR_DARK, MINOR_WEIGHT, backgroundLevels, frameColor, pageRect, patternColor, patternKind } from './background'
+import { DESK_COLOR, DESK_COLOR_DARK, DOT_RADIUS_PX, MINOR_WEIGHT, backgroundLevels, frameColor, pageRect, patternColor, patternKind } from './background'
 import { worldCorners } from './bounds'
 import { pathMidpoint } from './canvas2d'
 import { FRAME_LABEL_SIZE } from './hit'
@@ -137,7 +137,7 @@ float levelCov(vec2 w, float s, float a) {
   float c = 0.0;
   if (u_pat.x < 1.5) c = cov(dd.y) * wt.y;
   else if (u_pat.x < 2.5) c = max(cov(dd.x) * wt.x, cov(dd.y) * wt.y);
-  else { float r = max(1.25, u_cam.z); c = clamp(r + 0.5 - length(dd), 0.0, 1.0) * min(wt.x, wt.y); }
+  else c = clamp(${(DOT_RADIUS_PX + 0.5).toFixed(2)} - length(dd), 0.0, 1.0) * min(wt.x, wt.y);
   return c * a;
 }
 
