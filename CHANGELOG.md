@@ -3,6 +3,12 @@
 All notable changes to folio are documented here.
 Commits follow the [Gitmoji](https://gitmoji.dev/) convention.
 
+## [v26.10.2-6c04d28] — 2026-10-2
+
+- 🍱 web: favicon.ico, padded touch icon and an Open Graph share card
+- 💄 web: settings dialog with section nav and setting rows
+- 💄 web: Figma-style library with sidebar search and quieter cards
+
 ## [v26.10.1-a405b9a] — 2026-10-1
 
 - 🐛 renderer: match live highlighter caps to committed ink
