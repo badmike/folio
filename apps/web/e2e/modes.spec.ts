@@ -4,7 +4,7 @@ import { countType, drawStroke, hostBox, inkCount, newNotebook, openSettings } f
 /** Cleanup modes ('keep' / 'auto') and restyling the selection, each on a fresh profile. */
 
 async function setCleanupMode(page: Page, label: 'Keep my ink' | 'Ask' | 'Automatic') {
-  await openSettings(page)
+  await openSettings(page, 'Handwriting')
   await page.getByRole('button', { name: label, exact: true }).click()
   await page.keyboard.press('Escape')
 }

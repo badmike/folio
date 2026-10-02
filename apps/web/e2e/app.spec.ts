@@ -190,7 +190,7 @@ test('handwriting is recognized offline (Tesseract) and becomes searchable', asy
 
 test('cleanup mode "ask" offers to convert ink after a pause', async () => {
   await page.getByTestId('zoom-pct').click()
-  await openSettings(page)
+  await openSettings(page, 'Handwriting')
   await page.getByRole('button', { name: 'Ask', exact: true }).click()
   await shot('09c-settings')
   await page.keyboard.press('Escape')
@@ -208,7 +208,7 @@ test('cleanup mode "ask" offers to convert ink after a pause', async () => {
   })
   expect(texts.join(' ')).toMatch(/hello/i)
   // back to the default (keep ink) so the remaining steps are unaffected
-  await openSettings(page)
+  await openSettings(page, 'Handwriting')
   await page.getByRole('button', { name: 'Keep my ink' }).click()
   await page.keyboard.press('Escape')
 })

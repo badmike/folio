@@ -2,7 +2,8 @@
 import { onBeforeUnmount, onMounted } from 'vue'
 import Icon from './Icon.vue'
 
-defineProps<{ title: string; wide?: boolean }>()
+/** `bare`: a large panel without header or padding; the slot draws its own chrome and close button. */
+defineProps<{ title: string; wide?: boolean; bare?: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 function onKey(e: KeyboardEvent) { if (e.key === 'Escape') emit('close') }
 onMounted(() => document.addEventListener('keydown', onKey))
@@ -12,13 +13,16 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
 <template>
   <Teleport to="body">
     <div class="backdrop" @pointerdown.self="emit('close')">
-      <div class="modal panel floating" :class="{ wide }" role="dialog" aria-modal="true" :aria-label="title">
+      <div class="modal panel floating" :class="{ wide, bare }" role="dialog" aria-modal="true" :aria-label="title">
+        <slot v-if="bare" />
+        <template v-else>
         <header>
           <h2>{{ title }}</h2>
           <button class="icon-btn" aria-label="Close" @click="emit('close')"><Icon name="x" /></button>
         </header>
         <div class="body"><slot /></div>
         <footer v-if="$slots.footer"><slot name="footer" /></footer>
+        </template>
       </div>
     </div>
   </Teleport>
@@ -32,6 +36,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
 }
 .modal { width: min(440px, 100%); max-height: 100%; display: flex; flex-direction: column; overflow: hidden; }
 .modal.wide { width: min(640px, 100%); }
+.modal.bare { width: min(880px, 100%); height: min(640px, 100%); }
 header { display: flex; align-items: center; justify-content: space-between; padding: 8px 8px 8px 20px; border-bottom: 1px solid var(--border); }
 h2 { font-size: 17px; }
 .body { padding: 18px 20px; overflow: auto; }

@@ -52,9 +52,10 @@ export async function nonBackgroundPixels(page: Page, clip: { x: number; y: numb
   }, png.toString('base64'))
 }
 
-export async function openSettings(page: Page) {
+export async function openSettings(page: Page, section?: 'Account' | 'Handwriting' | 'Drawing' | 'Data & offline') {
   await page.getByTestId('main-menu').click()
   await page.getByRole('menuitem', { name: 'Settings' }).click()
+  if (section) await page.getByRole('dialog').getByRole('button', { name: section, exact: true }).click()
 }
 
 export async function newNotebook(page: Page, title: string) {
