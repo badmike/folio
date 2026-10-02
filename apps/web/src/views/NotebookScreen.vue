@@ -165,7 +165,7 @@ onBeforeUnmount(() => {
 async function run(fn: () => Promise<unknown>) {
   try { ctl.flushPending(); await fn() } catch (e) { diagnostics.log('export', e); toastError('Export failed.') }
 }
-const mainItems = computed<MenuItem[]>(() => [
+const mainItems = computed((): MenuItem[] => [
   { label: 'Library', icon: 'library', action: () => void back() },
   { label: 'Rename notebook…', icon: 'edit', action: () => void rename() },
   { divider: true },
@@ -173,7 +173,7 @@ const mainItems = computed<MenuItem[]>(() => [
   { label: 'Show grid', icon: 'grid', checked: ctl.gridShown, action: () => ctl.toggleGrid() },
   { label: 'Zen mode', icon: 'zen', checked: settings.zen, action: () => toggleZen() },
   { label: 'Hide interface while drawing', icon: 'compact', checked: settings.autoHideHud, action: () => { settings.autoHideHud = !settings.autoHideHud } },
-  ...(canFullscreen ? [{ label: 'Full screen', icon: 'fullscreen', checked: fullscreen.value, action: () => void toggleFullscreen() }] : []),
+  ...(canFullscreen ? [{ label: 'Full screen', icon: 'fullscreen', checked: fullscreen.value, action: () => void toggleFullscreen() } satisfies MenuItem] : []),
   { divider: true },
   { label: 'Import from Excalidraw…', icon: 'upload', action: () => excalInput.value?.click() },
   { label: 'Export', icon: 'download', children: [
@@ -183,7 +183,7 @@ const mainItems = computed<MenuItem[]>(() => [
     { label: 'folio file (.folio)', action: () => void run(() => exportFolioFile(ws, ctl.id, ctl.title.value)) },
   ] },
   { divider: true },
-  ...(hasKeyboard.value ? [{ label: 'Keyboard shortcuts', icon: 'keyboard', action: () => { showShortcuts.value = true } }] : []),
+  ...(hasKeyboard.value ? [{ label: 'Keyboard shortcuts', icon: 'keyboard', action: () => { showShortcuts.value = true } } satisfies MenuItem] : []),
   { label: 'Settings', icon: 'settings', action: () => { showSettings.value = true } },
 ])
 

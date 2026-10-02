@@ -6,6 +6,7 @@ import {
 import { FONT_SIZE_PRESETS, STROKE_WIDTH_PRESETS, type AlignMode, type DistributeAxis, type StyleProp } from '@folio/editor'
 import { FONT_FAMILIES, FONT_LABELS } from '@folio/renderer'
 import { computed, inject, ref } from 'vue'
+import type { IconName } from '../icons'
 import { NOTEBOOK_KEY, type NotebookController, type QuickColorSet } from '../notebook'
 import { copyText } from '../services/export'
 import { diagnostics } from '../services/diagnostics'
@@ -90,7 +91,7 @@ const ALIGNS: Option<'left' | 'center' | 'right'>[] = [
   { value: 'left', glyph: 'ta-left', label: 'Align left' }, { value: 'center', glyph: 'ta-center', label: 'Align center' }, { value: 'right', glyph: 'ta-right', label: 'Align right' },
 ]
 /** One row per axis: its three align modes, then (for three or more items) distribute along that axis. */
-const ALIGN_ROWS: { axis: DistributeAxis; distributeIcon: string; modes: { mode: AlignMode; icon: string; label: string }[] }[] = [
+const ALIGN_ROWS: { axis: DistributeAxis; distributeIcon: IconName; modes: { mode: AlignMode; icon: IconName; label: string }[] }[] = [
   { axis: 'horizontal', distributeIcon: 'distribute-x', modes: [
     { mode: 'left', icon: 'align-left', label: 'Align left' }, { mode: 'centerX', icon: 'align-center-x', label: 'Center horizontally' }, { mode: 'right', icon: 'align-right', label: 'Align right' },
   ] },

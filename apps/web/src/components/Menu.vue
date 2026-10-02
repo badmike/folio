@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, type StyleValue } from 'vue'
+import type { IconName } from '../icons'
 import Icon from './Icon.vue'
 
 export interface MenuItem {
   label?: string
-  icon?: string
+  icon?: IconName
   action?: () => void
   danger?: boolean
   disabled?: boolean

@@ -1,9 +1,10 @@
 <script setup lang="ts" generic="T extends string | number">
+import type { IconName } from '../icons'
 import Icon from './Icon.vue'
 import StyleGlyph from './StyleGlyph.vue'
 
 /** A row of exclusive icon/text buttons (Excalidraw-style option group). 'mixed' / undefined shows no active state. */
-export interface Option<V> { value: V; label: string; glyph?: string; icon?: string; text?: string }
+export interface Option<V> { value: V; label: string; glyph?: string; icon?: IconName; text?: string }
 const props = defineProps<{ options: Option<T>[]; modelValue: T | 'mixed' | undefined; name: string }>()
 const emit = defineEmits<{ (e: 'pick', v: T): void }>()
 const active = (v: T) => typeof v === 'number' && typeof props.modelValue === 'number' ? Math.abs(v - props.modelValue) < 0.01 : v === props.modelValue

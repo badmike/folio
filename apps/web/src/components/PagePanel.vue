@@ -5,7 +5,7 @@ import { NOTEBOOK_KEY, type NotebookController } from '../notebook'
 import { confirmDialog, promptDialog } from '../services/dialogs'
 import Icon from './Icon.vue'
 import BackgroundSection from './BackgroundSection.vue'
-import Menu from './Menu.vue'
+import Menu, { type MenuItem } from './Menu.vue'
 import Sheet from './Sheet.vue'
 
 defineEmits<{ (e: 'close'): void }>()
@@ -28,7 +28,7 @@ async function remove(i: number) {
     ctl.deletePage(p.id)
   }
 }
-const addItems = (['infinite', 'A4', 'Letter', 'iPad'] as const).map((k) => ({
+const addItems: MenuItem[] = (['infinite', 'A4', 'Letter', 'iPad'] as const).map((k) => ({
   label: k === 'infinite' ? 'Infinite page' : `${k} page`, icon: 'plus', action: () => ctl.addPage(k as 'infinite' | PageFormat),
 }))
 </script>

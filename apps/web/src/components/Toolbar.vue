@@ -2,6 +2,7 @@
 import type { Tool } from '@folio/editor'
 import { computed, inject, ref } from 'vue'
 import { NOTEBOOK_KEY, type NotebookController } from '../notebook'
+import type { IconName } from '../icons'
 import { hasKeyboard } from '../services/input-mode'
 import Icon from './Icon.vue'
 
@@ -10,7 +11,7 @@ const emit = defineEmits<{ (e: 'wake'): void }>()
 const ctl = inject<NotebookController>(NOTEBOOK_KEY)!
 
 /** Excalidraw order and letters; folio adds highlighter (M) and blur (X). */
-const TOOLS: { tool: Tool; icon: string; label: string; key: string; zen?: boolean }[] = [
+const TOOLS: { tool: Tool; icon: IconName; label: string; key: string; zen?: boolean }[] = [
   { tool: 'select', icon: 'select', label: 'Select', key: 'V', zen: true },
   { tool: 'hand', icon: 'hand', label: 'Hand', key: 'H' },
   { tool: 'pen', icon: 'pen', label: 'Pen', key: 'P', zen: true },
@@ -26,7 +27,7 @@ const TOOLS: { tool: Tool; icon: string; label: string; key: string; zen?: boole
 const expanded = ref(false)
 const tools = computed(() => (props.zen && !expanded.value ? TOOLS.filter((t) => t.zen) : TOOLS))
 const shapeIcon = computed(() => (ctl.options.value?.shape.kind ?? 'rectangle'))
-const iconFor = (t: { tool: Tool; icon: string }) =>
+const iconFor = (t: { tool: Tool; icon: IconName }): IconName =>
   t.tool === 'shape' ? shapeIcon.value : t.tool === 'select' && ctl.options.value?.select.mode === 'lasso' ? 'lasso' : t.icon
 const locked = ctl.locked
 
