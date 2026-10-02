@@ -185,6 +185,7 @@ test.describe('zen mode', () => {
     await expect(page.getByTestId('zen-exit')).toHaveCount(0)
     // persisted setting: exit pill also works
     await page.getByTestId('main-menu').click()
+    await page.getByRole('menuitem', { name: 'Preferences' }).click()
     await page.getByRole('menuitemcheckbox', { name: 'Zen mode' }).click()
     await expect(page.getByTestId('zen-exit')).toBeVisible()
     await page.getByTestId('zen-exit').click()

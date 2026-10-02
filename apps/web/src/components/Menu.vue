@@ -80,14 +80,15 @@ function onOutside(e: Event) {
   close()
 }
 function onKey(e: KeyboardEvent) { if (e.key === 'Escape') close() }
-function run(it: MenuItem, index: number, e: MouseEvent) {
+function run(it: MenuItem, index: number, level: number, e: MouseEvent) {
   if (it.disabled) return
   if (it.children) {
     // never toggles shut: a mouse has already opened it by hovering when the click arrives
     if (sub.value?.index !== index) void openSub(index, e.currentTarget as HTMLElement)
     return
   }
-  close()
+  // a submenu of checkboxes stays open so several can be toggled in a row
+  if (level === 0 || it.checked === undefined) close()
   it.action?.()
 }
 /** With a mouse the submenu follows the pointer; touch and pen open it with a tap. */
@@ -112,7 +113,7 @@ onBeforeUnmount(close)
           <button
             v-else class="item" :class="{ danger: it.danger, active: it.active, open: level === 0 && sub?.index === i }" :disabled="it.disabled"
             :role="it.checked === undefined ? 'menuitem' : 'menuitemcheckbox'" :aria-checked="it.checked" :aria-haspopup="it.children ? 'menu' : undefined"
-            :aria-expanded="it.children ? sub?.index === i : undefined" @click="run(it, i, $event)" @pointerenter="hover(it, level, i, $event)"
+            :aria-expanded="it.children ? sub?.index === i : undefined" @click="run(it, i, level, $event)" @pointerenter="hover(it, level, i, $event)"
           >
             <Icon v-if="it.icon" :name="it.icon" :size="16" />
             <span class="lbl" :style="{ fontFamily: it.fontFamily }">{{ it.label }}</span>
