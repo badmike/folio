@@ -46,6 +46,8 @@ pnpm --filter @folio/web exec playwright test   # e2e against the preview build 
 
 **Runtime config:** at boot the app reads `config.json` next to `index.html` (`{"apiBase": "/api", "clerkPublishableKey": "pk_..."}`). folio-server generates it when it serves the app; empty values mean local only. During development, `apps/web/.env.local` provides the same values as `VITE_API_BASE` and `VITE_CLERK_PUBLISHABLE_KEY`.
 
+**Icons and share card:** `node apps/web/scripts/gen-brand-assets.mjs` renders the favicon, app icons and the 1200x630 Open Graph image from `public/icons/icon.svg`. The share card URL is absolute: set `VITE_SITE_URL` (default `https://folio.coderscantina.com`) when building for another domain.
+
 **With a server:** `FOLIO_AUTH_DEV=true pnpm server` (port 8989), start the web app with `VITE_API_BASE=/api`, then in the browser console run `localStorage['folio.devToken']='dev:alice'` and reload to sync without Clerk. Set `OPENROUTER_API_KEY` on the server for AI features (all AI requests go through OpenRouter). `localStorage['folio.debug']='1'` exposes `window.__folio` (used by the e2e tests).
 
 ### Live sync across devices

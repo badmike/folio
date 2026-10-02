@@ -32,6 +32,9 @@ function resolveTesseractAsset(a: (typeof TESSERACT_ASSETS)[number]): string {
  */
 const loroBase64 = createRequire(path.resolve(here, '../../packages/document/package.json')).resolve('loro-crdt/base64')
 
+/** Public origin for absolute share-card URLs in index.html. Self-hosted builds set their own. */
+process.env.VITE_SITE_URL = (process.env.VITE_SITE_URL || 'https://folio.coderscantina.com').replace(/\/+$/, '')
+
 const tesseractTargets = TESSERACT_ASSETS.map((a) => ({
   src: resolveTesseractAsset(a).replace(/\\/g, '/'),
   dest: path.posix.join('tesseract', path.posix.dirname(a.to)).replace(/\/\.$/, ''),
@@ -61,12 +64,15 @@ export default defineConfig({
         icons: [
           { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+          { src: '/icons/icon-maskable-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
           { src: '/icons/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
           { src: '/icons/icon.svg', sizes: 'any', type: 'image/svg+xml' },
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,wasm,woff2,traineddata,gz,webmanifest}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,wasm,woff2,traineddata,gz,webmanifest}'],
+        // only crawlers fetch the share card
+        globIgnores: ['og-image.png'],
         // Recognition cores (~4 MB each) and sqlite wasm must be precached for offline use.
         maximumFileSizeToCacheInBytes: 30 * 1024 * 1024,
         navigateFallback: 'index.html',
