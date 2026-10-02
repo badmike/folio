@@ -322,7 +322,9 @@ describe('zen mode', () => {
     })
     const w = mount(Toolbar, { props: { zen: true, faded: true }, global: { provide: { [NOTEBOOK_KEY as symbol]: ctl } } })
     expect(w.findAll('[data-testid^="tool-"]').map((b) => b.attributes('data-testid'))).toEqual(['tool-lock', 'tool-select', 'tool-pen', 'tool-highlighter', 'tool-eraser'])
-    expect(w.find('[data-testid="redo"]').exists()).toBe(false)
+    // undo and redo sit outside the scrolling tool strip, so they never scroll away
+    expect(w.find('[data-testid="toolbar-tools"] [data-testid="undo"]').exists()).toBe(false)
+    expect(w.find('[data-testid="redo"]').exists()).toBe(true)
     expect(w.classes()).toContain('faded')
     await w.trigger('pointerenter')
     expect(w.emitted('wake')).toBeTruthy()

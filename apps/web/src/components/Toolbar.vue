@@ -52,24 +52,26 @@ function pick(t: Tool) {
       <button class="btn small" data-testid="unlock" @click="ctl.setLocked(false)">Unlock</button>
     </div>
     <div v-else class="bar panel floating" role="toolbar" aria-label="Tools">
-      <button
-        class="icon-btn lock" :class="{ active: ctl.toolLock.value }" :aria-pressed="ctl.toolLock.value" aria-label="Keep selected tool active"
-        :title="hasKeyboard ? 'Keep selected tool active after drawing (Q)' : 'Keep selected tool active after drawing'" data-testid="tool-lock" @click="ctl.setToolLock(!ctl.toolLock.value)"
-      >
-        <Icon :name="ctl.toolLock.value ? 'lock' : 'unlock'" :size="18" />
-      </button>
-      <span class="sep" />
-      <button v-for="t in tools" :key="t.tool" class="icon-btn" :class="{ active: ctl.tool.value === t.tool }"
-              :aria-label="t.label" :aria-pressed="ctl.tool.value === t.tool" :title="hasKeyboard ? `${t.label} (${t.key})` : t.label" :data-testid="`tool-${t.tool}`" @click="pick(t.tool)">
-        <Icon :name="iconFor(t)" />
-        <span v-if="!zen && hasKeyboard" class="key" aria-hidden="true">{{ t.key }}</span>
-      </button>
-      <button v-if="zen" class="icon-btn" :aria-label="expanded ? 'Fewer tools' : 'More tools'" :aria-expanded="expanded" data-testid="zen-more" @click="expanded = !expanded">
-        <Icon :name="expanded ? 'chevleft' : 'right'" />
-      </button>
+      <div class="tools" data-testid="toolbar-tools">
+        <button
+          class="icon-btn lock" :class="{ active: ctl.toolLock.value }" :aria-pressed="ctl.toolLock.value" aria-label="Keep selected tool active"
+          :title="hasKeyboard ? 'Keep selected tool active after drawing (Q)' : 'Keep selected tool active after drawing'" data-testid="tool-lock" @click="ctl.setToolLock(!ctl.toolLock.value)"
+        >
+          <Icon :name="ctl.toolLock.value ? 'lock' : 'unlock'" :size="18" />
+        </button>
+        <span class="sep" />
+        <button v-for="t in tools" :key="t.tool" class="icon-btn" :class="{ active: ctl.tool.value === t.tool }"
+                :aria-label="t.label" :aria-pressed="ctl.tool.value === t.tool" :title="hasKeyboard ? `${t.label} (${t.key})` : t.label" :data-testid="`tool-${t.tool}`" @click="pick(t.tool)">
+          <Icon :name="iconFor(t)" />
+          <span v-if="!zen && hasKeyboard" class="key" aria-hidden="true">{{ t.key }}</span>
+        </button>
+        <button v-if="zen" class="icon-btn" :aria-label="expanded ? 'Fewer tools' : 'More tools'" :aria-expanded="expanded" data-testid="zen-more" @click="expanded = !expanded">
+          <Icon :name="expanded ? 'chevleft' : 'right'" />
+        </button>
+      </div>
       <span class="sep" />
       <button class="icon-btn" aria-label="Undo" :title="hasKeyboard ? 'Undo (⌘Z)' : 'Undo'" data-testid="undo" :disabled="!ctl.canUndo.value" @click="ctl.undo()"><Icon name="undo" /></button>
-      <button v-if="!zen" class="icon-btn" aria-label="Redo" :title="hasKeyboard ? 'Redo (⌘⇧Z)' : 'Redo'" data-testid="redo" :disabled="!ctl.canRedo.value" @click="ctl.redo()"><Icon name="redo" /></button>
+      <button class="icon-btn" aria-label="Redo" :title="hasKeyboard ? 'Redo (⌘⇧Z)' : 'Redo'" data-testid="redo" :disabled="!ctl.canRedo.value" @click="ctl.redo()"><Icon name="redo" /></button>
     </div>
   </div>
 </template>
@@ -79,9 +81,11 @@ function pick(t: Tool) {
 .dock > * { pointer-events: auto; }
 .dock.zen .bar { background: color-mix(in srgb, var(--surface) 80%, transparent); backdrop-filter: blur(8px); }
 .dock.faded { opacity: 0.18; }
-.bar { display: flex; align-items: center; gap: 1px; padding: 4px; overflow-x: auto; max-width: 100%; scrollbar-width: none; }
-.bar::-webkit-scrollbar { display: none; }
-.bar .icon-btn { width: 40px; height: 40px; border-radius: 6px; }
+/* Only the tools scroll when the bar is wider than the screen; undo and redo stay put. */
+.bar { display: flex; align-items: center; gap: 1px; padding: 4px; max-width: 100%; }
+.tools { display: flex; align-items: center; gap: 1px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.tools::-webkit-scrollbar { display: none; }
+.bar .icon-btn { flex: none; width: 40px; height: 40px; border-radius: 6px; }
 .bar .lock { width: 34px; }
 .key { position: absolute; right: 4px; bottom: 2px; font-size: 9px; line-height: 1; color: var(--muted); font-weight: 600; opacity: 0.7; }
 .icon-btn.active .key { color: var(--accent-strong); }
