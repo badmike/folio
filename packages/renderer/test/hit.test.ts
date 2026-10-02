@@ -3,6 +3,7 @@ import { resolveArrowEndpoints } from '../src/arrows'
 import { hitTestObject, objectIntersectsLasso, objectIntersectsRect, pointInPolygon } from '../src/hit'
 import { objectWorldBounds, localBounds } from '../src/bounds'
 import { layoutText, measureText, FONT_FAMILIES } from '../src/text'
+import { drawTextLayout, type Ctx2D } from '../src/textdraw'
 import { arrow, image, ink, scene, shape, text, useFakeMeasure } from './helpers'
 import { patternCoverage, patternFade, patternKind } from '../src/background'
 import { buildOverlay, selectionHandles, HANDLE_SIZE } from '../src/overlay'
@@ -157,6 +158,16 @@ describe('bounds & text layout', () => {
     expect(l.lines).toEqual(['aaa bbb', 'ccc', 'd'])
     expect(l.width).toBe(70)
     expect(l.height).toBeCloseTo(3 * 26)
+  })
+  it('draws each line on the alphabetic baseline of its line box, like CSS', () => {
+    const l = layoutText({ text: 'ab\ncd', fontSize: 20, fontFamily: 'hand', width: 0 })
+    const calls: [string, number, number][] = []
+    const ctx = { textBaseline: '', fillText: (t: string, x: number, y: number) => calls.push([t, x, y]) }
+    drawTextLayout(ctx as unknown as Ctx2D, l, '#000', 'left', 5, 10)
+    expect(ctx.textBaseline).toBe('alphabetic')
+    expect(calls).toEqual([['ab', 5, 10 + l.baseline], ['cd', 5, 10 + l.lineHeight + l.baseline]])
+    expect(l.baseline).toBeGreaterThan(0)
+    expect(l.baseline).toBeLessThan(l.lineHeight)
   })
   it('breaks over-long words', () => {
     const l = layoutText({ text: 'abcdefghij', fontSize: 20, fontFamily: 'mono', width: 50 })

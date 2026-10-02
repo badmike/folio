@@ -12,7 +12,7 @@ import { ImageCache, type ImageResolver, type ImageSource } from './images'
 import { IDENTITY, multiply, toMat3, transformMatrix, type Mat } from './math'
 import { buildOverlay } from './overlay'
 import { arrowKey, isRenderable, objectKey } from './scenekey'
-import { labelLayout, layoutText, type TextLayout } from './text'
+import { ARROW_LABEL_WIDTH, labelLayout, layoutText, type TextLayout } from './text'
 import { drawTextLayout, type Ctx2D } from './textdraw'
 
 type GL = WebGLRenderingContext | WebGL2RenderingContext
@@ -752,7 +752,7 @@ export class WebGLRenderer implements Renderer {
         const path = arrowPath(a, scene.resolve)
         this.drawCachedMesh(a.id, arrowKey(a, path, theme, bgc), IDENTITY, camera, (mb) => buildArrowMesh(mb, a, path, theme, bgc), cache)
         if (a.label) {
-          const l = labelLayout(a.label, 160, clean, true, a.labelSize)
+          const l = labelLayout(a.label, ARROW_LABEL_WIDTH, clean, true, a.labelSize)
           const lc = adaptColor(a.style.strokeColor, bgc)
           const mid = pathMidpoint(path)
           this.drawText(
@@ -861,7 +861,7 @@ export class WebGLRenderer implements Renderer {
     const fresh = entry && entry.key === version && entry.scale >= needed * 0.999 && entry.scale <= Math.max(needed * 3, 1)
     if (!fresh) {
       let scale = scaleBucket(needed)
-      const pad = TEXT_PAD
+      const pad = TEXT_PAD + layout.overhang
       const lw = layout.width + pad * 2
       const lh = layout.height + pad * 2
       scale = Math.min(scale, MAX_TEX / lw, MAX_TEX / lh)

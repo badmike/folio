@@ -14,10 +14,10 @@ export function drawTextLayout(
 ): void {
   ctx.font = layout.font
   ctx.fillStyle = color
-  ctx.textBaseline = 'top'
+  ctx.textBaseline = 'alphabetic'
   ctx.textAlign = 'left'
   for (let i = 0; i < layout.lines.length; i++) {
     if (!layout.lines[i]) continue
-    ctx.fillText(layout.lines[i], x + lineOffsetX(layout, i, align), y + i * layout.lineHeight)
+    ctx.fillText(layout.lines[i], x + lineOffsetX(layout, i, align), y + i * layout.lineHeight + layout.baseline)
   }
 }

@@ -2,10 +2,25 @@
  * DOM text-editing overlay: a positioned <textarea> that tracks the camera.
  * Handles new text objects, editing existing text and editing shape/arrow labels.
  */
-import { DEFAULT_LABEL_SIZE, type ObjectId, type ShapeObject, type TextObject, type Vec2 } from '@folio/document'
-import { FONT_FAMILIES, FRAME_LABEL_SIZE, frameColor } from '@folio/renderer'
+import { DEFAULT_LABEL_SIZE, type ObjectId, type ShapeObject, type TextObject, type Transform, type Vec2 } from '@folio/document'
+import { ARROW_LABEL_WIDTH, FONT_FAMILIES, FRAME_LABEL_SIZE, arrowPath, frameColor, labelLayout, layoutText, pathMidpoint, type TextLayout } from '@folio/renderer'
 import type { Editor } from './editor'
-import { LINE_HEIGHT, createId, localBounds, localToWorld, resolveArrowEndpoints } from './geometry'
+import { IDENTITY, createId, localToWorld } from './geometry'
+
+/** Horizontal padding around the text, in screen pixels. */
+const CARET_ROOM = 2
+
+interface Placement {
+  transform: Transform
+  /** Top-left of the layout box in the transform's local space. */
+  origin: Vec2
+  layout: TextLayout
+  fontSize: number
+  family: string
+  color: string
+  align: 'left' | 'center' | 'right'
+  wrap: boolean
+}
 
 type Mode =
   | { kind: 'new'; draft: TextObject }
@@ -65,11 +80,11 @@ export class TextEditor {
     el.spellcheck = false
     el.setAttribute('data-folio-text', '')
     Object.assign(el.style, {
-      position: 'absolute', margin: '0', padding: '0 2px', border: '1px dashed rgba(80,120,255,0.7)', outline: 'none',
+      position: 'absolute', margin: '0', border: 'none', outline: '1px dashed rgba(80,120,255,0.7)',
       background: 'transparent', resize: 'none', overflow: 'hidden', pointerEvents: 'auto', transformOrigin: '0 0',
-      whiteSpace: 'pre', lineHeight: String(LINE_HEIGHT), boxSizing: 'content-box', touchAction: 'auto', userSelect: 'text',
+      boxSizing: 'content-box', letterSpacing: 'normal', wordSpacing: 'normal', textIndent: '0', touchAction: 'auto', userSelect: 'text',
     })
-    el.addEventListener('input', () => this.autosize())
+    el.addEventListener('input', () => this.reposition())
     el.addEventListener('keydown', (e) => {
       e.stopPropagation()
       if (e.key === 'Escape' || (e.key === 'Enter' && (e.metaKey || e.ctrlKey))) {
@@ -88,78 +103,61 @@ export class TextEditor {
     this.editor.requestRender()
   }
 
-  /** Re-apply position/scale from the current camera. */
+  /**
+   * Re-apply position, size and font from the current camera and value. The textarea's
+   * content box is the renderer's layout box for the same text, so typed and drawn text coincide.
+   */
   reposition(): void {
     const el = this.el
     const mode = this.mode
     if (!el || !mode) return
+    const p = this.placement(mode, el.value)
+    if (!p) return
     const z = this.editor.zoom
-    if (mode.kind === 'label') {
-      const o = this.editor.getObject(mode.id)
-      if (!o) return
-      let center: Vec2
-      let width = 200
-      let rot = 0
-      const family = this.editor.theme === 'clean' ? FONT_FAMILIES.sans : FONT_FAMILIES.hand
-      if (o.type === 'shape' && o.kind === 'frame') {
-        // the frame name sits above the top-left corner, left aligned
-        const size = o.labelSize ?? FRAME_LABEL_SIZE
-        const s = this.editor.worldToScreen(localToWorld(o.transform, { x: 0, y: -size * 1.3 - 2 }))
-        Object.assign(el.style, {
-          left: `${s.x}px`, top: `${s.y}px`, fontSize: `${size * z}px`, fontFamily: FONT_FAMILIES.sans,
-          color: frameColor(this.editor.page?.background.color ?? '#ffffff'), textAlign: 'left',
-          transform: `rotate(${o.transform.rotation}rad)`, minWidth: `${60 * z}px`,
-        })
-        this.autosize()
-        return
-      }
-      const size = o.type === 'shape' || o.type === 'arrow' ? o.labelSize ?? DEFAULT_LABEL_SIZE : DEFAULT_LABEL_SIZE
-      if (o.type === 'shape') {
-        const lb = localBounds(o)!
-        center = localToWorld(o.transform, { x: lb.x + lb.width / 2, y: lb.y + lb.height / 2 })
-        width = Math.max(60, Math.abs(o.width * o.transform.scaleX) - 8)
-        rot = o.transform.rotation
-      } else if (o.type === 'arrow') {
-        const { start, end } = resolveArrowEndpoints(o, this.editor.resolve)
-        center = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 }
-      } else return
-      const s = this.editor.worldToScreen(center)
-      Object.assign(el.style, {
-        left: `${s.x}px`, top: `${s.y}px`, fontSize: `${size * z}px`, fontFamily: family, color: o.style.strokeColor,
-        textAlign: 'center', transform: `translate(-50%,-50%) rotate(${rot}rad)`, minWidth: `${Math.min(width, 120) * z}px`,
-      })
-      this.autosize()
-      return
-    }
-    const t = mode.kind === 'new' ? mode.draft : (this.editor.getObject(mode.id) as TextObject | undefined)
-    if (!t || t.type !== 'text') return
-    const s = this.editor.worldToScreen({ x: t.transform.x, y: t.transform.y })
-    const scale = t.transform.scaleY
+    const s = this.editor.worldToScreen(localToWorld(p.transform, p.origin))
+    // padding leaves room for the caret and for glyphs reaching past the line boxes (which would
+    // otherwise scroll the textarea); the translate puts the content box back on the layout box
+    const padX = CARET_ROOM
+    const padY = p.layout.overhang * z
     Object.assign(el.style, {
-      left: `${s.x}px`, top: `${s.y}px`, fontSize: `${t.fontSize * scale * z}px`,
-      fontFamily: FONT_FAMILIES[t.fontFamily], color: t.color, textAlign: t.align ?? 'left',
-      transform: `rotate(${t.transform.rotation}rad)`,
-      whiteSpace: t.width ? 'pre-wrap' : 'pre',
+      left: `${s.x}px`, top: `${s.y}px`, width: `${p.layout.width * z}px`, height: `${p.layout.height * z}px`, padding: `${padY}px ${padX}px`,
+      fontSize: `${p.fontSize * z}px`, lineHeight: String(p.layout.lineHeight / p.fontSize), fontFamily: p.family,
+      color: p.color, textAlign: p.align, whiteSpace: p.wrap ? 'pre-wrap' : 'pre',
+      transform: `rotate(${p.transform.rotation}rad) scale(${p.transform.scaleX}, ${p.transform.scaleY}) translate(${-padX}px, ${-padY}px)`,
     })
-    if (t.width) el.style.width = `${t.width * t.transform.scaleX * z}px`
-    this.autosize()
   }
 
-  private autosize(): void {
-    const el = this.el
-    if (!el) return
-    if (this.mode?.kind === 'text' || this.mode?.kind === 'new') {
-      const t = this.mode.kind === 'new' ? this.mode.draft : (this.editor.getObject(this.mode.id) as TextObject | undefined)
-      if (t?.width) {
-        el.style.height = '0px'
-        el.style.height = `${el.scrollHeight}px`
-        return
+  /** Layout box of the edited text in the object's local space, mirroring how the renderer draws it. */
+  private placement(mode: Mode, value: string): Placement | undefined {
+    const clean = this.editor.theme === 'clean'
+    if (mode.kind === 'label') {
+      const o = this.editor.getObject(mode.id)
+      if (o?.type === 'shape' && o.kind === 'frame') {
+        const fontSize = o.labelSize ?? FRAME_LABEL_SIZE
+        const layout = layoutText({ text: value, fontSize, fontFamily: 'sans', align: 'left' })
+        const color = frameColor(this.editor.page?.background.color ?? '#ffffff')
+        return { transform: o.transform, origin: { x: 0, y: -layout.height - 2 }, layout, fontSize, family: FONT_FAMILIES.sans, color, align: 'left', wrap: false }
       }
+      if (o?.type !== 'shape' && o?.type !== 'arrow') return undefined
+      const fontSize = o.labelSize ?? DEFAULT_LABEL_SIZE
+      const family = clean ? FONT_FAMILIES.sans : FONT_FAMILIES.hand
+      const label = { family, color: o.style.strokeColor, align: 'center', wrap: true, fontSize } as const
+      if (o.type === 'shape') {
+        const layout = labelLayout(value, o.width, clean, false, fontSize)
+        return { ...label, transform: o.transform, origin: { x: (o.width - layout.width) / 2, y: (o.height - layout.height) / 2 }, layout }
+      }
+      // the box spans the full wrap width; centered lines land where the renderer's fitted box puts them
+      const layout = labelLayout(value, ARROW_LABEL_WIDTH, clean, false, fontSize)
+      const mid = pathMidpoint(arrowPath(o, this.editor.resolve))
+      return { ...label, transform: IDENTITY, origin: { x: mid.x - layout.width / 2, y: mid.y - layout.height / 2 }, layout }
     }
-    el.style.width = '0px'
-    el.style.height = '0px'
-    el.style.width = `${Math.max(el.scrollWidth + 4, 24)}px`
-    el.style.height = `${Math.max(el.scrollHeight, 8)}px`
+    const t = mode.kind === 'new' ? mode.draft : this.editor.getObject(mode.id)
+    if (t?.type !== 'text') return undefined
+    const layout = layoutText({ ...t, text: value })
+    return {
+      transform: t.transform, origin: { x: 0, y: 0 }, layout, fontSize: t.fontSize,
+      family: FONT_FAMILIES[t.fontFamily], color: t.color, align: t.align ?? 'left', wrap: !!t.width,
+    }
   }
 
   /** Finish editing and commit the result as one undoable step. */

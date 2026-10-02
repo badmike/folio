@@ -47,6 +47,10 @@ export interface TextLayout {
   lines: string[]
   lineWidths: number[]
   lineHeight: number
+  /** Distance from a line's top to its alphabetic baseline, placed like CSS does (half-leading above the font's ascent). */
+  baseline: number
+  /** How far the font's ascent/descent reach beyond the first/last line box (0 for tall line heights). */
+  overhang: number
   /** Box size in local units (width = wrap width when set, else widest line). */
   width: number
   height: number
@@ -55,7 +59,7 @@ export interface TextLayout {
 
 export type WidthMeasurer = (font: string, text: string) => number
 
-let measureCtx: { font: string; measureText(t: string): { width: number } } | null | undefined
+let measureCtx: { font: string; measureText(t: string): Pick<TextMetrics, 'width'> & Partial<TextMetrics> } | null | undefined
 let customMeasurer: WidthMeasurer | null = null
 
 /** Override text measuring (tests, or environments without canvas). */
@@ -101,6 +105,19 @@ const defaultMeasurer: WidthMeasurer = (font, text) => {
   return ctx.measureText(text).width
 }
 
+/** Font ascent/descent as CSS uses them for line layout (rough estimate where canvas metrics are unavailable). */
+function fontExtent(font: string, size: number): { ascent: number; descent: number } {
+  const ctx = customMeasurer ? null : getMeasureCtx()
+  if (ctx) {
+    if (ctx.font !== font) ctx.font = font
+    const m = ctx.measureText('x')
+    if (m.fontBoundingBoxAscent !== undefined && m.fontBoundingBoxDescent !== undefined) {
+      return { ascent: m.fontBoundingBoxAscent, descent: m.fontBoundingBoxDescent }
+    }
+  }
+  return { ascent: size * 0.9, descent: size * 0.25 }
+}
+
 const layoutCache = new Map<string, TextLayout>()
 
 /** Line height factors that differ from the default 1.3 (Excalifont uses Excalidraw's 1.25). */
@@ -138,10 +155,13 @@ export function layoutText(t: TextLike): TextLayout {
   }
   const lineWidths = lines.map((l) => measure(font, l))
   const lineHeight = t.fontSize * (LINE_HEIGHTS[t.fontFamily] ?? 1.3)
+  const { ascent, descent } = fontExtent(font, t.fontSize)
   const layout: TextLayout = {
     lines,
     lineWidths,
     lineHeight,
+    baseline: (lineHeight - ascent - descent) / 2 + ascent,
+    overhang: Math.max(0, (ascent + descent - lineHeight) / 2),
     width: wrap ?? Math.max(0, ...lineWidths),
     height: lines.length * lineHeight,
     font,
@@ -162,6 +182,9 @@ export function lineOffsetX(layout: TextLayout, lineIndex: number, align: TextLi
   const free = layout.width - layout.lineWidths[lineIndex]
   return align === 'center' ? free / 2 : align === 'right' ? free : 0
 }
+
+/** Box width arrow labels wrap in. */
+export const ARROW_LABEL_WIDTH = 160
 
 /** Label font for shapes/arrows. */
 export function labelLayout(label: string, boxWidth: number, clean: boolean, fit = false, fontSize = DEFAULT_LABEL_SIZE): TextLayout {

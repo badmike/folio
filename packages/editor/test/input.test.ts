@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { ArrowObject, InkStroke, ShapeObject, TextObject } from '@folio/document'
 import { INK_POINT_STRIDE } from '@folio/document'
+import { layoutText } from '@folio/renderer'
 import { addRaw, arrow, drag, ink, key, objs, pointer, setup, shape, text } from './helpers'
 import type { Harness } from './helpers'
 
@@ -357,6 +358,23 @@ describe('select tool', () => {
     expect((h.doc.object(h.pageId, 't') as TextObject).text).toBe('changed')
     h.editor.undo()
     expect((h.doc.object(h.pageId, 't') as TextObject).text).toBe('hello')
+  })
+
+  it('the text editor lays out its text on the renderer layout box', () => {
+    h = setup()
+    const t = text('t', 100, 50, 'hello\nworld', { fontFamily: 'hand', align: 'center' })
+    addRaw(h, [t])
+    h.editor.setCamera({ x: 0, y: 0, zoom: 2 })
+    h.editor.startTextEdit('t')
+    const ta = h.editor.domLayer.querySelector('textarea')!
+    const l = layoutText(t)
+    const padX = parseFloat(ta.style.paddingLeft)
+    const padY = parseFloat(ta.style.paddingTop)
+    expect(padY).toBeCloseTo(l.overhang * 2)
+    expect(ta.style).toMatchObject({ left: '200px', top: '100px', fontSize: `${t.fontSize * 2}px`, lineHeight: String(l.lineHeight / t.fontSize), textAlign: 'center' })
+    expect(parseFloat(ta.style.width)).toBeCloseTo(l.width * 2)
+    expect(parseFloat(ta.style.height)).toBeCloseTo(l.height * 2)
+    expect(ta.style.transform).toBe(`rotate(0rad) scale(1, 1) translate(${-padX}px, ${-padY}px)`)
   })
 })
 

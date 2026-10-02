@@ -14,7 +14,7 @@ export {
 export { catmullRom, orthogonalRoute, simplifyOrthogonal, dashPattern, dashPolyline, type FlatCurve } from './geometry/curves'
 export { hitTestObject, objectIntersectsRect, objectIntersectsLasso, pointInPolygon, frameLabelRect, FRAME_LABEL_SIZE } from './hit'
 export { localBounds, localOutline, worldCorners, objectWorldBounds, inkLocalPoints, type Resolve } from './bounds'
-export { FONT_FAMILIES, FONT_LABELS, WEB_FONT_NAMES, fontString, measureText, layoutText, setTextMeasurer, resetTextMetrics, type TextLayout, type TextLike } from './text'
+export { FONT_FAMILIES, FONT_LABELS, WEB_FONT_NAMES, fontString, measureText, layoutText, labelLayout, ARROW_LABEL_WIDTH, setTextMeasurer, resetTextMetrics, type TextLayout, type TextLike } from './text'
 export { shapeOutline, shapeVertices, roundedPolygon, cornerRadius } from './shapes'
 export {
   patternCoverage, patternCoverageLevels, patternFade, patternKind, pageRect, DESK_COLOR, DESK_COLOR_DARK, patternLevels,
@@ -25,7 +25,7 @@ export {
   type HandleId, type OverlayPoly,
 } from './overlay'
 export { WebGLRenderer, scaleBucket } from './webgl'
-export { Canvas2DRenderer, renderToCanvas, renderPageToImage, paintScene, GeometryStore, type PageImageOptions, type PaintOptions } from './canvas2d'
+export { Canvas2DRenderer, renderToCanvas, renderPageToImage, paintScene, pathMidpoint, GeometryStore, type PageImageOptions, type PaintOptions } from './canvas2d'
 export { ImageCache, type ImageResolver, type ImageSource } from './images'
 export { createRenderer, type CreateRendererOptions } from './factory'
 export { parseColor, premultiplied } from './color'

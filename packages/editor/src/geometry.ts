@@ -79,8 +79,6 @@ export function rectFromPoints(a: Vec2, b: Vec2): Rect {
 
 // -- bounds (delegating to the renderer so selection matches what is drawn) -----
 
-export const LINE_HEIGHT = 1.3
-
 /** Size of a text object in local units. */
 export function estimateTextSize(o: Pick<TextObject, 'text' | 'fontSize' | 'fontFamily' | 'width' | 'align'>): { width: number; height: number } {
   const m = measureText(o)

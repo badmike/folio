@@ -12,7 +12,7 @@ import { ImageCache, type ImageResolver } from './images'
 import { transformMatrix } from './math'
 import { buildOverlay } from './overlay'
 import { arrowKey, isRenderable, objectKey } from './scenekey'
-import { labelLayout, layoutText } from './text'
+import { ARROW_LABEL_WIDTH, labelLayout, layoutText } from './text'
 import { drawTextLayout, type Ctx2D } from './textdraw'
 
 export type Canvas2DTarget = HTMLCanvasElement | OffscreenCanvas
@@ -272,7 +272,7 @@ export function paintScene(
       const g = geo.arrow(obj, path, scene.theme)
       drawGeometry(ctx, g, col(obj.style.strokeColor, obj.style.opacity), null)
       if (obj.label) {
-        const l = labelLayout(obj.label, 160, clean, true, obj.labelSize)
+        const l = labelLayout(obj.label, ARROW_LABEL_WIDTH, clean, true, obj.labelSize)
         const mid = pathMidpoint(path)
         const mx = mid.x - l.width / 2
         const my = mid.y - l.height / 2
