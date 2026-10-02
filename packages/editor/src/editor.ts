@@ -16,6 +16,7 @@ import {
 import { InputController } from './input'
 import { HANDLE_IDS, applyPatch, cloneObjects, computeFrame, computeMovePatches } from './manipulate'
 import type { ObjectPatchEntry, SelectionFrame } from './manipulate'
+import { scribbleCovers } from './scribble'
 import { SpatialIndex } from './spatial-index'
 import { TextEditor } from './text-edit'
 import {
@@ -91,6 +92,7 @@ export class Editor {
   private _readOnly: boolean
   private _penMode: PenMode
   private _toolLock: boolean
+  private _scribbleErase: boolean
   private switchingTool = false
   /** Colours remembered per one-shot tool (shape, arrow, text, frame, blur); empty until a tool's colour was changed. */
   private _toolColors: ToolColors = {}
@@ -132,6 +134,7 @@ export class Editor {
     this._readOnly = !!opts.readOnly
     this._penMode = opts.penMode ?? 'auto'
     this._toolLock = !!opts.toolLock
+    this._scribbleErase = opts.scribbleErase ?? true
 
     const container = opts.container
     try {
@@ -198,6 +201,7 @@ export class Editor {
   get readOnly(): boolean { return this._readOnly }
   get penMode(): PenMode { return this._penMode }
   get toolLock(): boolean { return this._toolLock }
+  get scribbleErase(): boolean { return this._scribbleErase }
   /** Per-tool colour memory (persist with the notebook). */
   get toolColors(): Readonly<ToolColors> { return this._toolColors }
   setToolColors(colors: ToolColors): void {
@@ -228,6 +232,8 @@ export class Editor {
   }
 
   setPenMode(m: PenMode): void { this._penMode = m }
+
+  setScribbleErase(v: boolean): void { this._scribbleErase = v }
 
   /** Tool lock: one-shot tools stay active after creating an object (Excalidraw "Q"). */
   setToolLock(v: boolean): void {
@@ -617,6 +623,18 @@ export class Editor {
     }
     return this.queryRect({ x: minX, y: minY, width: maxX - minX, height: maxY - minY })
       .filter((o) => objectIntersectsLasso(o, poly, this.resolve))
+  }
+
+  /** Ink strokes that lie mostly inside a scribble outline (world space). */
+  inkCoveredBy(hull: Vec2[]): ObjectId[] {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const p of hull) {
+      minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x)
+      minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y)
+    }
+    return this.queryRect({ x: minX, y: minY, width: maxX - minX, height: maxY - minY })
+      .filter((o): o is InkStroke => o.type === 'ink' && scribbleCovers(o, hull))
+      .map((o) => o.id)
   }
 
   /** Nearest object under/near a point that an arrow endpoint can bind to. */

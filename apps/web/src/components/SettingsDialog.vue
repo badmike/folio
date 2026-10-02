@@ -126,6 +126,13 @@ const STORAGE: Record<typeof svc.storageKind, string> = { 'sqlite-opfs': 'SQLite
             </div>
             <div class="setting">
               <div class="text">
+                <div class="name">Scribble to erase</div>
+                <p>Scribble back and forth over ink with the pen to erase it.</p>
+              </div>
+              <Switch v-model="settings.scribbleErase" label="Scribble to erase" data-testid="settings-scribble-erase" />
+            </div>
+            <div class="setting">
+              <div class="text">
                 <div class="name">Canvas follows app theme</div>
                 <p>New pages get dark or light paper to match the app. Ink colours adapt so dark pages stay legible.</p>
               </div>

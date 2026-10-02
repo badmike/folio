@@ -23,6 +23,8 @@ export interface AppSettings {
   toolLock: boolean
   /** Hide the interface while drawing; only the compact tool options stay. */
   autoHideHud: boolean
+  /** Scribbling over ink with the pen erases it. */
+  scribbleErase: boolean
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -37,6 +39,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   zen: false,
   toolLock: false,
   autoHideHud: false,
+  scribbleErase: true,
 }
 
 const KEY = 'settings'
@@ -59,6 +62,7 @@ export function sanitizeSettings(raw: unknown): AppSettings {
   if (typeof r.zen === 'boolean') out.zen = r.zen
   if (typeof r.toolLock === 'boolean') out.toolLock = r.toolLock
   if (typeof r.autoHideHud === 'boolean') out.autoHideHud = r.autoHideHud
+  if (typeof r.scribbleErase === 'boolean') out.scribbleErase = r.scribbleErase
   if (typeof r.cloudRefinement === 'boolean') out.cloudRefinement = r.cloudRefinement
   if (Array.isArray(r.languages)) {
     const langs = r.languages.filter((l): l is string => typeof l === 'string' && /^[a-z]{2,3}$/.test(l))

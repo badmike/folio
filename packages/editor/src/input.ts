@@ -11,6 +11,7 @@ import { buildArrow, buildShape, shapeGeometry, snapAngle } from './create'
 import type { Editor } from './editor'
 import { createId, rectFromPoints, segmentTouchesObject } from './geometry'
 import { buildInkStroke } from './ink'
+import { scribbleHull } from './scribble'
 import {
   HANDLE_IDS, computeMovePatches, computeRotatePatches, computeScalePatches, handlePosition, rotationHandlePosition,
   scaleFromHandle,
@@ -591,6 +592,7 @@ class StrokeInteraction implements Interaction {
     if (s.wx !== this.lastX || s.wy !== this.lastY) this.push(s)
     if (this.flat.length <= 6) this.push(s) // tap → dot
     this.flush()
+    if (this.tool === 'pen' && this.ed.scribbleErase && this.eraseScribbled()) return
     const stroke = buildInkStroke(this.flat, {
       id: createId(), style: this.style, pointerType: this.pointerType, startedAt: this.startedAt, z: this.ed.nextZ(),
     })
@@ -601,6 +603,18 @@ class StrokeInteraction implements Interaction {
 
   cancel(): void {
     this.ed.live.cancel()
+  }
+
+  /** Scribble to erase: delete the ink under a scribble instead of committing it. */
+  private eraseScribbled(): boolean {
+    const hull = scribbleHull(this.flat)
+    if (!hull) return false
+    this.ed.flushPending()
+    const ids = this.ed.inkCoveredBy(hull)
+    if (!ids.length) return false
+    this.ed.live.cancel()
+    this.ed.deleteObjects(ids)
+    return true
   }
 }
 

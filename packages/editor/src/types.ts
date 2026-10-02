@@ -77,6 +77,8 @@ export interface EditorOptions {
   penMode?: PenMode
   /** Keep one-shot tools (shape, arrow, text, frame, blur) active after creating an object. Default false. */
   toolLock?: boolean
+  /** Scribbling over ink with the pen erases it. Default true. */
+  scribbleErase?: boolean
   /**
    * Text pasted from the system clipboard. Return true when handled (e.g. Excalidraw JSON was
    * converted and inserted); otherwise the editor inserts it as a text object.

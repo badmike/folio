@@ -136,6 +136,7 @@ export class NotebookController {
       penMode: settings.penMode as PenMode,
       initialTool: 'select',
       toolLock: settings.toolLock,
+      scribbleErase: settings.scribbleErase,
       readOnly: lsGet(lockKey(this.id)) === '1',
       onOperations: (ops) => this.session.recorded(ops),
       onStrokeCommitted: (pid, stroke) => this.rec?.onStrokeCommitted(pid, stroke),

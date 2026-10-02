@@ -187,6 +187,55 @@ describe('touch and pen modes', () => {
   })
 })
 
+describe('scribble to erase', () => {
+  /** Pen zigzag between x0 and x1, drifting from y0 to y1, with `legs` passes. */
+  function scribble(x0: number, x1: number, y0: number, y1: number, legs = 6) {
+    const o = { pointerType: 'pen' }
+    pointer(h, 'pointerdown', x0, y0, o)
+    for (let i = 1; i <= legs; i++) {
+      for (let k = 1; k <= 4; k++) {
+        const t = (i - 1 + k / 4) / legs
+        const x = i % 2 ? x0 + ((x1 - x0) * k) / 4 : x1 - ((x1 - x0) * k) / 4
+        pointer(h, 'pointermove', x, y0 + (y1 - y0) * t, o)
+      }
+    }
+    pointer(h, 'pointerup', legs % 2 ? x1 : x0, y1, o)
+    flush()
+  }
+  const word = () => ink('word', [[0, 10], [10, 0], [20, 10], [30, 0], [40, 10], [50, 0], [60, 10]], 100, 100)
+
+  it('erases the ink it covers in one undo step and leaves no scribble behind', () => {
+    h = setup()
+    addRaw(h, [word(), ink('other', [[0, 0], [60, 0]], 100, 300)])
+    h.editor.setTool('pen')
+    scribble(95, 165, 98, 112)
+    expect(objs(h).map((o) => o.id)).toEqual(['other'])
+    expect(h.live.cancel).toHaveBeenCalled()
+    h.editor.undo()
+    expect(objs(h).map((o) => o.id).sort()).toEqual(['other', 'word'])
+  })
+
+  it('keeps the scribble as ink in empty space, when it misses the ink, or when turned off', () => {
+    h = setup()
+    addRaw(h, [word()])
+    h.editor.setTool('pen')
+    scribble(400, 470, 98, 112)
+    expect(objs(h)).toHaveLength(2)
+    h.editor.setScribbleErase(false)
+    scribble(95, 165, 98, 112)
+    expect(objs(h)).toHaveLength(3)
+  })
+
+  it('a plain stroke through ink is not a scribble', () => {
+    h = setup()
+    addRaw(h, [word()])
+    h.editor.setTool('pen')
+    drag(h, [90, 105], [170, 105], { pointerType: 'pen' }, 20)
+    flush()
+    expect(objs(h)).toHaveLength(2)
+  })
+})
+
 describe('eraser', () => {
   it('erases whole objects along the path, hides live, commits one delete', () => {
     h = setup()

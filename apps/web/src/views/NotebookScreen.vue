@@ -181,6 +181,7 @@ onMounted(async () => {
 watch(() => [route.query.page, route.query.obj], applyRouteFocus)
 watch(() => settings.theme, (t) => ctl.editor.value?.setTheme(t))
 watch(() => settings.penMode, (m) => ctl.editor.value?.setPenMode(m))
+watch(() => settings.scribbleErase, (v) => ctl.editor.value?.setScribbleErase(v))
 onBeforeUnmount(() => {
   window.visualViewport?.removeEventListener('resize', onViewport)
   window.removeEventListener('orientationchange', onViewport)
