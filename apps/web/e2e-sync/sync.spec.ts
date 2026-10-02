@@ -62,6 +62,8 @@ test('device A creates a notebook and draws; device B receives notebook and stro
   await A.getByTestId('create-notebook').click()
   await A.getByTestId('toolbar').waitFor()
   await expect.poll(() => A.evaluate(() => !!(window as any).__folio?.editor)).toBe(true)
+  // notebooks open with the select tool
+  await A.getByTestId('tool-pen').click()
   await drawStroke(A, wave(240, 380))
   await drawStroke(A, wave(240, 440))
   await drawStroke(A, wave(240, 500))
@@ -78,6 +80,7 @@ test('device A creates a notebook and draws; device B receives notebook and stro
   await expect
     .poll(async () => { await poke(A); await poke(B); return B.evaluate(() => !!(window as any).__folio?.editor) }, { timeout: 60_000, intervals: [1500] })
     .toBe(true)
+  await B.getByTestId('tool-pen').click()
   await expect
     .poll(async () => { await poke(B); return typeCount(B, 'ink') }, { timeout: 60_000, intervals: [1500] })
     .toBe(3)
