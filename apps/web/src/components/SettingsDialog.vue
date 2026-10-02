@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { requireServices } from '../app'
+import { confirmDialog } from '../services/dialogs'
 import { exportDiagnostics } from '../services/diagnostics'
+import { handwriting, resetHandwriting } from '../services/handwriting'
 import { offlineReady } from '../services/pwa'
 import { settings, toggleZen } from '../services/settings'
 import AccountPanel from './AccountPanel.vue'
+import CalibrationDialog from './CalibrationDialog.vue'
 import Icon from './Icon.vue'
 import Modal from './Modal.vue'
 import Switch from './Switch.vue'
@@ -32,6 +35,24 @@ function toggleLang(code: string) {
   if (next.length) settings.languages = next
 }
 
+const calibrating = ref(false)
+const pct = (x: number) => Math.round(x * 100)
+const learned = computed(() => ({ words: Object.keys(handwriting.value.words).length, fixes: Object.keys(handwriting.value.fixes).length }))
+const calibration = computed(() => {
+  const c = handwriting.value.calibration
+  return c && `Calibrated on ${new Date(c.at).toLocaleDateString()}: ${pct(c.before)}% wrong characters before, ${pct(c.after)}% after.`
+})
+
+async function forgetHandwriting() {
+  const ok = await confirmDialog({
+    title: 'Forget your handwriting?',
+    message: 'folio forgets the calibration, your words and the corrections it learned on this device.',
+    confirmLabel: 'Forget',
+    danger: true,
+  })
+  if (ok) resetHandwriting()
+}
+
 const zen = computed({ get: () => settings.zen, set: (v: boolean) => toggleZen(v) })
 
 const cloudDisabledReason = computed(() => {
@@ -44,7 +65,8 @@ const STORAGE: Record<typeof svc.storageKind, string> = { 'sqlite-opfs': 'SQLite
 </script>
 
 <template>
-  <Modal title="Settings" bare @close="$emit('close')">
+  <CalibrationDialog v-if="calibrating" @close="calibrating = false" />
+  <Modal v-else title="Settings" bare @close="$emit('close')">
     <div class="settings">
       <nav class="nav" aria-label="Settings sections">
         <div class="intro">
@@ -90,6 +112,18 @@ const STORAGE: Record<typeof svc.storageKind, string> = { 'sqlite-opfs': 'SQLite
               <div class="seg soft" aria-label="Recognition languages">
                 <button v-for="l in LANGS" :key="l.code" :class="{ on: settings.languages.includes(l.code) }"
                   :aria-pressed="settings.languages.includes(l.code)" @click="toggleLang(l.code)">{{ l.label }}</button>
+              </div>
+            </div>
+            <div class="setting">
+              <div class="text">
+                <div class="name">Your handwriting</div>
+                <p>{{ calibration ?? 'Write three short sentences so folio can tune recognition to your handwriting.' }}
+                  Editing text from Clean Up teaches folio the words it misread<template v-if="learned.words || learned.fixes">,
+                  so far {{ learned.words }} words and {{ learned.fixes }} corrections</template>.</p>
+              </div>
+              <div class="pair">
+                <button v-if="calibration || learned.words" class="btn small ghost" data-testid="forget-handwriting" @click="forgetHandwriting">Forget</button>
+                <button class="btn small" data-testid="calibrate" @click="calibrating = true">{{ calibration ? 'Calibrate again' : 'Calibrate' }}</button>
               </div>
             </div>
             <div class="setting">

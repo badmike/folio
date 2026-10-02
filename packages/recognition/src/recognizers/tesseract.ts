@@ -126,7 +126,7 @@ export class TesseractRecognizer implements LocalRecognizer {
 
   private async doRecognize(strokes: InkStroke[], opts: RecognizeOpts): Promise<HandwritingResultEx | null> {
     if (strokes.length === 0) return null
-    const { png } = await rasterizeToPng(strokes, this.cfg.raster)
+    const { png } = await rasterizeToPng(strokes, { ...this.cfg.raster, ...opts.raster })
     const w = await this.ensureWorker(this.langString(opts.languages.length ? opts.languages : this.cfg.languages))
     // PSM 7 = single text line, 8 = single word, 6 = uniform block
     const psm = opts.mode === 'word' ? '8' : opts.mode === 'block' ? '6' : '7'

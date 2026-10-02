@@ -4,6 +4,7 @@ import { AuthService } from './services/auth'
 import { diagnostics } from './services/diagnostics'
 import { RecognitionService } from './services/recognition'
 import { thumbnailDataUrl } from './services/export'
+import { bindHandwriting } from './services/handwriting'
 import { bindSettings, settings } from './services/settings'
 import { loadRuntimeConfig, runtimeConfig } from './services/runtime-config'
 import { SyncService } from './services/sync'
@@ -34,6 +35,7 @@ export function requireServices(): AppServices {
 /** Assemble the app services around a storage (also used by tests with MemoryStorage). */
 export async function createServices(storage: Storage): Promise<AppServices> {
   await bindSettings(storage)
+  await bindHandwriting(storage)
   const workspace = await Workspace.open(storage, diagnostics)
   const auth = new AuthService()
   const sync = new SyncService(workspace, auth)

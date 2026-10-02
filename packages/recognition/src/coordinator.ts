@@ -2,6 +2,7 @@ import type { InkStroke, Recognition } from '@folio/document'
 import type { HandwritingRecognizer, RecognitionCoordinatorApi, RecognitionRequest } from './contract'
 import { RecognitionEngine } from './engine'
 import type { AnalysisResult } from './engine'
+import type { HandwritingProfile } from './profile'
 import type { RecognizerConfig, WorkerRequest, WorkerResponse } from './protocol'
 import { CloudRecognizer } from './recognizers/cloud'
 import { createDefaultWorker } from './worker-factory'
@@ -49,6 +50,7 @@ type DistributiveOmit<T, K extends keyof never> = T extends unknown ? Omit<T, K>
 /** Abstraction over "where the pipeline runs" (worker or in-process). */
 interface Backend {
   recognize(strokes: InkStroke[], languages: string[]): Promise<Recognition[]>
+  setProfile(profile: HandwritingProfile | undefined): void
   dispose(): void
 }
 
@@ -82,6 +84,11 @@ export class RecognitionCoordinator implements RecognitionCoordinatorApi {
       p.waiters.push({ resolve, reject })
       void this.flush(req.pageId)
     })
+  }
+
+  /** Use a new handwriting profile for the following recognitions. */
+  setProfile(profile: HandwritingProfile | undefined): void {
+    if (!this.disposed) this.backend.setProfile(profile)
   }
 
   /** Resolves when all queued work and cloud refinements have finished (useful in tests). */
@@ -179,6 +186,7 @@ function createBackend(opts: CoordinatorOptions): Backend {
 function inProcessBackend(opts: CoordinatorOptions): Backend {
   let engine: RecognitionEngine | null = null
   let recognizer: HandwritingRecognizer | null = opts.handwritingRecognizer ?? null
+  let profile = opts.recognizerConfig?.profile
   const get = async () => {
     if (engine) return engine
     if (!recognizer) {
@@ -186,12 +194,16 @@ function inProcessBackend(opts: CoordinatorOptions): Backend {
       const { createLocalRecognizer } = await import('./worker-host')
       recognizer = createLocalRecognizer(opts.recognizerConfig)
     }
-    engine = new RecognitionEngine({ handwriting: recognizer, now: opts.now })
+    engine = new RecognitionEngine({ handwriting: recognizer, now: opts.now, profile })
     return engine
   }
   return {
     async recognize(strokes, languages) {
       return (await get()).recognize(strokes, languages)
+    },
+    setProfile(p) {
+      profile = p
+      engine?.setProfile(p)
     },
     dispose() {
       recognizer?.dispose?.()
@@ -225,6 +237,7 @@ function workerBackend(worker: Worker, opts: CoordinatorOptions): Backend {
   const ready = call<null>({ type: 'init', config: opts.recognizerConfig ?? {} })
   const main = opts.mainThreadRecognizer
   let mainEngine: RecognitionEngine | null = null
+  let profile = opts.recognizerConfig?.profile
 
   return {
     async recognize(strokes, languages) {
@@ -232,11 +245,16 @@ function workerBackend(worker: Worker, opts: CoordinatorOptions): Backend {
       if (main && (await main.isAvailable().catch(() => false))) {
         // Grouping + shapes in the worker, text on the main thread (browser-native API).
         const a = await call<AnalysisResult>({ type: 'analyze', strokes })
-        mainEngine ??= new RecognitionEngine({ handwriting: main, now: opts.now })
+        mainEngine ??= new RecognitionEngine({ handwriting: main, now: opts.now, profile })
         const text = await mainEngine.recognizeLines(a.lines, strokes, languages, a.medianLineHeight)
         return [...a.shapes, ...text].sort((x, y) => x.bounds.y - y.bounds.y || x.bounds.x - y.bounds.x)
       }
       return call<Recognition[]>({ type: 'recognize', strokes, languages })
+    },
+    setProfile(p) {
+      profile = p
+      mainEngine?.setProfile(p)
+      void call({ type: 'profile', profile: p }).catch(() => undefined)
     },
     dispose() {
       void call({ type: 'dispose' }).catch(() => undefined)

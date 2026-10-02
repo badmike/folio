@@ -4,7 +4,8 @@ import { findShapeCandidates, groupTextStrokes } from './grouping'
 import type { GroupingOptions } from './grouping'
 import { median, strokeWorldPoints, boundsOf } from './geometry'
 import { recognizeShape, SHAPE_RECOGNIZER_ID } from './shape'
-import type { HandwritingResultEx } from './recognizers/types'
+import type { HandwritingResultEx, RecognizeOpts } from './recognizers/types'
+import { createCorrector, type HandwritingProfile } from './profile'
 import { cleanRecognizedText, detectLanguage, guessSemanticType, recognitionId } from './text'
 
 /** A text line waiting for handwriting recognition. */
@@ -30,6 +31,8 @@ export interface EngineConfig {
   /** Drop text results below this confidence. Default 0.2. */
   minTextConfidence?: number
   grouping?: GroupingOptions
+  /** The writer's learned image prep and corrections. */
+  profile?: HandwritingProfile
 }
 
 /**
@@ -37,7 +40,17 @@ export interface EngineConfig {
  * Pure (no DOM); runs inside the recognition worker or in-process.
  */
 export class RecognitionEngine {
-  constructor(private readonly cfg: EngineConfig = {}) {}
+  private profile: HandwritingProfile | undefined
+  private correct: (text: string) => string = (t) => t
+
+  constructor(private readonly cfg: EngineConfig = {}) {
+    this.setProfile(cfg.profile)
+  }
+
+  setProfile(profile: HandwritingProfile | undefined): void {
+    this.profile = profile
+    this.correct = profile ? createCorrector(profile) : (t) => t
+  }
 
   private now(): number {
     return (this.cfg.now ?? Date.now)()
@@ -113,13 +126,15 @@ export class RecognitionEngine {
       if (group.length === 0) continue
       let res: HandwritingResultEx | null = null
       try {
-        res = (await handwriting.recognize(group, { languages: langs, mode: line.mode } as { languages: string[] })) as HandwritingResultEx | null
+        const opts: RecognizeOpts = { languages: langs, mode: line.mode, raster: this.profile?.raster }
+        res = (await handwriting.recognize(group, opts)) as HandwritingResultEx | null
       } catch {
         res = null // one bad line must not lose the others
       }
       if (!res || res.confidence < (this.cfg.minTextConfidence ?? 0.2)) continue
-      const text = cleanRecognizedText(res.text)
-      if (!text) continue
+      const read = cleanRecognizedText(res.text)
+      if (!read) continue
+      const text = this.correct(read)
       out.push({
         id: recognitionId(line.strokeIds),
         kind: 'text',
@@ -130,7 +145,7 @@ export class RecognitionEngine {
         language: detectLanguage(text, langs.map((l) => l.split('-')[0])),
         semanticType: guessSemanticType(text, line.bounds, medianLineHeight),
         recognizer: res.recognizer ?? handwriting.id,
-        alternatives: res.alternatives,
+        alternatives: text === read ? res.alternatives : [read, ...(res.alternatives ?? [])],
         createdAt: this.now(),
       })
     }

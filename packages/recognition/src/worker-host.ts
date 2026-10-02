@@ -42,7 +42,11 @@ export class RecognitionWorkerHost {
             this.recognizer.dispose?.()
             this.recognizer = createLocalRecognizer(req.config)
           }
-          this.engine = new RecognitionEngine({ handwriting: this.recognizer })
+          this.engine = new RecognitionEngine({ handwriting: this.recognizer, profile: req.config.profile })
+          this.post({ id: req.id, type: 'ok', result: null })
+          return
+        case 'profile':
+          this.engine.setProfile(req.profile)
           this.post({ id: req.id, type: 'ok', result: null })
           return
         case 'analyze':

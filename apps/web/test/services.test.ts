@@ -6,6 +6,7 @@ import { renderSnippet } from '../src/composables'
 import { contextForPage, placementForAiOutput, aiDisabledReason } from '../src/services/ai'
 import { clerkFrontendApi } from '../src/services/auth'
 import { exportBounds, safeFilename } from '../src/services/export'
+import { handwriting, resetHandwriting } from '../src/services/handwriting'
 import { RecognitionService } from '../src/services/recognition'
 import { DEFAULT_SETTINGS, bindSettings, sanitizeSettings, settings } from '../src/services/settings'
 import { Workspace } from '../src/services/workspace'
@@ -113,6 +114,32 @@ describe('recognition storage', () => {
     id, kind: 'text', strokeIds: ids, bounds: { x: 0, y: 0, width: 10, height: 10 }, text, confidence: 0.9, recognizer: 't', createdAt: Date.now(),
   })
 
+  it('learns from an edited Clean Up result once, and from typed text', async () => {
+    resetHandwriting()
+    const ws = await Workspace.open(new MemoryStorage())
+    const session = await ws.openNotebook(await ws.createNotebook({ title: 'L' }))
+    const pageId = session.doc.pages()[0].id
+    const ink = stroke(createId())
+    const t = { id: 'tx', type: 'text' as const, transform: { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 }, z: 2, createdAt: 0, updatedAt: 0, text: 'buy milk', fontSize: 20, fontFamily: 'hand' as const, color: '#000', sourceStrokeIds: [ink.id] }
+    const typed = { ...t, id: 'typed', text: 'Lecture notes', sourceStrokeIds: undefined }
+    const rec: Recognition = { id: 'r1', kind: 'text', strokeIds: [ink.id], bounds: { x: 0, y: 0, width: 10, height: 10 }, text: 'buy rnilk', confidence: 0.7, recognizer: 'fake', createdAt: 0 }
+    session.apply([{ type: 'addObjects', pageId, objects: [ink, t, typed] }, { type: 'setRecognitions', pageId, recognitions: [rec] }])
+    let onTextEdit: (e: { editing: boolean; id?: string }) => void = () => {}
+    const editor = { root: document.createElement('div'), pageId, on: (_: string, cb: typeof onTextEdit) => { onTextEdit = cb; return () => {} } } as unknown as Editor
+    const attached = new RecognitionService().attach(editor, session)
+    try {
+      onTextEdit({ editing: false, id: 'tx' })
+      onTextEdit({ editing: false, id: 'tx' })
+      expect(handwriting.value.fixes).toEqual({ rnilk: { milk: 1 } })
+      onTextEdit({ editing: false, id: 'typed' })
+      expect(handwriting.value.words).toMatchObject({ lecture: 1, notes: 1, milk: 1 })
+    } finally {
+      attached.detach()
+      resetHandwriting()
+      await ws.dispose()
+    }
+  })
+
   it('batches recognition after a writing pause instead of scanning the page per stroke', async () => {
     const ws = await Workspace.open(new MemoryStorage())
     const id = await ws.createNotebook({ title: 'R' })
@@ -124,7 +151,7 @@ describe('recognition storage', () => {
     const recognize = vi.spyOn(svc, 'recognize').mockResolvedValue([])
     const store = vi.spyOn(svc, 'storeRecognitions')
     const queryRect = vi.fn(() => [a, b])
-    const editor = { root: document.createElement('div'), pageId, queryRect } as unknown as Editor
+    const editor = { root: document.createElement('div'), pageId, queryRect, on: () => () => {} } as unknown as Editor
     const attached = svc.attach(editor, session)
     vi.useFakeTimers()
     try {

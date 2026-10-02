@@ -21,6 +21,10 @@ export interface RasterOptions {
   lineWidth?: number
   /** Rotate a slanted line so its baseline is horizontal. Default true. */
   deskew?: boolean
+  /** Forward lean of the letters (radians, positive = leaning right) to shear upright. Default 0. */
+  slant?: number
+  /** Multiplier for the derived line width. Default 1. */
+  lineWidthScale?: number
 }
 
 export interface Bitmap {
@@ -93,6 +97,36 @@ function unrotate(polys: Vec2[][], angle: number): Vec2[][] {
   )
 }
 
+/** Shear letters leaning by `slant` upright, about the vertical centre of the ink. */
+function unslant(polys: Vec2[][], slant: number): Vec2[][] {
+  const bb = boundsOf(polys.flat())
+  const cy = bb.y + bb.height / 2
+  const k = Math.tan(slant)
+  return polys.map((p) => p.map((q) => ({ x: q.x + (q.y - cy) * k, y: q.y })))
+}
+
+/**
+ * Forward lean of handwriting (radians, positive = leaning right): the length-weighted
+ * median angle of the near-vertical pen movements, up or down.
+ */
+export function estimateSlant(polys: Vec2[][]): number {
+  const angles: { a: number; w: number }[] = []
+  for (const p of polys) {
+    for (let i = 2; i < p.length; i += 2) {
+      const dx = p[i].x - p[i - 2].x
+      const dy = p[i].y - p[i - 2].y
+      if (Math.abs(dy) < 1.5 * Math.abs(dx) || dy === 0) continue
+      angles.push({ a: Math.atan2(dy < 0 ? dx : -dx, Math.abs(dy)), w: Math.hypot(dx, dy) })
+    }
+  }
+  if (angles.length < 8) return 0
+  angles.sort((x, y) => x.a - y.a)
+  const half = angles.reduce((n, x) => n + x.w, 0) / 2
+  let acc = 0
+  for (const x of angles) if ((acc += x.w) >= half) return x.a
+  return 0
+}
+
 export function planRaster(strokes: InkStroke[], opts: RasterOptions = {}): RasterPlan {
   const targetHeight = opts.targetHeight ?? 100
   const padding = opts.padding ?? 32
@@ -110,6 +144,7 @@ export function planRaster(strokes: InkStroke[], opts: RasterOptions = {}): Rast
       }
     }
   }
+  if (opts.slant) worldPolys = unslant(worldPolys, opts.slant)
   const all = worldPolys.flat()
   const bb = boundsOf(all)
   // Reference height: the ink box, but never smaller than a typical stroke height
@@ -118,7 +153,8 @@ export function planRaster(strokes: InkStroke[], opts: RasterOptions = {}): Rast
   const ref = Math.max(bb.height, 0.9 * percentile(heights, 0.6), 1)
   let scale = Math.min(6, targetHeight / ref)
   if (bb.width * scale + 2 * padding > maxWidth) scale = (maxWidth - 2 * padding) / Math.max(bb.width, 1)
-  const lineWidth = opts.lineWidth ?? Math.min(9, Math.max(3, Math.round(0.07 * Math.min(targetHeight, bb.height * scale || targetHeight))))
+  const lineWidth = (opts.lineWidth ?? Math.min(9, Math.max(3, Math.round(0.07 * Math.min(targetHeight, bb.height * scale || targetHeight))))) *
+    (opts.lineWidthScale ?? 1)
   const width = Math.max(1, Math.ceil(bb.width * scale + 2 * padding))
   const height = Math.max(1, Math.ceil(bb.height * scale + 2 * padding))
   const polylines = worldPolys.map((p) => p.map((q) => ({ x: (q.x - bb.x) * scale + padding, y: (q.y - bb.y) * scale + padding })))

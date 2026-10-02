@@ -1,10 +1,13 @@
 import type { InkStroke } from '@folio/document'
 import type { HandwritingRecognizer, HandwritingResult } from '../contract'
+import type { RasterOptions } from '../raster'
 
 export interface RecognizeOpts {
   languages: string[]
   /** Hint about the group granularity (selects e.g. Tesseract page-segmentation mode). */
   mode?: 'word' | 'line' | 'block'
+  /** Image prep for image-based recognizers, on top of their configured defaults. */
+  raster?: RasterOptions
 }
 
 /** Result that also reports which concrete recognizer produced it (used by the composite). */

@@ -1,11 +1,13 @@
 import type { CanvasObject, InkStroke, Recognition } from '@folio/document'
 import type { Editor } from '@folio/editor'
 import {
-  AUTO_CLEANUP_MIN_CONFIDENCE, WebHandwritingRecognizer, createRecognitionCoordinator, planCleanup, planTidy,
-  type CleanupProposal, type RecognitionCoordinator,
+  AUTO_CLEANUP_MIN_CONFIDENCE, TesseractRecognizer, WebHandwritingRecognizer, calibrate, createRecognitionCoordinator,
+  learnConfusions, learnCorrection, learnWords, planCleanup, planTidy,
+  type CalibrationResult, type CalibrationSample, type CleanupProposal, type RecognitionCoordinator,
 } from '@folio/recognition'
-import { ref, shallowRef } from 'vue'
+import { ref, shallowRef, watch } from 'vue'
 import { diagnostics } from './diagnostics'
+import { handwriting, updateHandwriting } from './handwriting'
 import { settings } from './settings'
 import type { NotebookSession } from './workspace'
 
@@ -41,13 +43,15 @@ export class RecognitionService {
   private coordinator: RecognitionCoordinator | null = null
   private readonly pageOwners = new Map<string, NotebookSession>()
 
-  constructor(private readonly cloud?: CloudHooks) {}
+  constructor(private readonly cloud?: CloudHooks) {
+    watch(handwriting, (p) => this.coordinator?.setProfile(p))
+  }
 
   private getCoordinator(): RecognitionCoordinator {
     if (!this.coordinator) {
       const cloud = this.cloud
       this.coordinator = createRecognitionCoordinator({
-        recognizerConfig: { tesseractBaseUrl: '/tesseract/', languages: [...settings.languages] },
+        recognizerConfig: { tesseractBaseUrl: '/tesseract/', languages: [...settings.languages], profile: handwriting.value },
         // The W3C Handwriting Recognition API is unavailable in workers, so it runs here.
         mainThreadRecognizer: new WebHandwritingRecognizer(),
         cloud: cloud
@@ -76,6 +80,30 @@ export class RecognitionService {
     this.busy.value++
     const p = now ? c.recognizeNow(req) : c.enqueue(req)
     return p.finally(() => { this.busy.value-- })
+  }
+
+  /**
+   * Tune OCR image prep to the user's handwriting from samples with known text, and learn
+   * the character mix-ups OCR still makes on them. Runs its own Tesseract instance.
+   */
+  async calibrate(samples: CalibrationSample[], onProgress?: (done: number, total: number) => void): Promise<CalibrationResult> {
+    const languages = [...settings.languages]
+    const tesseract = new TesseractRecognizer({ baseUrl: '/tesseract/', languages })
+    try {
+      const result = await calibrate(
+        samples,
+        async (strokes, raster) => (await tesseract.recognize(strokes, { languages, mode: 'line', raster }))?.text ?? '',
+        onProgress,
+      )
+      updateHandwriting((p) => {
+        p.raster = result.improved ? result.tuning : undefined
+        p.calibration = { at: Date.now(), before: result.before, after: result.after }
+        samples.forEach((s, i) => learnConfusions(p, result.readings[i], s.text))
+      })
+      return result
+    } finally {
+      tesseract.dispose()
+    }
   }
 
   /**
@@ -123,6 +151,9 @@ export class AttachedRecognition {
   private detached = false
   private readonly onDown = () => { this.pointerDown++ }
   private readonly onUp = () => { this.pointerDown = Math.max(0, this.pointerDown - 1); this.armIdle() }
+  /** Recognitions already learned from in this session: one lesson per misread line. */
+  private readonly learned = new Set<string>()
+  private readonly offTextEdit: () => void
 
   constructor(
     private readonly svc: RecognitionService,
@@ -133,6 +164,20 @@ export class AttachedRecognition {
     r.addEventListener('pointerdown', this.onDown, true)
     r.addEventListener('pointerup', this.onUp, true)
     r.addEventListener('pointercancel', this.onUp, true)
+    this.offTextEdit = editor.on('textedit', (e) => { if (!e.editing && e.id) this.learnFromText(e.id) })
+  }
+
+  /** Typed text grows the vocabulary; an edited Clean Up result teaches what OCR misread. */
+  private learnFromText(id: string): void {
+    const pageId = this.editor.pageId
+    const o = this.session.doc.object(pageId, id)
+    if (o?.type !== 'text' || !o.text.trim()) return
+    const sources = new Set(o.sourceStrokeIds ?? [])
+    if (!sources.size) return updateHandwriting((p) => learnWords(p, o.text))
+    const rec = this.session.doc.recognitions(pageId).find((r) => r.kind === 'text' && r.strokeIds.some((s) => sources.has(s)))
+    if (!rec?.text || rec.text === o.text || this.learned.has(rec.id)) return
+    this.learned.add(rec.id)
+    updateHandwriting((p) => learnCorrection(p, rec.text!, o.text))
   }
 
   /** Pass to createEditor({ onStrokeCommitted }). */
@@ -308,6 +353,7 @@ export class AttachedRecognition {
     clearTimeout(this.idleTimer)
     clearTimeout(this.promptTimer)
     this.svc.prompt.value = null
+    this.offTextEdit()
     const r = this.editor.root
     r.removeEventListener('pointerdown', this.onDown, true)
     r.removeEventListener('pointerup', this.onUp, true)
