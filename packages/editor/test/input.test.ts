@@ -344,6 +344,37 @@ describe('select tool', () => {
     expect(h.renderer.last.selection?.guides).toBeUndefined() // guides end with the drag
   })
 
+  it('Alt-drag moves a copy and leaves the original, in one undo step; a plain Alt-click copies nothing', () => {
+    h = setup()
+    addRaw(h, [shape('a', 0, 0, 100, 60, filled)])
+    h.editor.setTool('select')
+    drag(h, [50, 30], [50, 30], { altKey: true })
+    expect(objs(h)).toHaveLength(1)
+    pointer(h, 'pointerdown', 50, 30, { altKey: true })
+    pointer(h, 'pointermove', 150, 130, { altKey: true })
+    h.editor.renderNow()
+    expect(h.renderer.last.previews).toHaveLength(1)
+    pointer(h, 'pointerup', 150, 130, { altKey: true })
+    const copy = objs(h).find((o) => o.id !== 'a') as ShapeObject
+    expect((h.doc.object(h.pageId, 'a') as ShapeObject).transform).toMatchObject({ x: 0, y: 0 })
+    expect(copy.transform).toMatchObject({ x: 100, y: 100 })
+    expect(h.editor.selection).toEqual([copy.id])
+    h.editor.undo()
+    expect(objs(h).map((o) => o.id)).toEqual(['a'])
+  })
+
+  it('releasing Alt during the drag moves the original instead', () => {
+    h = setup()
+    addRaw(h, [shape('a', 0, 0, 100, 60, filled)])
+    h.editor.setTool('select')
+    pointer(h, 'pointerdown', 50, 30, { altKey: true })
+    pointer(h, 'pointermove', 100, 80, { altKey: true })
+    pointer(h, 'pointermove', 150, 130)
+    pointer(h, 'pointerup', 150, 130)
+    expect(objs(h).map((o) => o.id)).toEqual(['a'])
+    expect((h.doc.object(h.pageId, 'a') as ShapeObject).transform).toMatchObject({ x: 100, y: 100 })
+  })
+
   it('snaps moves to the grid', () => {
     h = setup({ snapToGrid: true })
     addRaw(h, [shape('a', 0, 0, 100, 60, filled)])

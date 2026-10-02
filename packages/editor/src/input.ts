@@ -14,7 +14,7 @@ import { buildInkStroke } from './ink'
 import { scribbleHull } from './scribble'
 import { snapBox, snapPoint, type SnapContext, type SnapGuide } from './snap'
 import {
-  HANDLE_IDS, computeMovePatches, computeRotatePatches, computeScalePatches, handlePosition, rotationHandlePosition,
+  HANDLE_IDS, applyPatch, cloneObjects, computeMovePatches, computeRotatePatches, computeScalePatches, handlePosition, rotationHandlePosition,
   scaleFromHandle,
 } from './manipulate'
 import type { HandleId, ObjectPatchEntry, SelectionFrame } from './manipulate'
@@ -675,6 +675,10 @@ class SelectInteraction implements Interaction {
   private handle?: HandleId
   private startAngle = 0
   private patches: ObjectPatchEntry[] | null = null
+  /** Alt/Option-drag: copies of the moved objects at the start position (stable ids for the preview). */
+  private copies?: Map<ObjectId, CanvasObject>
+  /** The last move offset, and whether it moves copies instead of the originals. */
+  private offset = { dx: 0, dy: 0, duplicate: false }
   private lasso: Vec2[] = []
   private shift: boolean
   private hit?: CanvasObject
@@ -752,8 +756,6 @@ class SelectInteraction implements Interaction {
       } else if (!this.wasSelected) {
         ed.select([id])
       }
-      // Alt+drag moves a copy (Excalidraw); the clones start where the originals are
-      if (s.alt && !ed.readOnly) ed.duplicateSelection(0, 0)
       this.leaves = ed.withFrameContent(ed.leavesOf(ed.selection))
       this.snapshot(this.leaves)
       this.mode = 'move'
@@ -765,6 +767,19 @@ class SelectInteraction implements Interaction {
     const lasso = m === 'lasso' || (m === 'auto' && s.pointerType === 'pen')
     this.mode = lasso ? 'lasso' : 'marquee'
     if (lasso) this.lasso = [{ x: s.wx, y: s.wy }]
+  }
+
+  private previewCopies(dx: number, dy: number): CanvasObject[] {
+    if (!this.copies) {
+      const { objects } = cloneObjects(this.leaves, 0, 0, this.ed.nextZ())
+      this.copies = new Map(objects.map((o) => [o.id, o]))
+    }
+    const copies = this.copies
+    const moved = new Map(computeMovePatches([...copies.values()], dx, dy, (id) => copies.get(id) ?? this.ed.resolve(id)).map((e) => [e.id, e.patch]))
+    return [...copies.values()].map((c) => {
+      const patch = moved.get(c.id)
+      return patch ? applyPatch(c, patch) : c
+    })
   }
 
   private snapshot(leaves: CanvasObject[]): void {
@@ -838,7 +853,15 @@ class SelectInteraction implements Interaction {
           ed.setOverlayExtra({ guides: r.guides })
         } else ed.setOverlayExtra({})
         this.patches = computeMovePatches(this.leaves, dx, dy, this.resolveSnap)
-        ed.setPreview(this.patches)
+        this.offset = { dx, dy, duplicate: s.alt }
+        if (s.alt) {
+          // Alt/Option held (pressed at any time during the drag): the originals stay, copies move
+          ed.setPreview(null)
+          ed.setPreviewObjects(this.previewCopies(dx, dy))
+        } else {
+          ed.setPreviewObjects([])
+          ed.setPreview(this.patches)
+        }
         break
       }
       case 'resize': {
@@ -936,8 +959,10 @@ class SelectInteraction implements Interaction {
       case 'linepoint': {
         const patches = this.patches
         ed.setPreview(null)
+        ed.setPreviewObjects([])
         ed.setOverlayExtra({})
-        if (this.moved && patches) ed.commitTransform(patches) // single commit = one undo step
+        if (this.moved && this.mode === 'move' && this.offset.duplicate) ed.duplicateSelection(this.offset.dx, this.offset.dy)
+        else if (this.moved && patches) ed.commitTransform(patches) // single commit = one undo step
         else if (this.mode === 'waypoint' && !this.insertWaypoint) this.tapWaypoint(s)
         else if (this.mode === 'linepoint' && this.handleIndex > 0) this.tapLinePoint(s)
         else if (this.mode === 'move') {
@@ -1006,6 +1031,7 @@ class SelectInteraction implements Interaction {
 
   cancel(): void {
     this.ed.setPreview(null)
+    this.ed.setPreviewObjects([])
     this.ed.setOverlayExtra({})
   }
 }
