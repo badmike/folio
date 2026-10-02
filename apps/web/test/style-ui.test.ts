@@ -122,7 +122,7 @@ function fakeController(ctx: StyleContext, over: Record<string, unknown> = {}) {
     quickColors: shallowRef(defaultQuickColors()),
     locked: ref(false),
     toolLock: ref(false),
-    setQuickColor: vi.fn(), alignSelection: vi.fn(), distributeSelection: vi.fn(), setToolLock: vi.fn(), setLocked: vi.fn(),
+    setQuickColor: vi.fn(), addQuickColor: vi.fn(), removeQuickColor: vi.fn(), alignSelection: vi.fn(), distributeSelection: vi.fn(), setToolLock: vi.fn(), setLocked: vi.fn(),
     tool: ref('shape'),
     options: shallowRef({ shape: { kind: 'rectangle' }, select: { mode: 'auto' }, eraser: { size: 20 }, pen: { pressureSensitive: true }, highlighter: { pressureSensitive: false } }),
     editingText: ref(false),
@@ -290,6 +290,27 @@ describe('PropertiesPanel', () => {
     await w.get('[data-testid="hue-blue"]').trigger('click')
     // the swatch was red shade 5, so blue keeps that shade
     expect(ctl.setQuickColor).toHaveBeenCalledWith('stroke', 1, PALETTE.find((h) => h.name === 'blue')!.shades[4])
+    vi.useRealTimers()
+  })
+
+  it('the colour picker adds the current colour as a new swatch', async () => {
+    const { ctl } = fakeController({ source: 'tool', types: [], canvasBackground: '#fff', values: { strokeColor: '#862e9c' }, applicable: ['strokeColor'] }, { tool: ref('shape') })
+    const w = mountPanel(ctl)
+    await w.get('[data-testid="stroke-color-btn"]').trigger('click')
+    await w.get('[data-testid="stroke-add-swatch"]').trigger('click')
+    expect(ctl.addQuickColor).toHaveBeenCalledWith('stroke', '#862e9c')
+  })
+
+  it('a long-pressed swatch can be removed', async () => {
+    vi.useFakeTimers()
+    const { ctl } = fakeController({ source: 'tool', types: [], canvasBackground: '#fff', values: { strokeColor: '#1e1e1e' }, applicable: ['strokeColor'] }, { tool: ref('shape') })
+    const w = mountPanel(ctl)
+    await w.get('[data-testid="stroke-quick-#e03131"]').trigger('pointerdown')
+    vi.advanceTimersByTime(500)
+    await flushPromises()
+    await w.get('[data-testid="stroke-remove-swatch"]').trigger('click')
+    expect(ctl.removeQuickColor).toHaveBeenCalledWith('stroke', 1)
+    expect(w.find('[data-testid="color-picker"]').exists()).toBe(false)
     vi.useRealTimers()
   })
 

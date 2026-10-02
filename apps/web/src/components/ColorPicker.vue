@@ -131,6 +131,7 @@ onBeforeUnmount(() => {
       </button>
     </div>
     <p v-if="hexError" class="err" role="alert">Enter a hex colour like 1e1e1e or f00</p>
+    <slot />
   </div>
 </template>
 

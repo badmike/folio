@@ -380,7 +380,7 @@ export interface Page {
 // Notebook & workspace
 // ---------------------------------------------------------------------------
 
-/** Per-notebook quick-pick swatches of the properties panel (one row of 5 each). */
+/** Per-notebook quick-pick swatches of the properties panel (1 to QUICK_COLORS_MAX per row). */
 export interface QuickColors {
   stroke: string[]
   background: string[]

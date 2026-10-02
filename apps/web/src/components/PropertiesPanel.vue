@@ -156,7 +156,8 @@ const title = computed(() => (hasSel.value ? `${sel.value.count} selected` : TOO
     <!-- quick bar: colours and widths in one row -->
     <div v-if="compact" class="quick" data-testid="props-quick">
       <ColorRow v-if="has('strokeColor')" label="Stroke" name="stroke" compact :quick="strokeQuick" :model-value="str('strokeColor')" :canvas-background="bg" :allow-transparent="false"
-                @pick="(c) => ctl.setStyle({ strokeColor: c })" @edit-swatch="(i, c) => ctl.setQuickColor(strokeSet, i, c)" />
+                @pick="(c) => ctl.setStyle({ strokeColor: c })" @edit-swatch="(i, c) => ctl.setQuickColor(strokeSet, i, c)"
+                @add-swatch="(c) => ctl.addQuickColor(strokeSet, c)" @remove-swatch="(i) => ctl.removeQuickColor(strokeSet, i)" />
       <span v-if="has('strokeColor') && has('strokeWidth')" class="vsep" />
       <OptionRow v-if="has('strokeWidth')" class="widths" name="Stroke width" :options="widthOptions" :model-value="val('strokeWidth')" @pick="(v) => ctl.setStyle({ strokeWidth: v })" />
       <button v-if="!zen" class="icon-btn mini" type="button" aria-label="Expand properties" :aria-expanded="false" data-testid="props-collapse" @click="toggleCollapsed">
@@ -197,12 +198,14 @@ const title = computed(() => (hasSel.value ? `${sel.value.count} selected` : TOO
         <section v-if="has('strokeColor')">
           <label>Stroke</label>
           <ColorRow label="Stroke" name="stroke" :quick="strokeQuick" :model-value="str('strokeColor')" :canvas-background="bg" :allow-transparent="false"
-                    @pick="(c) => ctl.setStyle({ strokeColor: c })" @edit-swatch="(i, c) => ctl.setQuickColor(strokeSet, i, c)" />
+                    @pick="(c) => ctl.setStyle({ strokeColor: c })" @edit-swatch="(i, c) => ctl.setQuickColor(strokeSet, i, c)"
+                @add-swatch="(c) => ctl.addQuickColor(strokeSet, c)" @remove-swatch="(i) => ctl.removeQuickColor(strokeSet, i)" />
         </section>
         <section v-if="has('backgroundColor')">
           <label>Background</label>
           <ColorRow label="Background" name="background" :quick="quick.background" :model-value="str('backgroundColor')" :canvas-background="bg"
-                    @pick="(c) => ctl.setStyle({ backgroundColor: c })" @edit-swatch="(i, c) => ctl.setQuickColor('background', i, c)" />
+                    @pick="(c) => ctl.setStyle({ backgroundColor: c })" @edit-swatch="(i, c) => ctl.setQuickColor('background', i, c)"
+                    @add-swatch="(c) => ctl.addQuickColor('background', c)" @remove-swatch="(i) => ctl.removeQuickColor('background', i)" />
         </section>
         <section v-if="showFill" data-testid="sec-fillStyle">
           <label>Fill</label>

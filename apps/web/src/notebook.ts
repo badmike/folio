@@ -1,5 +1,5 @@
 import {
-  createPage, defaultQuickColors, importExcalidraw, isExcalidrawJson, worldBounds,
+  QUICK_COLORS_MAX, createPage, defaultQuickColors, importExcalidraw, isExcalidrawJson, worldBounds,
   type BackgroundPattern, type NotebookMeta, type Operation, type Page, type PageBackground, type PageFormat, type PageId, type QuickColors, type Rect,
   type ToolSettings,
 } from '@folio/document'
@@ -328,6 +328,25 @@ export class NotebookController {
     const e = this.editor.value
     if (e) this.scheduleToolSave(e)
   }
+  /** Append a swatch to a set (up to QUICK_COLORS_MAX). */
+  addQuickColor(set: QuickColorSet, color: string) {
+    const q = cloneQuick(this.quickColors.value)
+    if (q[set].length >= QUICK_COLORS_MAX) return
+    q[set].push(color)
+    this.updateQuick(q)
+  }
+  /** Remove a swatch from a set; the last one stays. */
+  removeQuickColor(set: QuickColorSet, index: number) {
+    const q = cloneQuick(this.quickColors.value)
+    if (q[set].length <= 1 || index < 0 || index >= q[set].length) return
+    q[set].splice(index, 1)
+    this.updateQuick(q)
+  }
+  private updateQuick(q: QuickColors) {
+    this.quickColors.value = q
+    const e = this.editor.value
+    if (e) this.scheduleToolSave(e)
+  }
   resetQuickColors() {
     this.quickColors.value = cloneQuick(defaultQuickColors())
     const e = this.editor.value
@@ -589,11 +608,11 @@ function cloneQuick(q: { stroke: readonly string[]; background: readonly string[
   return { stroke: [...q.stroke], background: [...q.background], highlighter: [...q.highlighter] }
 }
 
-/** Stored swatch rows may come from another device: keep only well-formed 5-colour rows. */
+/** Stored swatch rows may come from another device: keep only well-formed rows of 1 to QUICK_COLORS_MAX colours. */
 function sanitizeQuick(raw: Partial<QuickColors>): QuickColors {
   const d = defaultQuickColors()
   const row = (v: unknown, fallback: readonly string[]) =>
-    Array.isArray(v) && v.length === fallback.length && v.every((c) => typeof c === 'string') ? [...(v as string[])] : [...fallback]
+    Array.isArray(v) && v.length >= 1 && v.length <= QUICK_COLORS_MAX && v.every((c) => typeof c === 'string') ? [...(v as string[])] : [...fallback]
   return { stroke: row(raw.stroke, d.stroke), background: row(raw.background, d.background), highlighter: row(raw.highlighter, d.highlighter) }
 }
 

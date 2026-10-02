@@ -44,6 +44,9 @@ export interface QuickColorSets {
   highlighter: readonly string[]
 }
 
+/** Most swatches a quick colour row holds. */
+export const QUICK_COLORS_MAX = 8
+
 export function defaultQuickColors(): QuickColorSets {
   return { stroke: QUICK_STROKE_COLORS, background: QUICK_BACKGROUND_COLORS, highlighter: QUICK_HIGHLIGHTER_COLORS }
 }
