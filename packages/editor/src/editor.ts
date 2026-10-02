@@ -1,8 +1,8 @@
 import type {
-  ArrowObject, CanvasObject, DocChangeEvent, GroupObject, InkStroke, NotebookDocumentApi, ObjectId, ObjectPatch,
+  ArrowObject, CanvasObject, DocChangeEvent, GroupObject, ImageObject, InkStroke, NotebookDocumentApi, ObjectId, ObjectPatch,
   Operation, Page, PageId, Rect, ShapeObject, TextObject, Vec2,
 } from '@folio/document'
-import { arrowHandleSpecs, backgroundLevels, lineHandleSpecs } from '@folio/renderer'
+import { anchorPoint, arrowHandleSpecs, backgroundLevels, counterTip, lineHandleSpecs, localBounds as rendererLocalBounds, noteBox, noteTail, noteTailPoint } from '@folio/renderer'
 import type { ArrowHandleSpec, Camera, LiveInkLayer, Renderer, Scene, SelectionOverlay, Size, VisualTheme } from '@folio/renderer'
 import {
   MAX_ZOOM, MIN_ZOOM, cameraForRect, clampCameraToPage, clampZoom, screenToWorld as s2w, worldToScreen as w2s, zoomCameraAt,
@@ -179,6 +179,8 @@ export class Editor {
       ? opts.rendererFactory({ canvas: this.sceneCanvas, kind: opts.renderer, theme: this._theme })
       : createDefaultRenderer({ canvas: this.sceneCanvas, kind: opts.renderer, theme: this._theme })
     this.live = opts.liveLayerFactory ? opts.liveLayerFactory(this.liveCanvas) : createDefaultLiveLayer(this.liveCanvas)
+    this.renderer.onDirty = () => this.requestRender()
+    this.renderer.setImageSource?.(opts.resolveImage ?? null)
 
     this.textEditor = new TextEditor(this)
     this.unsubDoc = this.document.subscribe((e) => this.onDocChange(e))
@@ -1435,6 +1437,27 @@ export class Editor {
 
   get pasteAvailable(): boolean { return !!internalClipboard }
 
+  /**
+   * Insert an image whose bytes are already stored under `assetId`, centred at `at` (world;
+   * default the view centre), at its natural size but at most 60% of the view. Returns its id.
+   */
+  insertImage(image: { assetId: string; mimeType: string; width: number; height: number }, at?: Vec2): ObjectId | undefined {
+    if (this._readOnly || !(image.width > 0) || !(image.height > 0)) return undefined
+    const zoom = this._camera.zoom
+    const c = at ?? this.screenToWorld({ x: this.viewport.width / 2, y: this.viewport.height / 2 })
+    const k = Math.min(1, (this.viewport.width * 0.6) / zoom / image.width, (this.viewport.height * 0.6) / zoom / image.height)
+    const width = image.width * k, height = image.height * k
+    const now = Date.now()
+    const obj: ImageObject = {
+      id: createId(), type: 'image', transform: { x: c.x - width / 2, y: c.y - height / 2, rotation: 0, scaleX: 1, scaleY: 1 },
+      z: this.nextZ(), createdAt: now, updatedAt: now, assetId: image.assetId, mimeType: image.mimeType, width, height,
+    }
+    this.addObjects([obj])
+    this.setTool('select')
+    this.select([obj.id])
+    return obj.id
+  }
+
   /** Paste plain text (e.g. from the system clipboard) as a text object at the viewport center. */
   pasteText(text: string): ObjectId | undefined {
     if (this._readOnly || !text.trim()) return undefined
@@ -1777,7 +1800,7 @@ export class Editor {
 
   async exportImage(o: ExportImageOptions = {}): Promise<Blob> {
     const pageId = o.pageId ?? this._pageId
-    return exportPageImage(this.document, pageId, { scale: o.scale ?? 1, bounds: o.bounds, theme: this._theme })
+    return exportPageImage(this.document, pageId, { scale: o.scale ?? 1, bounds: o.bounds, theme: this._theme, resolveImage: this.opts.resolveImage })
   }
 
   /** PNG data URL whose longer side is at most `maxSize` px. */

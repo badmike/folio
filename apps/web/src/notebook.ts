@@ -9,7 +9,8 @@ import {
 } from '@folio/editor'
 import { ref, shallowRef } from 'vue'
 import { diagnostics } from './services/diagnostics'
-import { exportBounds, thumbnailDataUrl } from './services/export'
+import { exportBounds, isExcalidrawFile, thumbnailDataUrl } from './services/export'
+import { assetImageResolver, isImageFile, pickImageFiles, storeImageFile } from './services/images'
 import { whenFontsReady } from './services/fonts'
 import { AttachedRecognition, type RecognitionService } from './services/recognition'
 import { settings } from './services/settings'
@@ -144,6 +145,8 @@ export class NotebookController {
       onOperations: (ops) => this.session.recorded(ops),
       onStrokeCommitted: (pid, stroke) => this.rec?.onStrokeCommitted(pid, stroke),
       onPasteText: (text) => this.pasteExternal(text),
+      onInsertFiles: (files, at) => void this.insertFiles(files, at),
+      resolveImage: assetImageResolver(this.ws),
     })
     this.editor.value = editor
     this.locked.value = editor.readOnly
@@ -386,6 +389,45 @@ export class NotebookController {
     }
   }
 
+  /** Insert image files picked with the system file picker at the view centre. */
+  async pickImages(): Promise<void> {
+    const files = await pickImageFiles()
+    if (files.length) await this.insertFiles(files)
+  }
+
+  /**
+   * Pasted or dropped files: images are stored and placed (side by side from `at`, world; default
+   * the view centre), Excalidraw drawings are inserted. Anything else is reported.
+   */
+  async insertFiles(files: File[], at?: { x: number; y: number }): Promise<void> {
+    const e = this.editor.value
+    if (!e) return
+    const placed: string[] = []
+    let next = at
+    for (const file of files) {
+      try {
+        if (isExcalidrawFile(file)) {
+          await this.insertExcalidraw(JSON.parse(await file.text()))
+          continue
+        }
+        if (!isImageFile(file)) {
+          toast(`${file.name || 'This file'} cannot be added to a page.`, { kind: 'error' })
+          continue
+        }
+        const id = e.insertImage(await storeImageFile(this.ws, file), next)
+        if (!id) continue
+        placed.push(id)
+        // the next image goes to the right of this one
+        const b = e.getObject(id)
+        if (b?.type === 'image') next = { x: b.transform.x + b.width * 1.5 + 24, y: b.transform.y + b.height / 2 }
+      } catch (err) {
+        diagnostics.log('insert.file', err)
+        toast(err instanceof Error ? err.message : 'Could not add the file.', { kind: 'error' })
+      }
+    }
+    if (placed.length > 1) e.select(placed)
+  }
+
   /** Import Excalidraw content (file or clipboard payload) onto the current page, centred in the view. */
   async insertExcalidraw(input: unknown): Promise<number> {
     const e = this.editor.value
@@ -575,7 +617,7 @@ export class NotebookController {
   /** Small preview of the first page for the library card. */
   async saveThumbnail(): Promise<void> {
     try {
-      const url = await thumbnailDataUrl(this.doc, settings.theme)
+      const url = await thumbnailDataUrl(this.doc, settings.theme, assetImageResolver(this.ws))
       if (url) await this.ws.setThumbnail(this.id, url)
     } catch { /* thumbnails are best effort */ }
   }

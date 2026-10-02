@@ -2,7 +2,7 @@ import {
   worldBounds, type CanvasObject, type NotebookDocumentApi, type Page, type PageId, type Rect,
 } from '@folio/document'
 import type { Editor } from '@folio/editor'
-import { renderPageToImage, type VisualTheme } from '@folio/renderer'
+import { ImageCache, renderPageToImage, type ImageResolver, type VisualTheme } from '@folio/renderer'
 import { downloadBlob } from './diagnostics'
 import type { Workspace } from './workspace'
 
@@ -26,15 +26,20 @@ export function exportBounds(doc: NotebookDocumentApi, page: Page, pad = 32): Re
   return { x: x0 - pad, y: y0 - pad, width: x1 - x0 + pad * 2, height: y1 - y0 + pad * 2 }
 }
 
-/** Render a page to PNG without needing a mounted editor. */
-export function renderPage(doc: NotebookDocumentApi, pageId: PageId, opts: { scale: number; theme: VisualTheme; bounds?: Rect }): Promise<Blob> {
+/** Render a page to PNG without needing a mounted editor (`resolveImage` loads the page's images). */
+export async function renderPage(
+  doc: NotebookDocumentApi, pageId: PageId, opts: { scale: number; theme: VisualTheme; bounds?: Rect; resolveImage?: ImageResolver },
+): Promise<Blob> {
   const page = doc.page(pageId)
   if (!page) throw new Error(`Unknown page ${pageId}`)
   const all = doc.objects(pageId)
   const byId = new Map<string, CanvasObject>(all.map((o) => [o.id, o]))
+  const images = new ImageCache()
+  images.setResolver(opts.resolveImage ?? null)
+  await images.preload(all.flatMap((o) => (o.type === 'image' && !o.supersededBy ? [o.assetId] : [])))
   return renderPageToImage(
     { page, objects: all.filter((o) => !o.supersededBy && o.type !== 'group'), resolve: (id) => byId.get(id), theme: opts.theme },
-    { bounds: opts.bounds ?? exportBounds(doc, page), scale: opts.scale, background: true },
+    { bounds: opts.bounds ?? exportBounds(doc, page), scale: opts.scale, background: true, images },
   )
 }
 
@@ -52,7 +57,7 @@ export async function exportPng(doc: NotebookDocumentApi, pageId: PageId, theme:
 }
 
 /** One PDF page per notebook page: fixed pages at their format size, infinite pages at content bounds. */
-export async function buildPdf(doc: NotebookDocumentApi, theme: VisualTheme): Promise<Blob> {
+export async function buildPdf(doc: NotebookDocumentApi, theme: VisualTheme, resolveImage?: ImageResolver): Promise<Blob> {
   const { jsPDF } = await import('jspdf')
   let pdf: InstanceType<typeof jsPDF> | null = null
   for (const page of doc.pages()) {
@@ -62,15 +67,15 @@ export async function buildPdf(doc: NotebookDocumentApi, theme: VisualTheme): Pr
     const orientation = w > h ? 'landscape' : 'portrait'
     if (!pdf) pdf = new jsPDF({ unit: 'px', format: [w, h], orientation, compress: true, hotfixes: ['px_scaling'] })
     else pdf.addPage([w, h], orientation)
-    const png = new Uint8Array(await (await renderPage(doc, page.id, { scale: 2, theme, bounds })).arrayBuffer())
+    const png = new Uint8Array(await (await renderPage(doc, page.id, { scale: 2, theme, bounds, resolveImage })).arrayBuffer())
     pdf.addImage(png, 'PNG', 0, 0, w, h, undefined, 'FAST')
   }
   if (!pdf) pdf = new jsPDF()
   return pdf.output('blob')
 }
 
-export async function exportPdf(doc: NotebookDocumentApi, theme: VisualTheme): Promise<void> {
-  downloadBlob(await buildPdf(doc, theme), safeFilename(doc.meta().title, 'pdf'))
+export async function exportPdf(doc: NotebookDocumentApi, theme: VisualTheme, resolveImage?: ImageResolver): Promise<void> {
+  downloadBlob(await buildPdf(doc, theme, resolveImage), safeFilename(doc.meta().title, 'pdf'))
 }
 
 export async function exportFolioFile(ws: Workspace, id: string, title: string): Promise<void> {
@@ -123,12 +128,12 @@ export async function copyText(text: string): Promise<boolean> {
 }
 
 /** Small PNG data URL preview of a notebook's first page (library cards). */
-export async function thumbnailDataUrl(doc: NotebookDocumentApi, theme: VisualTheme, maxSize = 360): Promise<string | null> {
+export async function thumbnailDataUrl(doc: NotebookDocumentApi, theme: VisualTheme, resolveImage?: ImageResolver, maxSize = 360): Promise<string | null> {
   const first = doc.pages()[0]
   if (!first) return null
   const b = exportBounds(doc, first)
   const scale = Math.min(1, maxSize / Math.max(b.width, b.height))
-  const blob = await renderPage(doc, first.id, { scale, theme, bounds: b })
+  const blob = await renderPage(doc, first.id, { scale, theme, bounds: b, resolveImage })
   return new Promise<string>((resolve, reject) => {
     const r = new FileReader()
     r.onload = () => resolve(String(r.result))

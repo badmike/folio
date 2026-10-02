@@ -152,6 +152,10 @@ export class InputController {
     win('keydown', (e: KeyboardEvent) => this.onKeyDown(e))
     win('keyup', (e: KeyboardEvent) => this.onKeyUp(e))
     win('paste', (e: ClipboardEvent) => this.onPaste(e))
+    on(this.el, 'dragover', (e) => {
+      if (!ed.readOnly && ed.opts.onInsertFiles && e.dataTransfer?.types.includes('Files')) e.preventDefault()
+    })
+    on(this.el, 'drop', (e) => this.onDrop(e))
     win('pointerdown', (e: PointerEvent) => {
       this.pointerInside = e.target instanceof Node && ed.opts.container.contains(e.target)
     }, true)
@@ -487,12 +491,31 @@ export class InputController {
     else this.ed.zoomToFit()
   }
 
-  /** System clipboard text (the host may convert it, e.g. Excalidraw JSON); otherwise it becomes a text object. */
+  /** Files dropped onto the canvas go to the host, with the drop point. */
+  private onDrop(e: DragEvent): void {
+    const ed = this.ed
+    const files = [...(e.dataTransfer?.files ?? [])]
+    if (ed.readOnly || !ed.opts.onInsertFiles || !files.length) return
+    e.preventDefault()
+    const r = this.el.getBoundingClientRect()
+    ed.opts.onInsertFiles(files, ed.screenToWorld({ x: e.clientX - r.left, y: e.clientY - r.top }))
+  }
+
+  /**
+   * System clipboard: files (e.g. a copied image) go to the host; text may be converted by the
+   * host (e.g. Excalidraw JSON), otherwise it becomes a text object.
+   */
   private onPaste(e: ClipboardEvent): void {
     const ed = this.ed
     if (!this.isActive() || ed.isEditingText || ed.readOnly) return
     const t = e.target as HTMLElement | null
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+    const files = [...(e.clipboardData?.files ?? [])]
+    if (files.length && ed.opts.onInsertFiles) {
+      e.preventDefault()
+      ed.opts.onInsertFiles(files)
+      return
+    }
     const text = e.clipboardData?.getData('text/plain') ?? ''
     if (!text.trim()) return
     e.preventDefault()
@@ -885,7 +908,9 @@ class SelectInteraction implements Interaction {
           p = r.point
           ed.setOverlayExtra({ guides: r.guides })
         }
-        const spec = scaleFromHandle(this.frame!, this.handle!, p, s.shift)
+        // images keep their aspect ratio unless Shift is held (Excalidraw)
+        const images = this.leaves.every((l) => l.type === 'image')
+        const spec = scaleFromHandle(this.frame!, this.handle!, p, images !== s.shift)
         this.patches = computeScalePatches(this.leaves, spec, this.resolveSnap)
         ed.setPreview(this.patches)
         break

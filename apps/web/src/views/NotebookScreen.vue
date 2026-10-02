@@ -15,6 +15,7 @@ import { NOTEBOOK_KEY, type NotebookController } from '../notebook'
 import { promptDialog } from '../services/dialogs'
 import { diagnostics } from '../services/diagnostics'
 import { exportFolioFile, exportMarkdownFile, exportPdf, exportPng } from '../services/export'
+import { assetImageResolver } from '../services/images'
 import { hasKeyboard } from '../services/input-mode'
 import { settings, toggleZen } from '../services/settings'
 import { toast, toastError } from '../services/toast'
@@ -212,7 +213,7 @@ const mainItems = computed((): MenuItem[] => [
   { label: 'Export', icon: 'download', children: [
     { label: 'Markdown (.md)', action: () => void run(async () => exportMarkdownFile(ctl.title.value, await ws.exportMarkdownText(ctl.id))) },
     { label: 'Page as image (.png)', action: () => void run(() => exportPng(ctl.doc, ctl.pageId.value, settings.theme, ctl.editor.value)) },
-    { label: 'PDF', action: () => void run(() => exportPdf(ctl.doc, settings.theme)) },
+    { label: 'PDF', action: () => void run(() => exportPdf(ctl.doc, settings.theme, assetImageResolver(ctl.ws))) },
     { label: 'folio file (.folio)', action: () => void run(() => exportFolioFile(ws, ctl.id, ctl.title.value)) },
   ] },
   { divider: true },

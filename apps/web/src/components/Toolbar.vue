@@ -67,6 +67,9 @@ function pick(t: Tool) {
           <Icon :name="iconFor(t)" />
           <span v-if="!zen && hasKeyboard" class="key" aria-hidden="true">{{ t.key }}</span>
         </button>
+        <button v-if="!zen || expanded" class="icon-btn" aria-label="Insert image" title="Insert image" data-testid="tool-image" @click="ctl.pickImages()">
+          <Icon name="image" />
+        </button>
         <button v-if="zen" class="icon-btn" :aria-label="expanded ? 'Fewer tools' : 'More tools'" :aria-expanded="expanded" data-testid="zen-more" @click="expanded = !expanded">
           <Icon :name="expanded ? 'chevleft' : 'right'" />
         </button>

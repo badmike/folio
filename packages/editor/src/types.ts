@@ -1,14 +1,26 @@
 import type {
-  ArrowType, Arrowhead, BlurMode, CanvasObject, DocChangeEvent, FillStyle, FontFamily, HighlighterCap, InkStroke, StrokeLineStyle, NotebookDocumentApi, ObjectId, Operation, PageId, Rect, Roundness, ShapeKind,
-  ShapeObject, ArrowObject, TextObject, StrokeStyle,
+  ArrowType, Arrowhead, BlurMode, CanvasObject, CounterStyle, DocChangeEvent, FillStyle, FontFamily, HighlighterCap, InkStroke, StrokeLineStyle, NotebookDocumentApi, ObjectId, Operation, PageId, Rect, Roundness, ShapeKind,
+  ShapeObject, ArrowObject, TextObject, StrokeStyle, Vec2,
 } from '@folio/document'
-import type { Camera, LiveInkLayer, Renderer, VisualTheme } from '@folio/renderer'
+import type { Camera, ImageResolver, LiveInkLayer, Renderer, VisualTheme } from '@folio/renderer'
 
-/** 'hand' pans with any pointer; 'frame' and 'blur' draw the corresponding box shapes. */
-export type Tool = 'pen' | 'highlighter' | 'eraser' | 'select' | 'hand' | 'shape' | 'arrow' | 'text' | 'frame' | 'blur'
+/**
+ * 'hand' pans with any pointer; 'frame' and 'blur' draw the corresponding box shapes; 'note' writes
+ * text on a coloured box with an optional pointer; 'counter' places numbered pins.
+ */
+export type Tool = 'pen' | 'highlighter' | 'eraser' | 'select' | 'hand' | 'shape' | 'arrow' | 'text' | 'frame' | 'blur' | 'note' | 'counter'
 
 /** Tools that create one object and then hand back to the selection tool unless the tool lock is on. */
-export const ONE_SHOT_TOOLS: readonly Tool[] = ['shape', 'arrow', 'text', 'frame', 'blur']
+export const ONE_SHOT_TOOLS: readonly Tool[] = ['shape', 'arrow', 'text', 'frame', 'blur', 'note']
+/** Tools that remember their own stroke and background colour (the counter stays active to place a series). */
+export const COLORED_TOOLS: readonly Tool[] = [...ONE_SHOT_TOOLS, 'counter']
+/** Colours of tools whose first use should not inherit the shared item colours. */
+export const DEFAULT_TOOL_COLORS: ToolColors = {
+  note: { strokeColor: '#ffffff', backgroundColor: '#e03131' },
+  counter: { strokeColor: '#ffffff', backgroundColor: '#e03131' },
+}
+/** A new counter's diameter for a font size preset (the panel's size row sets it). */
+export const COUNTER_SIZE_PER_FONT = 1.6
 
 export type AlignMode = 'left' | 'centerX' | 'right' | 'top' | 'centerY' | 'bottom'
 
@@ -94,6 +106,10 @@ export interface EditorOptions {
    * converted and inserted); otherwise the editor inserts it as a text object.
    */
   onPasteText?: (text: string) => boolean | Promise<boolean>
+  /** Files pasted or dropped onto the canvas (images, drawings); `at` is the drop point in world space. */
+  onInsertFiles?: (files: File[], at?: Vec2) => void
+  /** Loads the image of an asset id (image objects); without it images show as placeholders. */
+  resolveImage?: ImageResolver
   /** Injection points (tests / alternative renderers). */
   rendererFactory?: (o: RendererFactoryOptions) => Renderer
   liveLayerFactory?: (canvas: HTMLCanvasElement) => LiveInkLayer

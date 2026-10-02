@@ -40,6 +40,22 @@ export class ImageCache {
     return null
   }
 
+  /** Load the given assets and wait for them (exports render synchronously, so they preload). */
+  async preload(assetIds: Iterable<string>): Promise<void> {
+    const r = this.resolver
+    if (!r) return
+    await Promise.all([...new Set(assetIds)].filter((id) => !this.entries.has(id)).map(async (id) => {
+      const entry: Entry = { status: 'loading', image: null }
+      this.entries.set(id, entry)
+      try {
+        entry.image = await r(id)
+        entry.status = entry.image ? 'ready' : 'missing'
+      } catch {
+        entry.status = 'missing'
+      }
+    }))
+  }
+
   drop(assetId: string): void {
     this.entries.delete(assetId)
   }

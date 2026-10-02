@@ -350,7 +350,7 @@ describe('zen mode', () => {
     await w.trigger('pointerenter')
     expect(w.emitted('wake')).toBeTruthy()
     await w.get('[data-testid="zen-more"]').trigger('click')
-    expect(w.findAll('[data-testid^="tool-"]')).toHaveLength(11)
+    expect(w.findAll('[data-testid^="tool-"]')).toHaveLength(14)
     await flushPromises()
   })
 })

@@ -1,4 +1,5 @@
 import type { ArrowObject, CanvasObject, InkPoint, ObjectId, Page, Rect, StrokeStyle, Vec2 } from '@folio/document'
+import type { ImageResolver } from './images'
 
 /** Camera: screen = (world - (x,y)) * zoom. (x,y) is the world point at the viewport's top-left. */
 export interface Camera {
@@ -67,6 +68,10 @@ export interface Renderer {
   /** Drop cached GPU/geometry data for objects (after they changed or were deleted). */
   invalidate(ids?: Iterable<ObjectId>): void
   dispose(): void
+  /** Where image bytes come from (assets of image objects). */
+  setImageSource?(resolver: ImageResolver | null): void
+  /** Set by the host: called when the renderer needs a new frame (an image loaded, the GL context came back). */
+  onDirty?: (() => void) | null
 }
 
 /** Immediate-mode Canvas2D layer for the stroke currently being drawn (Pencil hot path). */

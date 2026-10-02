@@ -1,7 +1,7 @@
 /** Default wiring to the real @folio/renderer implementations. */
 import type { CanvasObject, NotebookDocumentApi, PageId, Rect } from '@folio/document'
-import { createLiveInkLayer, createRenderer, renderPageToImage } from '@folio/renderer'
-import type { LiveInkLayer, Renderer, VisualTheme } from '@folio/renderer'
+import { ImageCache, createLiveInkLayer, createRenderer, renderPageToImage } from '@folio/renderer'
+import type { ImageResolver, LiveInkLayer, Renderer, VisualTheme } from '@folio/renderer'
 import { unionRects, worldBounds } from './geometry'
 import type { RendererFactoryOptions } from './types'
 
@@ -17,7 +17,7 @@ export function createDefaultLiveLayer(canvas: HTMLCanvasElement): LiveInkLayer 
 export async function exportPageImage(
   doc: NotebookDocumentApi,
   pageId: PageId,
-  o: { scale: number; bounds?: Rect; theme: VisualTheme },
+  o: { scale: number; bounds?: Rect; theme: VisualTheme; resolveImage?: ImageResolver },
 ): Promise<Blob> {
   const page = doc.page(pageId)
   if (!page) throw new Error(`Unknown page ${pageId}`)
@@ -33,8 +33,11 @@ export async function exportPageImage(
       bounds = u ? { x: u.x - pad, y: u.y - pad, width: u.width + pad * 2, height: u.height + pad * 2 } : { x: 0, y: 0, width: 800, height: 600 }
     }
   }
+  const images = new ImageCache()
+  images.setResolver(o.resolveImage ?? null)
+  await images.preload(objects.flatMap((x) => (x.type === 'image' ? [x.assetId] : [])))
   return renderPageToImage(
     { page, objects, resolve, theme: o.theme },
-    { bounds, scale: o.scale, background: true },
+    { bounds, scale: o.scale, background: true, images },
   )
 }
