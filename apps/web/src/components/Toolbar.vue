@@ -10,7 +10,7 @@ const props = defineProps<{ zen?: boolean; faded?: boolean }>()
 const emit = defineEmits<{ (e: 'wake'): void }>()
 const ctl = inject<NotebookController>(NOTEBOOK_KEY)!
 
-/** Excalidraw order and letters; folio adds highlighter (M) and blur (X). */
+/** Excalidraw order and letters; folio adds highlighter (M), note (N), counter (C) and blur (X). */
 const TOOLS: { tool: Tool; icon: IconName; label: string; key: string; zen?: boolean }[] = [
   { tool: 'select', icon: 'select', label: 'Select', key: 'V', zen: true },
   { tool: 'hand', icon: 'hand', label: 'Hand', key: 'H' },
@@ -20,6 +20,8 @@ const TOOLS: { tool: Tool; icon: IconName; label: string; key: string; zen?: boo
   { tool: 'shape', icon: 'shape', label: 'Shape', key: 'R' },
   { tool: 'arrow', icon: 'arrow', label: 'Arrow', key: 'A' },
   { tool: 'text', icon: 'text', label: 'Text', key: 'T' },
+  { tool: 'note', icon: 'note', label: 'Note', key: 'N' },
+  { tool: 'counter', icon: 'counter', label: 'Counter', key: 'C' },
   { tool: 'frame', icon: 'frame', label: 'Frame', key: 'F' },
   { tool: 'blur', icon: 'blur', label: 'Blur', key: 'X' },
 ]

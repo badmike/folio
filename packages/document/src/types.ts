@@ -146,6 +146,15 @@ export interface TextObject extends BaseObject {
   semanticType?: SemanticTextType
   /** Ink strokes this text was derived from (Clean Up). */
   sourceStrokeIds?: ObjectId[]
+  /** Fill of a box behind the text, which makes it a note; undefined = plain text. */
+  background?: string
+  /** Notes only: local point the note's pointer reaches; undefined = no pointer. */
+  tail?: Vec2
+  /**
+   * Notes only: the object the pointer sticks to, `anchor` normalised within its local bounds.
+   * The pointer follows the object; `tail` keeps the last known point for when it is gone.
+   */
+  tailBinding?: ArrowBinding
 }
 
 // ---------------------------------------------------------------------------
@@ -155,9 +164,10 @@ export interface TextObject extends BaseObject {
 /**
  * 'frame' groups what lies inside it (objects carry `frameId`; content is clipped to the frame
  * and moves with it; `label` is the frame name). 'blur' is a reveal mask: it blurs
- * whatever is painted below it. Both are boxes like 'rectangle' and share ShapeObject.
+ * whatever is painted below it. 'counter' is a numbered pin (`label` is the number, the
+ * fill colour the pin). All are boxes like 'rectangle' and share ShapeObject.
  */
-export type ShapeKind = 'rectangle' | 'ellipse' | 'triangle' | 'diamond' | 'line' | 'frame' | 'blur'
+export type ShapeKind = 'rectangle' | 'ellipse' | 'triangle' | 'diamond' | 'line' | 'frame' | 'blur' | 'counter'
 
 /** Kinds offered by the shape tool (frame and blur have their own tools). */
 export const DRAWABLE_SHAPE_KINDS: readonly ShapeKind[] = ['rectangle', 'ellipse', 'triangle', 'diamond', 'line']
@@ -165,6 +175,8 @@ export const DRAWABLE_SHAPE_KINDS: readonly ShapeKind[] = ['rectangle', 'ellipse
 export type StrokeLineStyle = 'solid' | 'dashed' | 'dotted'
 export type FillStyle = 'hachure' | 'cross-hatch' | 'solid'
 export type Roundness = 'sharp' | 'round'
+/** Counter outline: a circle with one sharp corner, a drop with a longer tip, or a plain circle. */
+export type CounterStyle = 'pin' | 'drop' | 'circle'
 /** How a blur mask treats what lies below it: a mosaic of blocks, or a Gaussian blur. */
 export type BlurMode = 'pixelate' | 'gaussian'
 
@@ -211,6 +223,12 @@ export interface ShapeObject extends BaseObject {
   blurSize?: number
   /** kind 'blur' only: default 'pixelate'. */
   blurMode?: BlurMode
+  /** kind 'counter' only: local point the pin's tip points towards (default: the bottom-right corner). */
+  tail?: Vec2
+  /** kind 'counter' only: font of the number (default 'sans'). */
+  fontFamily?: FontFamily
+  /** kind 'counter' only: outline (default 'pin'). */
+  counterStyle?: CounterStyle
   sourceStrokeIds?: ObjectId[]
 }
 

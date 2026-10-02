@@ -124,6 +124,11 @@ export function buildOverlay(scene: Scene, camera: Camera): OverlayPoly[] {
       }
     }
   }
+  if (sel.tailHandle) {
+    const c = worldToScreen(camera, sel.tailHandle.world)
+    if (sel.tailHandle.virtual) out.push({ points: circle(c, 4.5), closed: true, fill: 'rgba(255,255,255,0.85)', stroke: ACCENT, strokeWidth: 1 })
+    else out.push({ points: circle(c, 6.5), closed: true, fill: '#ffffff', stroke: ACCENT, strokeWidth: 2 })
+  }
   return out
 }
 

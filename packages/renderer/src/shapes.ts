@@ -70,7 +70,7 @@ export function roundedShape(kind: ShapeKind, w: number, h: number, roundness: R
  */
 export function shapeOutline(kind: ShapeKind, w: number, h: number, o: { points?: Vec2[]; roundness?: Roundness; ellipseSteps?: number } = {}): Vec2[] {
   if (kind === 'line') return o.points && o.points.length >= 2 ? o.points : [{ x: 0, y: 0 }, { x: w, y: h }]
-  if (kind === 'ellipse') {
+  if (kind === 'ellipse' || kind === 'counter') {
     const steps = o.ellipseSteps ?? 64
     const pts: Vec2[] = []
     for (let i = 0; i < steps; i++) {

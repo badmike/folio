@@ -35,6 +35,8 @@ export interface ToolOptionsMap {
   hand: Record<never, never>
   frame: Record<never, never>
   blur: Record<never, never>
+  note: Record<never, never>
+  counter: Record<never, never>
   shape: {
     kind: ShapeKind
     strokeColor: string
@@ -187,6 +189,8 @@ export interface ItemStyle {
   /** Block size / radius of new blur masks (world units). */
   blurSize: number
   blurMode: BlurMode
+  /** Outline of new counters. */
+  counterStyle: CounterStyle
 }
 
 /** 'cap' is the highlighter end shape; it lives in the highlighter tool options, not in ItemStyle. */

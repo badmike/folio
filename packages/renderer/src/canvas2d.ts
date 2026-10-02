@@ -1,9 +1,13 @@
 import { DEFAULT_BLUR_SIZE, adaptColor, isDarkColor } from '@folio/document'
-import type { ArrowObject, CanvasObject, InkStroke, Page, Rect, ShapeObject, Vec2 } from '@folio/document'
+import type { ArrowObject, BackgroundPattern, CanvasObject, InkStroke, Page, Rect, ShapeObject, Vec2 } from '@folio/document'
 import { arrowPath } from './arrows'
-import { worldCorners } from './bounds'
+import { noteTailPoint, worldCorners } from './bounds'
+import { counterLabel, noteBox, noteOutline, noteTail } from './callouts'
 import { FRAME_LABEL_SIZE } from './hit'
-import { DESK_COLOR, DESK_COLOR_DARK, DOT_RADIUS_PX, MINOR_WEIGHT, backgroundLevels, frameColor, pageRect, patternColor } from './background'
+import {
+  CORNELL_CUE, CORNELL_SUMMARY, DESK_COLOR, DESK_COLOR_DARK, DOT_RADIUS_PX, MINOR_WEIGHT, POLAR_STEP, backgroundLevels, frameColor,
+  isFixedOnlyPattern, pageRect, patternColor, patternFade, polarCenter, staffLayout, patternKind,
+} from './background'
 import { parseColor } from './color'
 import type { Camera, Renderer, Scene, Size, VisualTheme } from './contract'
 import { buildArrowGeometry, buildShapeGeometry, type PathGeometry } from './geometry/rough'
@@ -462,6 +466,12 @@ export function paintScene(
           break
         }
         drawGeometry(ctx, geo.shape(obj, scene.theme), col(s.strokeColor, s.opacity), s.fillColor ? col(s.fillColor, s.opacity) : null)
+        if (obj.kind === 'counter') {
+          const l = counterLabel(obj)
+          // the number sits on the pin, so a filled pin keeps the picked colour as is
+          if (l) drawTextLayout(ctx, l.layout, s.fillColor ? rgba(s.strokeColor, s.opacity) : col(s.strokeColor, s.opacity), 'center', l.x, l.y)
+          break
+        }
         if (obj.label) {
           const l = labelLayout(obj.label, obj.width, clean, false, obj.labelSize)
           drawTextLayout(ctx, l, adaptColor(s.strokeColor, bgColor), 'center', (obj.width - l.width) / 2, (obj.height - l.height) / 2)
@@ -470,6 +480,20 @@ export function paintScene(
       }
       case 'text':
         if (obj.opacity !== undefined && obj.opacity < 1) ctx.globalAlpha = Math.max(0, obj.opacity)
+        if (obj.background) {
+          const box = noteBox(obj)
+          ctx.fillStyle = col(obj.background)
+          for (const poly of [noteOutline(box), noteTail(box, noteTailPoint(obj, scene.resolve))]) {
+            if (!poly) continue
+            ctx.beginPath()
+            poly.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)))
+            ctx.closePath()
+            ctx.fill()
+          }
+          // the text sits on the box, so it keeps the picked colour as is
+          drawTextLayout(ctx, layoutText(obj), obj.color, obj.align)
+          break
+        }
         drawTextLayout(ctx, layoutText(obj), adaptColor(obj.color, bgColor), obj.align)
         break
       case 'image':

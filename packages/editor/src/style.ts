@@ -5,7 +5,7 @@
  */
 import { DEFAULT_LABEL_SIZE, DEFAULT_BLUR_SIZE } from '@folio/document'
 import type { ArrowObject, CanvasObject, FillStyle, ObjectPatch, ShapeObject, ShapeStyle, StrokeStyle } from '@folio/document'
-import { HIGHLIGHTER_WIDTH_PRESETS, PEN_WIDTH_PRESETS, STROKE_WIDTH_PRESETS } from './types'
+import { COUNTER_SIZE_PER_FONT, HIGHLIGHTER_WIDTH_PRESETS, PEN_WIDTH_PRESETS, STROKE_WIDTH_PRESETS } from './types'
 import type { ItemStyle, StyleContext, StyleProp, StylePatch, Tool, ToolOptionsMap } from './types'
 
 export function defaultItemStyle(): ItemStyle {
@@ -26,6 +26,7 @@ export function defaultItemStyle(): ItemStyle {
     roundness: 'sharp',
     blurSize: DEFAULT_BLUR_SIZE,
     blurMode: 'pixelate',
+    counterStyle: 'pin',
   }
 }
 
@@ -40,9 +41,13 @@ const ARROW_PROPS: StyleProp[] = [
 const TEXT_PROPS: StyleProp[] = ['strokeColor', 'fontFamily', 'fontSize', 'textAlign', 'opacity']
 const FRAME_PROPS: StyleProp[] = ['fontSize']
 const BLUR_PROPS: StyleProp[] = ['blurMode', 'blurSize', 'opacity']
+/** Notes are text on a box: the background is the box colour. */
+const NOTE_PROPS: StyleProp[] = ['strokeColor', 'backgroundColor', 'fontFamily', 'fontSize', 'textAlign', 'opacity']
+/** Counters: number colour, pin colour, size (the font size presets) and opacity. */
+const COUNTER_PROPS: StyleProp[] = ['counterStyle', 'strokeColor', 'backgroundColor', 'fontFamily', 'fontSize', 'opacity']
 /** Canonical property order for the panel. */
 const ORDER: StyleProp[] = [
-  'strokeColor', 'backgroundColor', 'fillStyle', 'strokeWidth', 'cap', 'strokeStyle', 'roundness', 'roughness', 'blurMode', 'blurSize', 'fontFamily', 'fontSize',
+  'counterStyle', 'strokeColor', 'backgroundColor', 'fillStyle', 'strokeWidth', 'cap', 'strokeStyle', 'roundness', 'roughness', 'blurMode', 'blurSize', 'fontFamily', 'fontSize',
   'textAlign', 'arrowType', 'startHead', 'endHead', 'opacity',
 ]
 
@@ -58,10 +63,11 @@ export function applicableFor(o: CanvasObject): StyleProp[] {
       if (o.kind === 'line') return LINE_PROPS
       if (o.kind === 'frame') return FRAME_PROPS
       if (o.kind === 'blur') return BLUR_PROPS
+      if (o.kind === 'counter') return COUNTER_PROPS
       // labelled boxes also expose the label size
       return [...(hasCorners(o.kind) ? BOX_PROPS : SHAPE_PROPS), ...(o.label ? ['fontSize' as const] : [])]
     case 'arrow': return o.label ? [...ARROW_PROPS, 'fontSize'] : ARROW_PROPS
-    case 'text': return TEXT_PROPS
+    case 'text': return o.background ? NOTE_PROPS : TEXT_PROPS
     default: return []
   }
 }
@@ -74,6 +80,8 @@ export function toolApplicable(tool: Tool, shapeKind?: ShapeObject['kind']): Sty
     case 'arrow': return ARROW_PROPS
     case 'text': return TEXT_PROPS
     case 'blur': return BLUR_PROPS
+    case 'note': return NOTE_PROPS
+    case 'counter': return COUNTER_PROPS
     default: return []
   }
 }
@@ -126,7 +134,11 @@ export function readProp(o: CanvasObject, p: StyleProp): StyleValue | undefined 
         case 'roundness': return o.type === 'shape' && hasCorners(o.kind) ? s.roundness ?? 'sharp' : undefined
         case 'roughness': return s.roughness
         case 'opacity': return s.opacity
-        case 'fontSize': return o.labelSize ?? DEFAULT_LABEL_SIZE
+        case 'fontFamily': return o.type === 'shape' && o.kind === 'counter' ? o.fontFamily ?? 'sans' : undefined
+        case 'counterStyle': return o.type === 'shape' && o.kind === 'counter' ? o.counterStyle ?? 'pin' : undefined
+        case 'fontSize':
+          if (o.type === 'shape' && o.kind === 'counter') return Math.round(Math.min(o.width, o.height) / COUNTER_SIZE_PER_FONT)
+          return o.labelSize ?? DEFAULT_LABEL_SIZE
         case 'blurSize': return o.type === 'shape' && o.kind === 'blur' ? o.blurSize ?? DEFAULT_BLUR_SIZE : undefined
         case 'blurMode': return o.type === 'shape' && o.kind === 'blur' ? o.blurMode ?? 'pixelate' : undefined
         case 'arrowType': return o.type === 'arrow' ? o.arrowType ?? 'straight' : undefined
@@ -138,6 +150,7 @@ export function readProp(o: CanvasObject, p: StyleProp): StyleValue | undefined 
     case 'text':
       switch (p) {
         case 'strokeColor': return o.color
+        case 'backgroundColor': return o.background ? o.background : undefined
         case 'fontFamily': return o.fontFamily
         case 'fontSize': return o.fontSize
         case 'textAlign': return o.align ?? 'left'
@@ -221,6 +234,17 @@ export function patchForObject(o: CanvasObject, patch: StylePatch, rawInkWidth =
         if (patch.fillStyle !== undefined) style.fillStyle = patch.fillStyle
         if (patch.roundness !== undefined && hasCorners(o.kind)) style.roundness = patch.roundness
       }
+      if (o.type === 'shape' && o.kind === 'counter') {
+        if (patch.backgroundColor !== undefined) {
+          if (patch.backgroundColor === 'transparent') delete style.fillColor
+          else style.fillColor = patch.backgroundColor
+        }
+        if (patch.fontSize !== undefined) Object.assign(out, counterResize(o, patch.fontSize * COUNTER_SIZE_PER_FONT))
+        if (patch.fontFamily !== undefined && patch.fontFamily !== (o.fontFamily ?? 'sans')) out.fontFamily = patch.fontFamily
+        if (patch.counterStyle !== undefined && patch.counterStyle !== (o.counterStyle ?? 'pin')) out.counterStyle = patch.counterStyle
+        if (!same(style, o.style)) (out as Record<string, unknown>).style = style
+        return Object.keys(out).length ? out : undefined
+      }
       if (isBlur && patch.blurSize !== undefined && patch.blurSize !== (o.blurSize ?? DEFAULT_BLUR_SIZE)) {
         (out as Record<string, unknown>).blurSize = patch.blurSize
         changed = true
@@ -254,10 +278,30 @@ export function patchForObject(o: CanvasObject, patch: StylePatch, rawInkWidth =
       if (patch.fontSize !== undefined && patch.fontSize !== o.fontSize) out.fontSize = patch.fontSize
       if (patch.textAlign !== undefined && patch.textAlign !== (o.align ?? 'left')) out.align = patch.textAlign
       if (patch.opacity !== undefined && patch.opacity !== (o.opacity ?? 1)) out.opacity = patch.opacity
+      // only notes have a box; 'transparent' turns a note back into plain text
+      if (o.background && patch.backgroundColor !== undefined && patch.backgroundColor !== o.background) {
+        if (patch.backgroundColor === 'transparent') out.$unset = ['background', 'tail']
+        else out.background = patch.backgroundColor
+      }
       return Object.keys(out).length ? (out as ObjectPatch) : undefined
     }
     default: return undefined
   }
+}
+
+/** Counter resized to `size` about its centre; its pointer keeps its direction. */
+function counterResize(o: ShapeObject, size: number): ObjectPatch | undefined {
+  if (Math.abs(size - o.width) < 1e-6 && Math.abs(size - o.height) < 1e-6) return undefined
+  const { transform: t } = o
+  const cos = Math.cos(t.rotation), sin = Math.sin(t.rotation)
+  // keep the centre: shift the origin by the rotated half-size difference
+  const dx = (o.width - size) / 2, dy = (o.height - size) / 2
+  const patch: ObjectPatch = {
+    width: size, height: size,
+    transform: { ...t, x: t.x + dx * cos - dy * sin, y: t.y + dx * sin + dy * cos },
+  }
+  if (o.tail) patch.tail = { x: (o.tail.x / o.width) * size, y: (o.tail.y / o.height) * size }
+  return patch
 }
 
 function same(a: object, b: object): boolean {

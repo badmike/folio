@@ -3,6 +3,7 @@ import type { Options, OpSet } from 'roughjs/bin/core'
 import type { ArrowObject, Arrowhead, ShapeObject, ShapeStyle, Vec2 } from '@folio/document'
 import { catmullRomSvg, dashPattern, dashPolyline } from './curves'
 import { roundedPolygon, roundedShape, shapeVertices } from '../shapes'
+import { counterOutline } from '../callouts'
 import type { VisualTheme } from '../contract'
 
 /** Flattened, renderer-agnostic geometry for shapes and arrows. */
@@ -131,6 +132,13 @@ export function buildShapeGeometry(shape: ShapeObject, theme: VisualTheme): Path
     }
     case 'blur':
       return geo // the effect is painted from the frame buffer
+    case 'counter': {
+      // always clean: a filled pin, or its outline when it has no fill
+      const pin = counterOutline(shape)
+      if (style.fillColor) geo.fills.push(pin)
+      else geo.strokes.push([...pin, pin[0]])
+      return geo
+    }
   }
   applyDashes(geo, style)
   return geo

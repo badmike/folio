@@ -2,6 +2,7 @@ import {
   INK_POINT_STRIDE,
   type ArrowObject,
   type CanvasObject,
+  type CounterStyle,
   type InkPoint,
   type InkStroke,
   type ObjectId,
@@ -173,6 +174,19 @@ export function estimateTextSize(o: Pick<TextObject, 'text' | 'fontSize' | 'widt
   return { width: Math.max(width, o.fontSize * 0.5), height: lineCount * o.fontSize * 1.25 }
 }
 
+/** Distance of a counter's tip from its centre, in radii (a circle has none). */
+export const COUNTER_TIP: Record<CounterStyle, number> = { pin: Math.SQRT2, drop: 2.1, circle: 1 }
+
+/** How far a counter's tip reaches past its box, as a fraction of its diameter. */
+export function counterReach(style: CounterStyle | undefined): number {
+  return (COUNTER_TIP[style ?? 'pin'] - 1) / 2
+}
+
+/** Padding (local units) between a note's text and the edge of its box. */
+export function notePadding(fontSize: number): number {
+  return fontSize * 0.4
+}
+
 /**
  * Bounds in the object's local space. Groups need `resolve` (their bounds are the union
  * of their children's world bounds; group transforms are not applied to children).
@@ -195,9 +209,17 @@ export function localBounds(obj: CanvasObject, resolve?: ObjectResolver, depth =
     case 'text': {
       const s = estimateTextSize(obj)
       const x = obj.align === 'center' ? -s.width / 2 : obj.align === 'right' ? -s.width : 0
-      return { x, y: 0, width: s.width, height: s.height }
+      if (!obj.background) return { x, y: 0, width: s.width, height: s.height }
+      const pad = notePadding(obj.fontSize)
+      const box = { x: x - pad, y: -pad, width: s.width + pad * 2, height: s.height + pad * 2 }
+      return obj.tail ? boundsUnion([box, { ...obj.tail, width: 0, height: 0 }])! : box
     }
-    case 'shape':
+    case 'shape': {
+      if (obj.kind !== 'counter') return { x: 0, y: 0, width: obj.width, height: obj.height }
+      // the tip can reach past the box on any side
+      const m = Math.min(obj.width, obj.height) * counterReach(obj.counterStyle)
+      return { x: -m, y: -m, width: obj.width + m * 2, height: obj.height + m * 2 }
+    }
     case 'image':
       return { x: 0, y: 0, width: obj.width, height: obj.height }
     case 'arrow': {

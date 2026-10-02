@@ -187,6 +187,7 @@ export function computeScalePatches(leaves: CanvasObject[], spec: ScaleSpec, res
       patch.width = o.width * fx
       patch.height = o.height * fy
       if (o.points) patch.points = o.points.map((q) => ({ x: q.x * fx, y: q.y * fy }))
+      if (o.tail) patch.tail = { x: o.tail.x * fx, y: o.tail.y * fy }
     } else if (o.type === 'text') {
       if (fy === 1 && fx !== 1) {
         patch.width = (o.width ?? estimateTextSize(o).width) * fx
@@ -194,6 +195,7 @@ export function computeScalePatches(leaves: CanvasObject[], spec: ScaleSpec, res
         const f = Math.sqrt(fx * fy)
         patch.fontSize = o.fontSize * f
         if (o.width !== undefined) patch.width = o.width * f
+        if (o.tail) patch.tail = { x: o.tail.x * f, y: o.tail.y * f }
       }
     } else {
       t.scaleX = o.transform.scaleX * fx
@@ -248,6 +250,11 @@ export function cloneObjects(objects: CanvasObject[], dx: number, dy: number, ba
     } else {
       o.transform = { ...o.transform, x: o.transform.x + dx, y: o.transform.y + dy }
       if (o.type === 'text' || o.type === 'shape') delete (o as TextObject).sourceStrokeIds
+      if (o.type === 'text' && o.tailBinding) {
+        const target = idMap.get(o.tailBinding.objectId)
+        if (target) o.tailBinding = { ...o.tailBinding, objectId: target }
+        else delete o.tailBinding
+      }
     }
     return o
   })

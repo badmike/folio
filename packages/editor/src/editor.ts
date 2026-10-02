@@ -11,7 +11,7 @@ import { createDefaultLiveLayer, createDefaultRenderer, exportPageImage } from '
 import { Emitter } from './emitter'
 import {
   createId, geometricBounds, hitTestObject, inflate, insideLasso, localBounds, objectIntersectsLasso, rectContainsRect, rectsIntersect, resolveArrowEndpoints,
-  unionRects, worldBounds, worldToLocal,
+  localToWorld, unionRects, worldBounds, worldToLocal,
 } from './geometry'
 import { InputController } from './input'
 import { HANDLE_IDS, applyPatch, cloneObjects, computeFrame, computeMovePatches } from './manipulate'
@@ -24,7 +24,7 @@ import {
   applicableFor, defaultItemStyle, derivedToolOptions, itemPatchFromToolOptions, patchForObject, selectionContext,
   strokeToInkWidth, toolContext,
 } from './style'
-import { ONE_SHOT_TOOLS } from './types'
+import { COLORED_TOOLS, COUNTER_SIZE_PER_FONT, DEFAULT_TOOL_COLORS, ONE_SHOT_TOOLS } from './types'
 import type {
   AlignMode, CleanupPlan, ClipboardPayload, DistributeAxis, EditorEvents, EditorOptions, ExecuteOptions, ExportImageOptions, ItemStyle,
   PenMode, SelectionMode, SelectionStylePatch, StyleContext, StylePatch, Tool, ToolColors, ToolOptionsMap,
@@ -56,6 +56,8 @@ export function defaultToolOptions(): ToolOptionsMap {
     hand: {},
     frame: {},
     blur: {},
+    note: {},
+    counter: {},
     ...derivedToolOptions(defaultItemStyle(), 'rectangle'),
   }
 }
@@ -105,10 +107,14 @@ export class Editor {
   private switchingTool = false
   /** Colours remembered per one-shot tool (shape, arrow, text, frame, blur); empty until a tool's colour was changed. */
   private _toolColors: ToolColors = {}
+  /** Colours of the tools without own defaults, so leaving the note or counter tool does not carry theirs over. */
+  private sharedColors: { strokeColor: string; backgroundColor: string } | undefined
 
   // page cache
   private objs = new Map<ObjectId, CanvasObject>()
   private arrowIds = new Set<ObjectId>()
+  /** Notes whose pointer sticks to an object (they move with it, like bound arrows). */
+  private boundNoteIds = new Set<ObjectId>()
   private index = new SpatialIndex()
   private minZ = 0
   private maxZ = 0
@@ -222,11 +228,13 @@ export class Editor {
     this.applyToolColors(this._tool)
   }
   private stashToolColors(tool: Tool): void {
-    if (!ONE_SHOT_TOOLS.includes(tool)) return
-    this._toolColors = { ...this._toolColors, [tool]: { strokeColor: this._itemStyle.strokeColor, backgroundColor: this._itemStyle.backgroundColor } }
+    const colors = { strokeColor: this._itemStyle.strokeColor, backgroundColor: this._itemStyle.backgroundColor }
+    if (!DEFAULT_TOOL_COLORS[tool]) this.sharedColors = colors
+    if (!COLORED_TOOLS.includes(tool)) return
+    this._toolColors = { ...this._toolColors, [tool]: colors }
   }
   private applyToolColors(tool: Tool): void {
-    const c = this._toolColors[tool]
+    const c = this._toolColors[tool] ?? DEFAULT_TOOL_COLORS[tool] ?? this.sharedColors
     if (c) this.mergeItemStyle(c)
   }
   get viewportSize(): Readonly<Size> { return this.viewport }
@@ -548,12 +556,14 @@ export class Editor {
   private rebuild(): void {
     this.objs.clear()
     this.arrowIds.clear()
+    this.boundNoteIds.clear()
     this.minZ = 0
     this.maxZ = 0
     let first = true
     for (const o of this.document.objects(this._pageId)) {
       this.objs.set(o.id, o)
       if (o.type === 'arrow') this.arrowIds.add(o.id)
+      if (o.type === 'text' && o.tailBinding) this.boundNoteIds.add(o.id)
       if (first) { this.minZ = this.maxZ = o.z; first = false }
       else { this.minZ = Math.min(this.minZ, o.z); this.maxZ = Math.max(this.maxZ, o.z) }
     }
@@ -575,11 +585,14 @@ export class Editor {
         this.objs.set(id, o)
         if (o.type === 'arrow') this.arrowIds.add(id)
         else this.arrowIds.delete(id)
+        if (o.type === 'text' && o.tailBinding) this.boundNoteIds.add(id)
+        else this.boundNoteIds.delete(id)
         this.maxZ = Math.max(this.maxZ, o.z)
         this.minZ = Math.min(this.minZ, o.z)
       } else {
         this.objs.delete(id)
         this.arrowIds.delete(id)
+        this.boundNoteIds.delete(id)
       }
     }
     const reindex = new Set(changed)
@@ -589,6 +602,10 @@ export class Editor {
       if ((a.startBinding && changed.has(a.startBinding.objectId)) || (a.endBinding && changed.has(a.endBinding.objectId))) {
         reindex.add(aid)
       }
+    }
+    for (const nid of this.boundNoteIds) {
+      const n = this.objs.get(nid)
+      if (!reindex.has(nid) && n?.type === 'text' && n.tailBinding && changed.has(n.tailBinding.objectId)) reindex.add(nid)
     }
     for (const id of reindex) {
       const o = this.objs.get(id)
@@ -786,8 +803,10 @@ export class Editor {
     const frame = this.selectionFrame()
     const arrowHandles = !this._readOnly && this._tool === 'select' && !this.hideHandles && !this.textEditor.editingId
       ? this.selectedPathHandles() : undefined
+    const tail = !this._readOnly && this._tool === 'select' && !this.hideHandles && !this.textEditor.editingId ? this.selectedTailHandle() : undefined
     return {
       ids: this._selection,
+      tailHandle: tail,
       bounds: frame?.rect,
       rotation: frame?.rotation,
       showHandles: !!frame && !this._readOnly && this._tool === 'select' && !arrowHandles && !this.hideHandles && !this.textEditor.editingId,
@@ -818,6 +837,74 @@ export class Editor {
     if (a) return arrowHandleSpecs(a, this.resolve)
     const l = this.selectedLine()
     return l ? lineHandleSpecs(l) : undefined
+  }
+
+  /** The single selected note (text with a box) or counter: the objects with a pointer. */
+  selectedPointerOwner(): TextObject | ShapeObject | undefined {
+    const leaves = this.leavesOfSelection()
+    const o = leaves.length === 1 ? leaves[0] : undefined
+    if (o?.type === 'text' && o.background) return o
+    if (o?.type === 'shape' && o.kind === 'counter') return o
+    return undefined
+  }
+
+  /**
+   * Pointer handle of the selected note or counter (world). A note without a pointer gets a
+   * virtual handle below its box: dragging it adds one.
+   */
+  selectedTailHandle(): { world: Vec2; virtual: boolean } | undefined {
+    const o = this.selectedPointerOwner()
+    if (!o) return undefined
+    if (o.type === 'shape') {
+      // the tip of the counter; a plain circle has none
+      const tip = counterTip(o)
+      return tip ? { world: localToWorld(o.transform, tip), virtual: false } : undefined
+    }
+    const box = noteBox(o)
+    // the handle sits on the drawn tip (a short pointer is drawn as a nub of fixed size)
+    const point = noteTailPoint(o, this.resolve)
+    const tip = noteTail(box, point)?.[1] ?? point
+    if (tip) return { world: localToWorld(o.transform, tip), virtual: false }
+    return { world: localToWorld(o.transform, { x: box.x + box.width / 2, y: box.y + box.height + 16 / this._camera.zoom }), virtual: true }
+  }
+
+  /**
+   * What a note's pointer dropped at `p` (world) sticks to: the topmost object there (not arrows,
+   * not `exclude`), with the anchor snapped to its centre when the point is close to it.
+   */
+  pointerTarget(p: Vec2, exclude: ObjectId): { binding: { objectId: ObjectId; anchor: Vec2 }; world: Vec2 } | undefined {
+    const tol = 6 / this._camera.zoom
+    const cands = this.queryRect({ x: p.x - tol, y: p.y - tol, width: tol * 2, height: tol * 2 })
+      .filter((o) => o.id !== exclude && o.type !== 'arrow' && this.topGroupOf(o.id) !== this.topGroupOf(exclude))
+      .sort((a, b) => b.z - a.z)
+    for (const o of cands) {
+      const t = this.resolve(o.id) ?? o
+      if (!hitTestObject(t, p, tol, this.resolve)) continue
+      const b = rendererLocalBounds(t)
+      const centre = anchorPoint(t)
+      if (!b || !centre) continue
+      if (Math.hypot(centre.x - p.x, centre.y - p.y) * this._camera.zoom < 12) return { binding: { objectId: t.id, anchor: { x: 0.5, y: 0.5 } }, world: centre }
+      const l = worldToLocal(t.transform, p)
+      const anchor = { x: b.width ? (l.x - b.x) / b.width : 0.5, y: b.height ? (l.y - b.y) / b.height : 0.5 }
+      return { binding: { objectId: t.id, anchor }, world: p }
+    }
+    return undefined
+  }
+
+  /** Number for the next counter on this page: one more than the highest counter number. */
+  nextCounterNumber(): number {
+    let max = 0
+    for (const o of this.objs.values()) {
+      if (o.type !== 'shape' || o.kind !== 'counter' || o.supersededBy) continue
+      const n = Number(o.label)
+      if (Number.isFinite(n) && n > max) max = Math.floor(n)
+    }
+    return max + 1
+  }
+
+  /** Diameter of a new counter (from the item font size, like the panel's size row). */
+  counterSize(): number {
+    return this._itemStyle.fontSize * COUNTER_SIZE_PER_FONT
   }
 
   /** @deprecated use selectedPathHandles */
@@ -1120,6 +1207,13 @@ export class Editor {
       if (eb) { patch.end = r.end; patch.$unset!.push('endBinding') }
       patches.push({ id: aid, patch })
     }
+    // notes pointing at deleted objects keep pointing where they were
+    for (const nid of this.boundNoteIds) {
+      const n = this.objs.get(nid)
+      if (del.has(nid) || n?.type !== 'text' || !n.tailBinding || !del.has(n.tailBinding.objectId)) continue
+      const tail = noteTailPoint(n, this.resolve)
+      patches.push({ id: nid, patch: { updatedAt: Date.now(), ...(tail ? { tail } : {}), $unset: ['tailBinding'] } })
+    }
     const ops: Operation[] = []
     if (patches.length) ops.push({ type: 'updateObjects', pageId: this._pageId, patches })
     ops.push({ type: 'deleteObjects', pageId: this._pageId, ids: [...del] })
@@ -1364,7 +1458,9 @@ export class Editor {
   }
 
   private insertClones(objects: CanvasObject[], dx: number, dy: number): ObjectId[] {
-    const { objects: clones, idMap } = cloneObjects(objects, dx, dy, this.maxZ)
+    // copies of notes keep the pointer where it is now when what it sticks to is not copied along
+    const baked = objects.map((o) => (o.type === 'text' && o.tailBinding ? { ...o, tail: noteTailPoint(o, this.resolve) ?? o.tail } : o))
+    const { objects: clones, idMap } = cloneObjects(baked, dx, dy, this.maxZ)
     // frame membership: remap to cloned frames, otherwise drop (addObjects re-evaluates containment)
     for (const c of clones) {
       if (!c.frameId) continue
@@ -1725,9 +1821,9 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 /** The one-shot tool that creates objects of this kind (undefined for ink and groups). */
 function toolForObject(o: CanvasObject): Tool | undefined {
   switch (o.type) {
-    case 'shape': return o.kind === 'frame' ? 'frame' : o.kind === 'blur' ? 'blur' : 'shape'
+    case 'shape': return o.kind === 'frame' ? 'frame' : o.kind === 'blur' ? 'blur' : o.kind === 'counter' ? 'counter' : 'shape'
     case 'arrow': return 'arrow'
-    case 'text': return 'text'
+    case 'text': return o.background ? 'note' : 'text'
     default: return undefined
   }
 }

@@ -34,6 +34,8 @@ export interface SelectionOverlay {
   arrowHandles?: ArrowHandle[]
   /** Snap guide lines (world) while moving, resizing or drawing. */
   guides?: { a: Vec2; b: Vec2 }[]
+  /** Pointer handle of the single selected note or counter; `virtual` = drag it to add a pointer. */
+  tailHandle?: { world: Vec2; virtual: boolean }
 }
 
 export interface ArrowHandle {

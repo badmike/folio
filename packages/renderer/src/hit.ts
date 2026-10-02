@@ -1,12 +1,13 @@
 import type { ArrowObject, CanvasObject, InkStroke, Rect, ShapeObject, Vec2 } from '@folio/document'
 import type { ResolveArrow } from './contract'
 import { arrowPath, resolveArrowEndpoints } from './arrows'
-import { inkLocalPoints, localBounds, localOutline, objectWorldBounds, type Resolve } from './bounds'
+import { inkLocalPoints, localBounds, localOutline, noteTailPoint, objectWorldBounds, type Resolve } from './bounds'
 import {
   applyMat, distToSegment, invert, meanScale, pointInPolygon, pointInRect, rectCorners, rectsOverlap,
   segmentIntersectsRect, transformMatrix,
 } from './math'
 import { shapeOutline } from './shapes'
+import { counterOutline, noteTail } from './callouts'
 
 export { pointInPolygon } from './math'
 
@@ -74,6 +75,10 @@ export function hitTestObject(obj: CanvasObject, world: Vec2, tolerance: number,
       // a blur mask is a solid patch; a frame is only hit on its border and name
       if (s.kind === 'blur') return pointInPolygon(p, outline) || polylineDistance(p, outline, true) <= half
       if (s.kind === 'frame') return polylineDistance(p, outline, true) <= half || pointInRect(p, frameLabelRect(s))
+      if (s.kind === 'counter') {
+        const pin = counterOutline(s)
+        return pointInPolygon(p, pin) || polylineDistance(p, pin, true) <= tol
+      }
       if (polylineDistance(p, outline, true) <= half) return true
       if (s.style.fillColor || s.label) return pointInPolygon(p, outline)
       return false
@@ -81,7 +86,9 @@ export function hitTestObject(obj: CanvasObject, world: Vec2, tolerance: number,
     case 'text':
     case 'image': {
       const b = localBounds(obj)!
-      return pointInRect(p, { x: b.x - tol, y: b.y - tol, width: b.width + 2 * tol, height: b.height + 2 * tol })
+      if (pointInRect(p, { x: b.x - tol, y: b.y - tol, width: b.width + 2 * tol, height: b.height + 2 * tol })) return true
+      const tail = obj.type === 'text' && obj.background ? noteTail(b, noteTailPoint(obj, resolve)) : undefined
+      return !!tail && (pointInPolygon(p, tail) || polylineDistance(p, tail, true) <= tol)
     }
     default:
       return false

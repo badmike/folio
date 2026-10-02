@@ -13,12 +13,13 @@ export {
 } from './arrows'
 export { catmullRom, orthogonalRoute, simplifyOrthogonal, dashPattern, dashPolyline, type FlatCurve } from './geometry/curves'
 export { hitTestObject, objectIntersectsRect, objectIntersectsLasso, pointInPolygon, frameLabelRect, FRAME_LABEL_SIZE } from './hit'
-export { localBounds, localOutline, worldCorners, objectWorldBounds, inkLocalPoints, type Resolve } from './bounds'
+export { localBounds, localOutline, worldCorners, objectWorldBounds, inkLocalPoints, anchorPoint, noteTailPoint, type Resolve } from './bounds'
 export { FONT_FAMILIES, FONT_LABELS, WEB_FONT_NAMES, fontString, measureText, layoutText, labelLayout, ARROW_LABEL_WIDTH, setTextMeasurer, resetTextMetrics, type TextLayout, type TextLike } from './text'
+export { noteBox, noteOutline, noteTail, counterTail, counterTip, counterOutline, counterLabel } from './callouts'
 export { shapeOutline, shapeVertices, roundedPolygon, cornerRadius } from './shapes'
 export {
   patternCoverage, patternCoverageLevels, patternFade, patternKind, pageRect, DESK_COLOR, DESK_COLOR_DARK, patternLevels,
-  backgroundLevels, patternColor, frameColor, DYNAMIC_MIN_PX, MINOR_WEIGHT, type PatternLevel,
+  backgroundLevels, patternColor, patternDensity, isFixedOnlyPattern, frameColor, DYNAMIC_MIN_PX, MINOR_WEIGHT, type PatternLevel,
 } from './background'
 export {
   buildOverlay, selectionHandles, worldToScreen, ACCENT, HANDLE_SIZE, ROTATE_HANDLE_OFFSET,

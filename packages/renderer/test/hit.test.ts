@@ -1,5 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest'
+import type { ShapeObject } from '@folio/document'
 import { resolveArrowEndpoints } from '../src/arrows'
+import { counterOutline, counterTip, noteBox, noteTail } from '../src/callouts'
 import { hitTestObject, objectIntersectsLasso, objectIntersectsRect, pointInPolygon } from '../src/hit'
 import { objectWorldBounds, localBounds } from '../src/bounds'
 import { layoutText, measureText, FONT_FAMILIES } from '../src/text'
@@ -241,5 +243,46 @@ describe('overlay', () => {
       selection: { ids: [], showHandles: false, marquee: { x: 0, y: 0, width: 5, height: 5 }, lasso: [{ x: 0, y: 0 }, { x: 5, y: 5 }, { x: 0, y: 9 }], bindingTargetId: 't' },
     }), { x: 0, y: 0, zoom: 1 })
     expect(polys.length).toBe(4)
+  })
+})
+
+describe('notes and counters', () => {
+  it("a counter's pin tip points towards its tail and is part of the hit area", () => {
+    const c = shape('c', 'counter', 40, 40, { label: '1', tail: { x: 20, y: 100 } }, { fillColor: '#e03131' })
+    const pin = counterOutline(c)
+    const tip = pin[pin.length - 1]
+    expect(tip.x).toBeCloseTo(20)
+    expect(tip.y).toBeCloseTo(20 + 20 * Math.SQRT2)
+    expect(hitTestObject(c, { x: 20, y: 46 }, 0, none)).toBe(true)
+    expect(hitTestObject(c, { x: 2, y: 46 }, 0, none)).toBe(false)
+  })
+
+  it('counter styles: the drop reaches further than the pin, a circle has no tip', () => {
+    const c = (counterStyle: 'pin' | 'drop' | 'circle') => shape('c', 'counter', 40, 40, { label: '1', counterStyle, tail: { x: 20, y: 100 } }, { fillColor: '#e03131' })
+    const lowest = (s: ShapeObject) => Math.max(...counterOutline(s).map((p) => p.y))
+    expect(lowest(c('pin'))).toBeCloseTo(20 + 20 * Math.SQRT2)
+    expect(lowest(c('drop'))).toBeCloseTo(20 + 20 * 2.1, 1)
+    expect(lowest(c('circle'))).toBeCloseTo(40)
+    expect(counterTip(c('circle'))).toBeUndefined()
+  })
+
+  it("a note's pointer reaches outside the box, is hit and grows the bounds; a point inside the box draws none", () => {
+    const n = text('n', 'Note', { background: '#e03131', tail: { x: 200, y: 100 } })
+    const box = noteBox(n)
+    expect(noteTail(box, { x: box.x + 1, y: box.y + 1 })).toBeUndefined()
+    expect(hitTestObject(n, { x: 195, y: 97 }, 1, none)).toBe(true)
+    expect(hitTestObject(n, { x: 195, y: 40 }, 1, none)).toBe(false)
+    // a pointer that barely leaves the box is drawn as an equilateral nub on the edge facing it
+    // and stands square on that edge even when the point is off to the side
+    const nub = noteTail(box, { x: box.x + box.width * 0.8, y: box.y + box.height + 2 })!
+    const side = (a: { x: number; y: number }, c: { x: number; y: number }) => Math.hypot(a.x - c.x, a.y - c.y)
+    expect(side(nub[0], nub[1])).toBeCloseTo(side(nub[0], nub[2]))
+    expect(side(nub[1], nub[2])).toBeCloseTo(side(nub[0], nub[2]))
+    expect(nub[0].y).toBeCloseTo(nub[2].y)
+    expect(nub[1].x).toBeCloseTo((nub[0].x + nub[2].x) / 2)
+    expect(nub[1].y).toBeGreaterThan(box.y + box.height)
+    const b = objectWorldBounds(n, none)!
+    expect(b.x + b.width).toBeGreaterThanOrEqual(200)
+    expect(b.y + b.height).toBeGreaterThanOrEqual(100)
   })
 })

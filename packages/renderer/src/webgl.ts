@@ -1,8 +1,9 @@
 import { DEFAULT_BLUR_SIZE, adaptColor, isDarkColor } from '@folio/document'
 import type { ArrowObject, CanvasObject, ImageObject, InkStroke, ShapeObject, TextObject, Vec2 } from '@folio/document'
 import { arrowPath } from './arrows'
-import { DESK_COLOR, DESK_COLOR_DARK, DOT_RADIUS_PX, MINOR_WEIGHT, backgroundLevels, frameColor, pageRect, patternColor, patternKind } from './background'
-import { worldCorners } from './bounds'
+import { CORNELL_CUE, CORNELL_SUMMARY, DESK_COLOR, DESK_COLOR_DARK, DOT_RADIUS_PX, FADE_FULL_PX, FADE_MIN_PX, MINOR_WEIGHT, POLAR_STEP, backgroundLevels, frameColor, pageRect, patternColor, patternKind } from './background'
+import { noteTailPoint, worldCorners } from './bounds'
+import { counterLabel, noteBox, noteOutline, noteTail } from './callouts'
 import { pathMidpoint } from './canvas2d'
 import { FRAME_LABEL_SIZE } from './hit'
 import { parseColor, premultiplied } from './color'
@@ -805,6 +806,18 @@ export class WebGLRenderer implements Renderer {
           }
           break
         }
+        if (s.kind === 'counter') {
+          const l = counterLabel(s)
+          // the number sits on the pin, so a filled pin keeps the picked colour as is
+          const lc = s.style.fillColor ? s.style.strokeColor : adaptColor(s.style.strokeColor, bgc)
+          if (l) {
+            this.drawText(
+              cache ? s.id + '#label' : null, `${s.label}|${lc}|${s.width}x${s.height}|${s.fontFamily ?? ''}`, l.layout, lc, 'center', null,
+              multiply(m, [1, 0, 0, 1, l.x, l.y]), Math.max(Math.abs(s.transform.scaleX), Math.abs(s.transform.scaleY)), camera, s.style.opacity,
+            )
+          }
+          break
+        }
         if (s.label) {
           const l = labelLayout(s.label, s.width, clean, false, s.labelSize)
           const lc = adaptColor(s.style.strokeColor, bgc)
@@ -839,7 +852,23 @@ export class WebGLRenderer implements Renderer {
       case 'text': {
         const t = obj as TextObject
         const l = layoutText(t)
-        const tc = adaptColor(t.color, bgc)
+        // a note's text sits on its box, so it keeps the picked colour as is
+        const tc = t.background ? t.color : adaptColor(t.color, bgc)
+        if (t.background) {
+          const box = noteBox(t)
+          const fill = premultiplied(adaptColor(t.background, bgc), t.opacity ?? 1)
+          const tailPoint = noteTailPoint(t, scene.resolve)
+          this.drawCachedMesh(
+            t.id, `${t.updatedAt}|${bgc}|${t.background}|${t.opacity ?? 1}|${box.width}x${box.height}|${tailPoint?.x},${tailPoint?.y}`,
+            transformMatrix(t.transform), camera,
+            (mb) => {
+              addPolygon(mb, noteOutline(box), fill)
+              const tail = noteTail(box, tailPoint)
+              if (tail) addPolygon(mb, tail, fill)
+            },
+            cache,
+          )
+        }
         this.drawText(
           cache ? t.id : null, `${t.updatedAt}|${t.text}|${tc}|${t.fontSize}|${t.fontFamily}|${t.width ?? ''}|${t.align ?? ''}`,
           l, tc, t.align, null, transformMatrix(t.transform),

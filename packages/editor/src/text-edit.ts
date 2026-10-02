@@ -2,10 +2,10 @@
  * DOM text-editing overlay: a positioned <textarea> that tracks the camera.
  * Handles new text objects, editing existing text and editing shape/arrow labels.
  */
-import { DEFAULT_LABEL_SIZE, type ObjectId, type ShapeObject, type TextObject, type Transform, type Vec2 } from '@folio/document'
-import { ARROW_LABEL_WIDTH, FONT_FAMILIES, FRAME_LABEL_SIZE, arrowPath, frameColor, labelLayout, layoutText, pathMidpoint, type TextLayout } from '@folio/renderer'
+import { DEFAULT_LABEL_SIZE, type ArrowBinding, type ObjectId, type ShapeObject, type TextObject, type Transform, type Vec2 } from '@folio/document'
+import { ARROW_LABEL_WIDTH, FONT_FAMILIES, FRAME_LABEL_SIZE, arrowPath, counterLabel, frameColor, labelLayout, layoutText, pathMidpoint, type TextLayout } from '@folio/renderer'
 import type { Editor } from './editor'
-import { IDENTITY, createId, localToWorld } from './geometry'
+import { IDENTITY, createId, localToWorld, worldToLocal } from './geometry'
 
 /** Horizontal padding around the text, in screen pixels. */
 const CARET_ROOM = 2
@@ -21,6 +21,8 @@ interface Placement {
   align: 'left' | 'center' | 'right'
   wrap: boolean
 }
+
+type NoteDraft = { tail?: Vec2; tailBinding?: ArrowBinding }
 
 type Mode =
   | { kind: 'new'; draft: TextObject }
@@ -39,9 +41,19 @@ export class TextEditor {
     return !!this.el
   }
 
-  startNew(p: Vec2): void {
+  /**
+   * Start a new text at `p` (world). `note` makes it a note on a box, pointing at `note.tail`
+   * (world) when given, and sticking to `note.tailBinding`'s object.
+   */
+  startNew(p: Vec2, note?: NoteDraft): void {
     if (this.editor.readOnly) return
     this.commit()
+    const draft = this.draft(p, note)
+    this.open({ kind: 'new', draft }, '')
+  }
+
+  /** The text (or note) a tap at `p` starts; also used to preview a note while its pointer is dragged. */
+  draft(p: Vec2, note?: NoteDraft): TextObject {
     const t = this.editor.itemStyle
     const now = Date.now()
     const draft: TextObject = {
@@ -49,7 +61,12 @@ export class TextEditor {
       transform: { x: p.x, y: p.y - t.fontSize * 0.65, rotation: 0, scaleX: 1, scaleY: 1 },
       text: '', fontSize: t.fontSize, fontFamily: t.fontFamily, color: t.strokeColor, align: t.textAlign, opacity: t.opacity,
     }
-    this.open({ kind: 'new', draft }, '')
+    if (note) {
+      draft.background = t.backgroundColor === 'transparent' ? '#e03131' : t.backgroundColor
+      if (note.tail) draft.tail = worldToLocal(draft.transform, note.tail)
+      if (note.tailBinding) draft.tailBinding = note.tailBinding
+    }
+    return draft
   }
 
   /** Edit a text object or the label of a shape/arrow. Returns false if not editable. */
@@ -59,7 +76,8 @@ export class TextEditor {
     if (!o) return false
     if (o.type === 'text') {
       this.commit()
-      this.editingId = id
+      // a note keeps showing its box while the DOM editor shows the text
+      if (!o.background) this.editingId = id
       this.open({ kind: 'text', id }, o.text)
       return true
     }
@@ -113,6 +131,7 @@ export class TextEditor {
     if (!el || !mode) return
     const p = this.placement(mode, el.value)
     if (!p) return
+    this.previewNote(mode, el.value)
     const z = this.editor.zoom
     const s = this.editor.worldToScreen(localToWorld(p.transform, p.origin))
     // padding leaves room for the caret and for glyphs reaching past the line boxes (which would
@@ -127,6 +146,16 @@ export class TextEditor {
     })
   }
 
+  /** Notes: draw the box (sized to the typed text) while the text itself is in the DOM. */
+  private previewNote(mode: Mode, value: string): void {
+    if (mode.kind === 'new') {
+      if (mode.draft.background) this.editor.setPreviewObjects([{ ...mode.draft, text: value, color: 'transparent' }])
+    } else if (mode.kind === 'text') {
+      const o = this.editor.getObject(mode.id)
+      if (o?.type === 'text' && o.background) this.editor.setPreview([{ id: mode.id, patch: { text: value, color: 'transparent' } }])
+    }
+  }
+
   /** Layout box of the edited text in the object's local space, mirroring how the renderer draws it. */
   private placement(mode: Mode, value: string): Placement | undefined {
     const clean = this.editor.theme === 'clean'
@@ -139,6 +168,13 @@ export class TextEditor {
         return { transform: o.transform, origin: { x: 0, y: -layout.height - 2 }, layout, fontSize, family: FONT_FAMILIES.sans, color, align: 'left', wrap: false }
       }
       if (o?.type !== 'shape' && o?.type !== 'arrow') return undefined
+      if (o.type === 'shape' && o.kind === 'counter') {
+        const l = counterLabel({ ...o, label: value || ' ' })!
+        return {
+          transform: o.transform, origin: { x: l.x, y: l.y }, layout: l.layout, fontSize: l.fontSize, family: FONT_FAMILIES[o.fontFamily ?? 'sans'],
+          color: o.style.strokeColor, align: 'center', wrap: false,
+        }
+      }
       const fontSize = o.labelSize ?? DEFAULT_LABEL_SIZE
       const family = clean ? FONT_FAMILIES.sans : FONT_FAMILIES.hand
       const label = { family, color: o.style.strokeColor, align: 'center', wrap: true, fontSize } as const
@@ -154,9 +190,11 @@ export class TextEditor {
     const t = mode.kind === 'new' ? mode.draft : this.editor.getObject(mode.id)
     if (t?.type !== 'text') return undefined
     const layout = layoutText({ ...t, text: value })
+    // a note being edited is previewed with transparent text, so take the colour from the stored note
+    const stored = mode.kind === 'text' ? this.editor.document.object(this.editor.pageId, mode.id) : undefined
     return {
       transform: t.transform, origin: { x: 0, y: 0 }, layout, fontSize: t.fontSize,
-      family: FONT_FAMILIES[t.fontFamily], color: t.color, align: t.align ?? 'left', wrap: !!t.width,
+      family: FONT_FAMILIES[t.fontFamily], color: stored?.type === 'text' ? stored.color : t.color, align: t.align ?? 'left', wrap: !!t.width,
     }
   }
 
@@ -172,6 +210,7 @@ export class TextEditor {
     this.editingId = undefined
     el.remove()
     this.editor.setPreview(null)
+    if (mode.kind === 'new' && mode.draft.background) this.editor.setPreviewObjects([])
     const ed = this.editor
     if (mode.kind === 'new') {
       if (value.trim()) {

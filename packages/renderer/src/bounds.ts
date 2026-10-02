@@ -1,8 +1,9 @@
-import type { ArrowObject, CanvasObject, InkStroke, ObjectId, Rect, Vec2 } from '@folio/document'
-import { applyMat, boundsOfPoints, rectCorners, transformMatrix, unionRects } from './math'
+import { counterReach, type ArrowObject, type CanvasObject, type InkStroke, type ObjectId, type Rect, type TextObject, type Vec2 } from '@folio/document'
+import { applyMat, boundsOfPoints, invert, rectCorners, transformMatrix, unionRects } from './math'
 import { measureText } from './text'
 import { shapeOutline } from './shapes'
 import { arrowPath, arrowTypeOf } from './arrows'
+import { noteBox } from './callouts'
 
 /** Flat stride of ink points (mirrors INK_POINT_STRIDE from @folio/document). */
 export const STRIDE = 6
@@ -23,11 +24,26 @@ export function localBounds(obj: CanvasObject): Rect | null {
     case 'shape': return { x: 0, y: 0, width: obj.width, height: obj.height }
     case 'image': return { x: 0, y: 0, width: obj.width, height: obj.height }
     case 'text': {
+      if (obj.background) return noteBox(obj)
       const m = measureText(obj)
       return { x: 0, y: 0, width: m.width, height: m.height }
     }
     default: return null
   }
+}
+
+/** World point an anchor (normalised within the local bounds) of an object sits at, if it can carry one. */
+export function anchorPoint(target: CanvasObject, anchor: Vec2 = { x: 0.5, y: 0.5 }): Vec2 | undefined {
+  const b = localBounds(target)
+  return b ? applyMat(transformMatrix(target.transform), b.x + anchor.x * b.width, b.y + anchor.y * b.height) : undefined
+}
+
+/** A note's pointer point in its local space: on the object it sticks to, else the stored point. */
+export function noteTailPoint(t: TextObject, resolve?: Resolve): Vec2 | undefined {
+  const target = t.tailBinding && resolve ? resolve(t.tailBinding.objectId) : undefined
+  const world = target && target.id !== t.id ? anchorPoint(target, t.tailBinding!.anchor) : undefined
+  const inv = world && invert(transformMatrix(t.transform))
+  return inv ? applyMat(inv, world!.x, world!.y) : t.tail
 }
 
 /** Closed outline polygon in local space used for edge intersection & hit tests. */
@@ -70,9 +86,12 @@ export function objectWorldBounds(obj: CanvasObject, resolve: Resolve, arrowEndp
   }
   const corners = worldCorners(obj)
   if (!corners) return undefined
+  // a note's pointer reaches outside its box
+  const tail = obj.type === 'text' && obj.background ? noteTailPoint(obj, resolve) : undefined
+  if (tail) corners.push(applyMat(transformMatrix(obj.transform), tail.x, tail.y))
   const b = boundsOfPoints(corners)
   let pad = 0
   if (obj.type === 'ink') pad = obj.style.width * Math.max(Math.abs(obj.transform.scaleX), Math.abs(obj.transform.scaleY))
-  else if (obj.type === 'shape') pad = obj.style.strokeWidth / 2 + 2
+  else if (obj.type === 'shape') pad = obj.style.strokeWidth / 2 + 2 + (obj.kind === 'counter' ? Math.min(obj.width, obj.height) * counterReach(obj.counterStyle) : 0)
   return { x: b.x - pad, y: b.y - pad, width: b.width + pad * 2, height: b.height + pad * 2 }
 }

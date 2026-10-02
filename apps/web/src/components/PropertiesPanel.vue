@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
   DRAWABLE_SHAPE_KINDS,
-  type Arrowhead, type ArrowType, type BlurMode, type FillStyle, type FontFamily, type HighlighterCap, type Roundness, type StrokeLineStyle,
+  type Arrowhead, type ArrowType, type BlurMode, type CounterStyle, type FillStyle, type FontFamily, type HighlighterCap, type Roundness, type StrokeLineStyle,
 } from '@folio/document'
 import { FONT_SIZE_PRESETS, STROKE_WIDTH_PRESETS, type AlignMode, type DistributeAxis, type StyleProp } from '@folio/editor'
 import { FONT_FAMILIES, FONT_LABELS } from '@folio/renderer'
@@ -40,7 +40,7 @@ function toggleCollapsed() {
 }
 
 const hasSel = computed(() => sel.value.count > 0)
-const DRAW_TOOLS = ['pen', 'highlighter', 'eraser', 'shape', 'arrow', 'text', 'frame', 'blur']
+const DRAW_TOOLS = ['pen', 'highlighter', 'eraser', 'shape', 'arrow', 'text', 'note', 'counter', 'frame', 'blur']
 const visible = computed(() => {
   if (ctl.locked.value) return false
   if (props.zen) return hasSel.value || tool.value === 'pen' || tool.value === 'highlighter'
@@ -74,6 +74,9 @@ const ROUGH: Option<number>[] = [
   { value: 0, glyph: 'rough-0', label: 'Architect' }, { value: 1, glyph: 'rough-1', label: 'Artist' }, { value: 2, glyph: 'rough-2', label: 'Cartoonist' },
 ]
 const BLUR_MODES: Option<BlurMode>[] = [{ value: 'pixelate', glyph: 'blur-pixelate', label: 'Pixelate' }, { value: 'gaussian', glyph: 'blur-gaussian', label: 'Gaussian blur' }]
+const COUNTER_STYLES: Option<CounterStyle>[] = [
+  { value: 'pin', glyph: 'counter-pin', label: 'Pin' }, { value: 'drop', glyph: 'counter-drop', label: 'Drop' }, { value: 'circle', glyph: 'counter-circle', label: 'Circle' },
+]
 const CORNERS: Option<Roundness>[] = [{ value: 'sharp', glyph: 'corner-sharp', label: 'Sharp' }, { value: 'round', glyph: 'corner-round', label: 'Round' }]
 const CAPS: Option<HighlighterCap>[] = [
   { value: 'flat', glyph: 'cap-flat', label: 'Flat' }, { value: 'round', glyph: 'cap-round', label: 'Round' },
@@ -147,7 +150,7 @@ async function copy() {
 }
 const e = () => ctl.editor.value!
 const TOOL_TITLES: Record<string, string> = {
-  pen: 'Pen', highlighter: 'Highlighter', eraser: 'Eraser', shape: 'Shape', arrow: 'Arrow', text: 'Text', select: 'Selection', hand: 'Hand', frame: 'Frame', blur: 'Blur',
+  pen: 'Pen', highlighter: 'Highlighter', eraser: 'Eraser', shape: 'Shape', arrow: 'Arrow', text: 'Text', note: 'Note', counter: 'Counter', select: 'Selection', hand: 'Hand', frame: 'Frame', blur: 'Blur',
 }
 const title = computed(() => (hasSel.value ? `${sel.value.count} selected` : TOOL_TITLES[tool.value] ?? ''))
 </script>
@@ -196,9 +199,14 @@ const title = computed(() => (hasSel.value ? `${sel.value.count} selected` : TOO
           <label>Eraser size <b>{{ opts.eraser.size }}</b></label>
           <input type="range" min="8" max="80" step="2" :value="opts.eraser.size" aria-label="Eraser size" @input="ctl.setOption('eraser', { size: num($event) })" />
         </section>
+        <p v-if="!hasSel && tool === 'note'" class="hint muted">Tap to write a note. Drag from the spot the note should point at to where it goes. Drag the dot below a selected note to add a pointer; double-tap it to remove the pointer.</p>
+        <p v-if="!hasSel && tool === 'counter'" class="hint muted">Tap to place the next number. Drag to aim the pin. Double-tap a counter to change its number.</p>
         <p v-if="!hasSel && tool === 'frame'" class="hint muted">Drag to draw a frame. Whatever lies inside moves with it and is clipped to it. Double-tap the name to rename; "Remove frame" frees the content again.</p>
 
-        <!-- Excalidraw order -->
+        <section v-if="has('counterStyle')" data-testid="sec-counterStyle">
+          <label>Counter</label>
+          <OptionRow name="Counter style" :options="COUNTER_STYLES" :model-value="val('counterStyle')" @pick="(v) => ctl.setStyle({ counterStyle: v })" />
+        </section>
         <section v-if="has('strokeColor')">
           <label>Stroke</label>
           <ColorRow label="Stroke" name="stroke" :quick="strokeQuick" :model-value="str('strokeColor')" :canvas-background="bg" :allow-transparent="false"

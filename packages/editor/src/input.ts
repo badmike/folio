@@ -9,7 +9,7 @@ import { DRAWABLE_SHAPE_KINDS, type ArrowObject, type CanvasObject, type InkPoin
 import { ROTATE_HANDLE_OFFSET, arrowPath, elbowWaypointsAfterDrag, linePointsAfterDrag } from '@folio/renderer'
 import { buildArrow, buildShape, shapeGeometry, snapAngle } from './create'
 import type { Editor } from './editor'
-import { createId, geometricBounds, rectFromPoints, segmentTouchesObject, unionRects } from './geometry'
+import { createId, geometricBounds, rectFromPoints, segmentTouchesObject, unionRects, worldToLocal } from './geometry'
 import { buildInkStroke } from './ink'
 import { scribbleHull } from './scribble'
 import { snapBox, snapPoint, type SnapContext, type SnapGuide } from './snap'
@@ -276,6 +276,8 @@ export class InputController {
       case 'blur': return new ShapeInteraction(ed, id, s, 'blur')
       case 'arrow': return new ArrowInteraction(ed, id, s)
       case 'text': return new TextTapInteraction(ed, id, s)
+      case 'note': return new NoteInteraction(ed, id, s)
+      case 'counter': return new CounterInteraction(ed, id, s)
       case 'hand': return new PanInteraction(ed, id, s)
     }
   }
@@ -519,6 +521,8 @@ const TOOL_KEYS: Record<string, { tool: Tool; kind?: ShapeKind }> = {
   f: { tool: 'frame' },
   m: { tool: 'highlighter' },
   x: { tool: 'blur' },
+  n: { tool: 'note' },
+  c: { tool: 'counter' },
 }
 void DRAWABLE_SHAPE_KINDS
 
@@ -661,7 +665,7 @@ class EraserInteraction implements Interaction {
   }
 }
 
-type SelectMode = 'none' | 'move' | 'resize' | 'rotate' | 'endpoint' | 'waypoint' | 'segment' | 'linepoint' | 'marquee' | 'lasso'
+type SelectMode = 'none' | 'move' | 'resize' | 'rotate' | 'endpoint' | 'waypoint' | 'segment' | 'linepoint' | 'tail' | 'marquee' | 'lasso'
 
 class SelectInteraction implements Interaction {
   private mode: SelectMode = 'none'
@@ -705,7 +709,15 @@ class SelectInteraction implements Interaction {
     const zoom = ed.camera.zoom
     const hitR = s.pointerType === 'mouse' ? 10 : 18
 
-    // 1. handles / path points of the current selection
+    // 1. handles / path points of the current selection; a pointer handle wins over the box handles
+    const tail = ed.selectedTailHandle()
+    const owner = ed.selectedPointerOwner()
+    if (tail && owner && Math.hypot((tail.world.x - ed.camera.x) * zoom - s.x, (tail.world.y - ed.camera.y) * zoom - s.y) < hitR) {
+      this.mode = 'tail'
+      this.leaves = [owner]
+      this.snapshot(this.leaves)
+      return
+    }
     if (ed.selection.length) {
       const leaves = ed.leavesOf(ed.selection)
       const path = ed.selectedArrow() ?? ed.selectedLine()
@@ -905,6 +917,20 @@ class SelectInteraction implements Interaction {
         ed.setOverlayExtra({ bindingTargetId: target?.id })
         break
       }
+      case 'tail': {
+        if (!this.moved && dscreen < 3) return
+        this.moved = true
+        const o = this.leaves[0]
+        // a note's pointer sticks to what it is dropped on (snapping to its centre); a counter's only turns
+        const target = o.type === 'text' ? ed.pointerTarget({ x: s.wx, y: s.wy }, o.id) : undefined
+        const patch: ObjectPatch = { tail: worldToLocal(o.transform, target?.world ?? { x: s.wx, y: s.wy }), updatedAt: Date.now() }
+        if (target) patch.tailBinding = target.binding
+        else if (o.type === 'text') patch.$unset = ['tailBinding']
+        this.patches = [{ id: o.id, patch }]
+        ed.setPreview(this.patches)
+        ed.setOverlayExtra({ bindingTargetId: target?.binding.objectId })
+        break
+      }
       case 'linepoint': {
         if (!this.moved && dscreen < 3) return
         this.moved = true
@@ -956,7 +982,8 @@ class SelectInteraction implements Interaction {
       case 'endpoint':
       case 'waypoint':
       case 'segment':
-      case 'linepoint': {
+      case 'linepoint':
+      case 'tail': {
         const patches = this.patches
         ed.setPreview(null)
         ed.setPreviewObjects([])
@@ -965,6 +992,7 @@ class SelectInteraction implements Interaction {
         else if (this.moved && patches) ed.commitTransform(patches) // single commit = one undo step
         else if (this.mode === 'waypoint' && !this.insertWaypoint) this.tapWaypoint(s)
         else if (this.mode === 'linepoint' && this.handleIndex > 0) this.tapLinePoint(s)
+        else if (this.mode === 'tail') this.tapTail(s)
         else if (this.mode === 'move') {
           // a plain tap on a member of a multi-selection selects just that object
           if (!this.shift && this.wasSelected && this.hitId && ed.selection.length > 1) ed.select([this.hitId])
@@ -1007,6 +1035,21 @@ class SelectInteraction implements Interaction {
       const patch: ObjectPatch = { ...geo, updatedAt: Date.now() } as ObjectPatch
       if ((geo.points?.length ?? 0) <= 2) { delete (patch as Record<string, unknown>).points; patch.$unset = ['points'] }
       this.ed.updateObjects([{ id: line.id, patch }])
+      return
+    }
+    lastWaypointTap.set(this.ed, { key, t: now })
+  }
+
+  /** Double-tap on a note's pointer handle removes the pointer. */
+  private tapTail(s: Sample): void {
+    const o = this.leaves[0]
+    if (o.type !== 'text' || !o.tail) return
+    const now = s.time || Date.now()
+    const key = `${o.id}:tail`
+    const prev = lastWaypointTap.get(this.ed)
+    if (prev && prev.key === key && now - prev.t < DOUBLE_TAP_MS) {
+      lastWaypointTap.delete(this.ed)
+      this.ed.updateObjects([{ id: o.id, patch: { $unset: ['tail', 'tailBinding'] } }])
       return
     }
     lastWaypointTap.set(this.ed, { key, t: now })
@@ -1176,4 +1219,84 @@ class TextTapInteraction implements Interaction {
     this.ed.startTextAt(p)
   }
   cancel(): void {}
+}
+
+/**
+ * Note tool: a tap starts a note there; a drag starts at the point the note's pointer aims at and
+ * ends where the note goes.
+ */
+class NoteInteraction implements Interaction {
+  private start: Vec2
+  private sx: number
+  private sy: number
+  private moved = false
+  /** What the drag started on: the pointer sticks to it. */
+  private target?: ReturnType<Editor['pointerTarget']>
+  constructor(private ed: Editor, public pointerId: number, s: Sample) {
+    this.start = { x: s.wx, y: s.wy }
+    this.sx = s.x
+    this.sy = s.y
+    this.target = ed.pointerTarget(this.start, '')
+  }
+  private note() {
+    return { tail: this.target?.world ?? this.start, tailBinding: this.target?.binding }
+  }
+  move(s: Sample): void {
+    if (!this.moved && Math.hypot(s.x - this.sx, s.y - this.sy) <= TAP_MAX_MOVE) return
+    this.moved = true
+    this.ed.setPreviewObjects([{ ...this.ed.textEditor.draft({ x: s.wx, y: s.wy }, this.note()), text: 'Note' }])
+    this.ed.setOverlayExtra({ bindingTargetId: this.target?.binding.objectId })
+  }
+  up(s: Sample): void {
+    this.ed.setPreviewObjects([])
+    this.ed.setOverlayExtra({})
+    const p = { x: s.wx, y: s.wy }
+    if (!this.moved) {
+      const hit = this.ed.hitTest(p)
+      if (hit?.type === 'text' && this.ed.startTextEdit(hit.id)) return
+    }
+    this.ed.textEditor.startNew(p, this.moved ? this.note() : {})
+  }
+  cancel(): void {
+    this.ed.setPreviewObjects([])
+    this.ed.setOverlayExtra({})
+  }
+}
+
+/** Counter tool: a tap places the next number; dragging from the spot aims the pin's tip. The tool stays active. */
+class CounterInteraction implements Interaction {
+  private start: Vec2
+  private sx: number
+  private sy: number
+  private moved = false
+  private id = createId()
+  constructor(private ed: Editor, public pointerId: number, s: Sample) {
+    this.start = { x: s.wx, y: s.wy }
+    this.sx = s.x
+    this.sy = s.y
+  }
+  private build(s: Sample): ShapeObject {
+    const ed = this.ed
+    const size = ed.counterSize()
+    const shape = buildShape(this.id, 'counter', {
+      transform: { x: this.start.x - size / 2, y: this.start.y - size / 2, rotation: 0, scaleX: 1, scaleY: 1 }, width: size, height: size,
+    }, { ...ed.shapeStyle(), roughness: 0 }, ed.nextZ())
+    shape.label = String(ed.nextCounterNumber())
+    shape.fontFamily = ed.itemStyle.fontFamily
+    if (ed.itemStyle.counterStyle !== 'pin') shape.counterStyle = ed.itemStyle.counterStyle
+    if (this.moved) shape.tail = { x: s.wx - shape.transform.x, y: s.wy - shape.transform.y }
+    return shape
+  }
+  move(s: Sample): void {
+    if (!this.moved && Math.hypot(s.x - this.sx, s.y - this.sy) <= TAP_MAX_MOVE) return
+    this.moved = true
+    this.ed.setPreviewObjects([this.build(s)])
+  }
+  up(s: Sample): void {
+    this.ed.setPreviewObjects([])
+    this.ed.addObjects([this.build(s)])
+  }
+  cancel(): void {
+    this.ed.setPreviewObjects([])
+  }
 }
