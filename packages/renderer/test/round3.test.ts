@@ -4,7 +4,7 @@ import { lineHandleSpecs, linePointsAfterDrag, elbowWaypointsAfterDrag } from '.
 import { highlighterOutline } from '../src/geometry/ink'
 import { buildShapeGeometry } from '../src/geometry/rough'
 import { hitTestObject } from '../src/hit'
-import { cornerRadius, roundedPolygon, shapeOutline } from '../src/shapes'
+import { cornerRadius, roundedPolygon, roundedShape, shapeOutline } from '../src/shapes'
 
 const ident = { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 }
 const style = { strokeColor: '#000', strokeWidth: 2, opacity: 1, roughness: 0, seed: 1 }
@@ -24,12 +24,29 @@ describe('rounded corners', () => {
     expect(o.length).toBeGreaterThan(8)
     for (const p of o) { expect(p.x).toBeGreaterThanOrEqual(-1e-9); expect(p.y).toBeGreaterThanOrEqual(-1e-9); expect(p.x).toBeLessThanOrEqual(100); expect(p.y).toBeLessThanOrEqual(60) }
     expect(o.some((p) => p.x === 0 && p.y === 0)).toBe(false)
-    expect(roundedPolygon([{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 60 }, { x: 0, y: 60 }], 15).d).toMatch(/^M0 15 Q0 0 15 0L85 0 Q100 0 100 15/)
+    expect(roundedPolygon([{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 60 }, { x: 0, y: 60 }], 15).d).toMatch(/^M0 15 C0 5 5 0 15 0L85 0 C95 0 100 5 100 15/)
   })
   it('rough geometry of a round rectangle is a curved path, a sharp one a rectangle', () => {
     const round = buildShapeGeometry(box('rectangle', 100, 60, { style: { ...style, roundness: 'round' } }), 'rough')
     const sharp = buildShapeGeometry(box('rectangle', 100, 60), 'rough')
     expect(round.strokes.flat().length).toBeGreaterThan(sharp.strokes.flat().length)
+  })
+  it('rounded outlines are drawn as joined strokes that start and end on the tangent points', () => {
+    const shape = box('rectangle', 100, 60, { style: { ...style, roundness: 'round' } })
+    const clean = buildShapeGeometry(shape, 'clean').strokes
+    expect(clean).toHaveLength(1)
+    expect(clean[0][0]).toEqual(clean[0].at(-1))
+    const tangents = [[0, 15], [15, 0], [85, 0], [100, 15], [100, 45], [85, 60], [15, 60], [0, 45]].map(([x, y]) => ({ x, y }))
+    const rough = buildShapeGeometry({ ...shape, style: { ...shape.style, roughness: 2 } }, 'rough').strokes
+    for (const line of rough) {
+      expect(tangents).toContainEqual(line[0])
+      expect(tangents).toContainEqual(line.at(-1))
+    }
+  })
+  it('diamond corners are proportional like Excalidraw: cut at a quarter of each edge', () => {
+    const d = roundedShape('diamond', 400, 200, 'round')!.d
+    expect(d).toMatch(/^M150 25 C200 0 200 0 250 25/)
+    expect(roundedShape('diamond', 400, 200, 'sharp')).toBeUndefined()
   })
 })
 

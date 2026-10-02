@@ -24,10 +24,12 @@ export function shapeVertices(kind: ShapeKind, w: number, h: number): Vec2[] | u
 
 /**
  * Round the corners of a closed polygon: each corner is cut `r` (capped at half the
- * adjacent edges) along both edges and joined by a quadratic curve through the vertex.
+ * adjacent edges) along both edges and joined by a cubic tangent to both edges whose
+ * control points sit `pull` of the way to the vertex (2/3 = the quadratic through the
+ * vertex, 1 = tighter tips like Excalidraw's diamonds).
  * Returns the SVG path (for roughjs) and a flattened polygon (for hit tests / edges).
  */
-export function roundedPolygon(pts: Vec2[], r: number, steps = 4): { d: string; polygon: Vec2[] } {
+export function roundedPolygon(pts: Vec2[], r: number, pull = 2 / 3, steps = 6): { d: string; polygon: Vec2[] } {
   const n = pts.length
   const polygon: Vec2[] = []
   let d = ''
@@ -38,13 +40,28 @@ export function roundedPolygon(pts: Vec2[], r: number, steps = 4): { d: string; 
     const ri = Math.min(r, lenIn / 2, lenOut / 2)
     const a = { x: cur.x + ((prev.x - cur.x) / lenIn) * ri, y: cur.y + ((prev.y - cur.y) / lenIn) * ri }
     const b = { x: cur.x + ((next.x - cur.x) / lenOut) * ri, y: cur.y + ((next.y - cur.y) / lenOut) * ri }
-    d += (i === 0 ? 'M' : 'L') + `${a.x} ${a.y} Q${cur.x} ${cur.y} ${b.x} ${b.y}`
+    const c1 = { x: a.x + (cur.x - a.x) * pull, y: a.y + (cur.y - a.y) * pull }
+    const c2 = { x: b.x + (cur.x - b.x) * pull, y: b.y + (cur.y - b.y) * pull }
+    d += (i === 0 ? 'M' : 'L') + `${a.x} ${a.y} C${c1.x} ${c1.y} ${c2.x} ${c2.y} ${b.x} ${b.y}`
     for (let s = 0; s <= steps; s++) {
       const t = s / steps, u = 1 - t
-      polygon.push({ x: u * u * a.x + 2 * u * t * cur.x + t * t * b.x, y: u * u * a.y + 2 * u * t * cur.y + t * t * b.y })
+      const k0 = u * u * u, k1 = 3 * u * u * t, k2 = 3 * u * t * t, k3 = t * t * t
+      polygon.push({ x: k0 * a.x + k1 * c1.x + k2 * c2.x + k3 * b.x, y: k0 * a.y + k1 * c1.y + k2 * c2.y + k3 * b.y })
     }
   }
   return { d: d + 'Z', polygon }
+}
+
+/**
+ * Outline of a rectangle, triangle or diamond with 'round' corners, undefined when sharp.
+ * Diamonds follow Excalidraw: corners cut at a quarter of each edge with tighter tips.
+ */
+export function roundedShape(kind: ShapeKind, w: number, h: number, roundness: Roundness | undefined): { d: string; polygon: Vec2[] } | undefined {
+  if (roundness !== 'round' || !(kind === 'rectangle' || kind === 'triangle' || kind === 'diamond')) return undefined
+  const verts = shapeVertices(kind, w, h)!
+  if (kind === 'diamond') return roundedPolygon(verts, Math.hypot(w, h) / 2 * 0.25, 1)
+  const r = cornerRadius(w, h, roundness)
+  return r > 0 ? roundedPolygon(verts, r) : undefined
 }
 
 /**
@@ -62,7 +79,5 @@ export function shapeOutline(kind: ShapeKind, w: number, h: number, o: { points?
     }
     return pts
   }
-  const verts = shapeVertices(kind, w, h)!
-  const r = kind === 'rectangle' || kind === 'triangle' || kind === 'diamond' ? cornerRadius(w, h, o.roundness) : 0
-  return r > 0 ? roundedPolygon(verts, r).polygon : verts
+  return roundedShape(kind, w, h, o.roundness)?.polygon ?? shapeVertices(kind, w, h)!
 }

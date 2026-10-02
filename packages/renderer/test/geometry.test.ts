@@ -171,7 +171,7 @@ describe('rough geometry', () => {
     const a = arrow('a', { x: 0, y: 0 }, { x: 240, y: 0 }, { arrowType: 'curved', waypoints: [{ x: 120, y: 80 }], endHead: 'none' })
     const path = catmullRom([a.start, ...a.waypoints!, a.end]).path
     const g = buildArrowGeometry(a, path, 'rough')
-    expect(g.strokes).toHaveLength(4) // two passes per cubic segment
+    expect(g.strokes).toHaveLength(3) // two passes per cubic segment, joined where one ends at the next start
     expect(g).toEqual(buildArrowGeometry(a, path, 'rough'))
     for (const line of g.strokes) {
       expect([a.start, ...a.waypoints!]).toContainEqual(line[0])

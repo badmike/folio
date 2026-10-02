@@ -2,7 +2,7 @@ import rough from 'roughjs'
 import type { Options, OpSet } from 'roughjs/bin/core'
 import type { ArrowObject, Arrowhead, ShapeObject, ShapeStyle, Vec2 } from '@folio/document'
 import { catmullRomSvg, dashPattern, dashPolyline } from './curves'
-import { cornerRadius, roundedPolygon, shapeVertices } from '../shapes'
+import { roundedPolygon, roundedShape, shapeVertices } from '../shapes'
 import type { VisualTheme } from '../contract'
 
 /** Flattened, renderer-agnostic geometry for shapes and arrows. */
@@ -24,7 +24,10 @@ const generator = rough.generator()
 /** Steps used when flattening one cubic bezier. */
 const BEZIER_STEPS = 10
 
-/** Convert a roughjs OpSet (move / lineTo / bcurveTo) into polylines. */
+/**
+ * Convert a roughjs OpSet (move / lineTo / bcurveTo) into polylines. A move to the
+ * current point continues the polyline, so path segments join instead of overlapping.
+ */
 export function opsetToPolylines(set: OpSet, steps = BEZIER_STEPS): Vec2[][] {
   const out: Vec2[][] = []
   let cur: Vec2[] | null = null
@@ -33,6 +36,7 @@ export function opsetToPolylines(set: OpSet, steps = BEZIER_STEPS): Vec2[][] {
   for (const op of set.ops) {
     const d = op.data
     if (op.op === 'move') {
+      if (cur && Math.abs(d[0] - px) < 1e-6 && Math.abs(d[1] - py) < 1e-6) continue
       if (cur && cur.length > 1) out.push(cur)
       cur = [{ x: d[0], y: d[1] }]
       px = d[0]; py = d[1]
@@ -102,20 +106,17 @@ export function buildShapeGeometry(shape: ShapeObject, theme: VisualTheme): Path
     strokeWidth: style.strokeWidth,
     hatchWidth: Math.max(1, style.strokeWidth * 0.5),
   }
-  const r = cornerRadius(w, h, style.roundness)
+  const rounded = roundedShape(shape.kind, w, h, style.roundness)
   switch (shape.kind) {
     case 'rectangle':
-      if (r > 0) collect(generator.path(roundedPolygon(shapeVertices('rectangle', w, h)!, r).d, o), geo)
-      else collect(generator.rectangle(0, 0, w, h, o), geo)
+    case 'triangle':
+    case 'diamond':
+      // like Excalidraw, a rounded outline keeps its joins so arcs meet the edges
+      if (rounded) collect(generator.path(rounded.d, { ...o, preserveVertices: true }), geo)
+      else if (shape.kind === 'rectangle') collect(generator.rectangle(0, 0, w, h, o), geo)
+      else collect(generator.polygon(shapeVertices(shape.kind, w, h)!.map((p) => [p.x, p.y] as [number, number]), o), geo)
       break
     case 'ellipse': collect(generator.ellipse(w / 2, h / 2, w, h, o), geo); break
-    case 'triangle':
-    case 'diamond': {
-      const v = shapeVertices(shape.kind, w, h)!
-      if (r > 0) collect(generator.path(roundedPolygon(v, r).d, o), geo)
-      else collect(generator.polygon(v.map((p) => [p.x, p.y] as [number, number]), o), geo)
-      break
-    }
     case 'line':
       if (shape.points && shape.points.length >= 2) {
         collect(generator.linearPath(shape.points.map((p) => [p.x, p.y] as [number, number]), { ...o, fill: undefined }), geo)
