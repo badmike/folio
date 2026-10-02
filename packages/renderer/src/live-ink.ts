@@ -1,7 +1,7 @@
 import { adaptColor } from '@folio/document'
 import type { InkPoint, StrokeStyle } from '@folio/document'
 import type { Camera, LiveInkLayer, Size } from './contract'
-import { highlighterParts } from './geometry/ink'
+import { highlighterPasses } from './geometry/ink'
 
 /** Width multiplier for a pressure value; matches perfect-freehand thinning 0.5 at mid pressure. */
 export function pressureFactor(pressure: number): number {
@@ -61,13 +61,16 @@ export function createLiveInkLayer(canvas: HTMLCanvasElement): LiveInkLayer {
     ctx.lineWidth = Math.max(0.5, style.width * camera.zoom)
     ctx.lineCap = style.tool === 'highlighter' ? 'butt' : 'round'
     if (style.tool === 'highlighter') {
-      ctx.beginPath()
-      for (const polygon of highlighterParts(pts, style.width, style.cap ?? 'flat')) {
-        ctx.moveTo(sx(polygon[0].x), sy(polygon[0].y))
-        for (let i = 1; i < polygon.length; i++) ctx.lineTo(sx(polygon[i].x), sy(polygon[i].y))
-        ctx.closePath()
+      // each pass is its own fill, so ink laid over itself builds up like the committed stroke
+      for (const pass of highlighterPasses(pts, style.width, style.cap ?? 'flat')) {
+        ctx.beginPath()
+        for (const polygon of pass) {
+          ctx.moveTo(sx(polygon[0].x), sy(polygon[0].y))
+          for (let i = 1; i < polygon.length; i++) ctx.lineTo(sx(polygon[i].x), sy(polygon[i].y))
+          ctx.closePath()
+        }
+        ctx.fill()
       }
-      ctx.fill()
     } else if (pts.length === 1) {
       ctx.beginPath()
       ctx.arc(sx(pts[0].x), sy(pts[0].y), ctx.lineWidth / 2, 0, Math.PI * 2)

@@ -146,9 +146,10 @@ describe('ink stencil mesh and highlighter parts', () => {
     const mb = new MeshBuilder()
     const fill = buildInkStencilMesh(mb, stroke)
     expect(fill.union).toBe(false)
-    expect(fill.fan).toBe((strokeOutline(stroke).length - 2) * 3)
-    expect(mb.vertexCount - fill.fan).toBe(6)
-    const cover = Array.from({ length: 6 }, (_, i) => mb.data[(fill.fan + i) * VERTEX_FLOATS])
+    const { fan } = fill.passes[0]
+    expect(fan).toBe((strokeOutline(stroke).length - 2) * 3)
+    expect(mb.vertexCount - fan).toBe(6)
+    const cover = Array.from({ length: 6 }, (_, i) => mb.data[(fan + i) * VERTEX_FLOATS])
     expect(Math.min(...cover)).toBeLessThan(-60)
     expect(Math.max(...cover)).toBeGreaterThan(60)
   })
@@ -164,6 +165,15 @@ describe('ink stencil mesh and highlighter parts', () => {
       points: zig.flatMap((p, i) => [p.x, p.y, 0.5, 0, 0, i * 10]), style: { tool: 'highlighter', color: '#ff0', width: 20, opacity: 0.4, pressureSensitive: false },
     }
     expect(strokeFill(stroke).union).toBe(true)
+  })
+
+  it('highlighter: going back over the same ink starts a new pass, a smooth curve stays one pass', async () => {
+    const { highlighterPasses } = await import('../src/geometry/ink')
+    // pen samples are dense: out along y = 0 and back along y = 6
+    const back = [...Array.from({ length: 51 }, (_, i) => ({ x: i * 2, y: 0 })), ...Array.from({ length: 51 }, (_, i) => ({ x: 100 - i * 2, y: 6 }))]
+    expect(highlighterPasses(back, 20, 'flat').length).toBeGreaterThan(1)
+    const arc = Array.from({ length: 30 }, (_, i) => ({ x: Math.cos(i / 10) * 200, y: Math.sin(i / 10) * 200 }))
+    expect(highlighterPasses(arc, 20, 'flat')).toHaveLength(1)
   })
 
   it('caps: flat ends square, round and slanted reach past the ends, curvy stays full width', async () => {

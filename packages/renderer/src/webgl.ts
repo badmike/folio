@@ -175,8 +175,8 @@ interface MeshEntry {
   key: string
   buf: WebGLBuffer
   vertexCount: number
-  /** Stencil-filled meshes: the first `fanCount` vertices are the fans, the rest the cover quad. */
-  fanCount: number
+  /** Stencil-filled meshes (see StencilFill); empty for plain triangle meshes. */
+  passes: StencilFill['passes']
   /** Stencil mode: union of the fans instead of nonzero winding. */
   union: boolean
   used: number
@@ -655,11 +655,11 @@ export class WebGLRenderer implements Renderer {
     if (!cache) {
       this.scratch.reset()
       const fill = build(this.scratch)
-      if (!fill || !fill.fan) { this.drawScratch(model, cam); return }
+      if (!fill || !fill.passes.length) { this.drawScratch(model, cam); return }
       this.setMeshUniforms(model, cam)
       this.bindMeshBuffer(this.stream)
       gl.bufferData(gl.ARRAY_BUFFER, this.scratch.view(), gl.STREAM_DRAW)
-      this.drawStencilFill(fill.fan, this.scratch.vertexCount, fill.union)
+      this.drawStencilFill(fill.passes, fill.union)
       return
     }
     let e = this.meshes.get(id)
@@ -672,38 +672,42 @@ export class WebGLRenderer implements Renderer {
       if (!buf) return
       gl.bindBuffer(gl.ARRAY_BUFFER, buf)
       gl.bufferData(gl.ARRAY_BUFFER, mb.view(), gl.STATIC_DRAW)
-      e = { key, buf, vertexCount: mb.vertexCount, fanCount: fill ? fill.fan : 0, union: !!fill && fill.union, used: this.frame }
+      e = { key, buf, vertexCount: mb.vertexCount, passes: fill ? fill.passes : [], union: !!fill && fill.union, used: this.frame }
       this.meshes.set(id, e)
     }
     e.used = this.frame
     if (e.vertexCount === 0) return
     this.setMeshUniforms(model, cam)
     this.bindMeshBuffer(e.buf)
-    if (e.fanCount) this.drawStencilFill(e.fanCount, e.vertexCount, e.union)
+    if (e.passes.length) this.drawStencilFill(e.passes, e.union)
     else gl.drawArrays(gl.TRIANGLES, 0, e.vertexCount)
   }
 
   /**
-   * Fill the bound mesh through the stencil buffer: mark the fan triangles (winding count, or
-   * plain coverage for `union`), then draw the cover quad where the mark is set (which resets it).
+   * Fill the bound mesh through the stencil buffer, pass by pass: mark the fan triangles (winding
+   * count, or plain coverage for `union`), then draw the cover quad where the mark is set (which resets it).
    */
-  private drawStencilFill(fanCount: number, total: number, union: boolean): void {
+  private drawStencilFill(passes: StencilFill['passes'], union: boolean): void {
     const gl = this.gl
     gl.enable(gl.STENCIL_TEST)
-    gl.colorMask(false, false, false, false)
-    if (union) {
-      gl.stencilFunc(gl.ALWAYS, 1, 0xff)
-      gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE)
-    } else {
-      gl.stencilFunc(gl.ALWAYS, 0, 0xff)
-      gl.stencilOpSeparate(gl.FRONT, gl.KEEP, gl.KEEP, gl.INCR_WRAP)
-      gl.stencilOpSeparate(gl.BACK, gl.KEEP, gl.KEEP, gl.DECR_WRAP)
+    let start = 0
+    for (const { fan, end } of passes) {
+      gl.colorMask(false, false, false, false)
+      if (union) {
+        gl.stencilFunc(gl.ALWAYS, 1, 0xff)
+        gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE)
+      } else {
+        gl.stencilFunc(gl.ALWAYS, 0, 0xff)
+        gl.stencilOpSeparate(gl.FRONT, gl.KEEP, gl.KEEP, gl.INCR_WRAP)
+        gl.stencilOpSeparate(gl.BACK, gl.KEEP, gl.KEEP, gl.DECR_WRAP)
+      }
+      gl.drawArrays(gl.TRIANGLES, start, fan - start)
+      gl.colorMask(true, true, true, true)
+      gl.stencilFunc(gl.NOTEQUAL, 0, 0xff)
+      gl.stencilOp(gl.ZERO, gl.ZERO, gl.ZERO)
+      gl.drawArrays(gl.TRIANGLES, fan, end - fan)
+      start = end
     }
-    gl.drawArrays(gl.TRIANGLES, 0, fanCount)
-    gl.colorMask(true, true, true, true)
-    gl.stencilFunc(gl.NOTEQUAL, 0, 0xff)
-    gl.stencilOp(gl.ZERO, gl.ZERO, gl.ZERO)
-    gl.drawArrays(gl.TRIANGLES, fanCount, total - fanCount)
     gl.disable(gl.STENCIL_TEST)
   }
 

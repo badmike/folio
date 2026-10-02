@@ -29,16 +29,22 @@ interface CacheEntry<T> {
 
 /** Cached CPU geometry used by the Canvas2D painter. */
 export class GeometryStore {
-  private ink = new Map<string, CacheEntry<Vec2[][]>>()
+  private ink = new Map<string, CacheEntry<Vec2[][][]>>()
   private paths = new Map<string, CacheEntry<PathGeometry>>()
 
-  /** Fill polygons of a stroke, all wound the same way so one nonzero fill paints their union. */
-  inkPolygons(s: InkStroke, theme: VisualTheme): Vec2[][] {
+  /**
+   * Fill polygons of a stroke, grouped into passes (one fill each). A pass's polygons are all
+   * wound the same way so one nonzero fill paints their union.
+   */
+  inkPolygons(s: InkStroke, theme: VisualTheme): Vec2[][][] {
     const key = objectKey(s, theme)
     const hit = this.ink.get(s.id)
     if (hit && hit.key === key) return hit.value
-    const { polygons, union } = strokeFill(s)
-    const value = union ? polygons.map((p) => (signedArea(p) < 0 ? [...p].reverse() : p)) : polygons
+    const { polygons, union, passes } = strokeFill(s)
+    const wound = union ? polygons.map((p) => (signedArea(p) < 0 ? [...p].reverse() : p)) : polygons
+    const value: Vec2[][][] = []
+    let next = 0
+    for (const count of passes) value.push(wound.slice(next, (next += count)))
     this.ink.set(s.id, { key, value })
     return value
   }
@@ -294,11 +300,10 @@ export function paintScene(
     ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5])
     switch (obj.type) {
       case 'ink': {
-        const polys = geo.inkPolygons(obj, scene.theme)
-        if (polys.length) {
-          ctx.fillStyle = col(obj.style.color, obj.style.opacity)
+        ctx.fillStyle = col(obj.style.color, obj.style.opacity)
+        for (const pass of geo.inkPolygons(obj, scene.theme)) {
           ctx.beginPath()
-          for (const o of polys) {
+          for (const o of pass) {
             ctx.moveTo(o[0].x, o[0].y)
             for (let i = 1; i < o.length; i++) ctx.lineTo(o[i].x, o[i].y)
             ctx.closePath()

@@ -198,9 +198,12 @@ export function buildInkMesh(mb: MeshBuilder, stroke: InkStroke, bg = '#ffffff')
   addPolygon(mb, outline, premultiplied(adaptColor(stroke.style.color, bg), stroke.style.opacity))
 }
 
-/** A mesh drawn through the stencil buffer: `fan` fill vertices followed by a quad covering their bounds. */
+/**
+ * A mesh drawn through the stencil buffer, one pass after another: each pass is fan vertices
+ * (from where the previous pass ended up to `fan`) followed by a quad covering them (up to `end`).
+ */
 export interface StencilFill {
-  fan: number
+  passes: { fan: number; end: number }[]
   /** true: any fan coverage counts (union of overlapping parts); false: nonzero winding of one outline. */
   union: boolean
 }
@@ -210,24 +213,33 @@ export interface StencilFill {
  * covering the bounds. Pass one writes the fans into the stencil buffer, pass two draws the
  * quad where it is set. Pens use nonzero winding, so outlines that cross themselves (loops in
  * handwriting) fill correctly; highlighters use the union of their band parts, so reversals
- * and sharp turns neither leave holes nor blend twice. Ear clipping can do neither.
+ * and sharp turns do not leave holes. Ear clipping can do neither. Each highlighter pass is a
+ * separate fill, so where the stroke goes back over itself the colour builds up.
  */
 export function buildInkStencilMesh(mb: MeshBuilder, stroke: InkStroke, bg = '#ffffff'): StencilFill {
-  const { polygons, union } = strokeFill(stroke)
+  const { polygons, union, passes: counts } = strokeFill(stroke)
   const color = premultiplied(adaptColor(stroke.style.color, bg), stroke.style.opacity)
-  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
-  for (const o of polygons) {
-    for (const p of o) {
-      if (p.x < x0) x0 = p.x
-      if (p.x > x1) x1 = p.x
-      if (p.y < y0) y0 = p.y
-      if (p.y > y1) y1 = p.y
+  const passes: StencilFill['passes'] = []
+  let next = 0
+  for (const count of counts) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+    const start = mb.vertexCount
+    for (const o of polygons.slice(next, next + count)) {
+      for (const p of o) {
+        if (p.x < x0) x0 = p.x
+        if (p.x > x1) x1 = p.x
+        if (p.y < y0) y0 = p.y
+        if (p.y > y1) y1 = p.y
+      }
+      for (let i = 1; i + 1 < o.length; i++) mb.tri(o[0].x, o[0].y, o[i].x, o[i].y, o[i + 1].x, o[i + 1].y, color)
     }
-    for (let i = 1; i + 1 < o.length; i++) mb.tri(o[0].x, o[0].y, o[i].x, o[i].y, o[i + 1].x, o[i + 1].y, color)
+    next += count
+    const fan = mb.vertexCount
+    if (fan === start) continue
+    mb.quad(x0 - 1, y0 - 1, x1 + 1, y0 - 1, x1 + 1, y1 + 1, x0 - 1, y1 + 1, color)
+    passes.push({ fan, end: mb.vertexCount })
   }
-  const fan = mb.vertexCount
-  if (fan) mb.quad(x0 - 1, y0 - 1, x1 + 1, y0 - 1, x1 + 1, y1 + 1, x0 - 1, y1 + 1, color)
-  return { fan, union }
+  return { passes, union }
 }
 
 export function buildShapeMesh(mb: MeshBuilder, shape: ShapeObject, theme: VisualTheme, bg = '#ffffff'): void {

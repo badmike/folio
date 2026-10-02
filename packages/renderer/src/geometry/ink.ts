@@ -118,6 +118,11 @@ export interface StrokeFill {
    * false: one outline filled with the nonzero rule (pen).
    */
   union: boolean
+  /**
+   * Polygon counts of the passes, in order (they sum to `polygons.length`). Each pass is filled
+   * on its own, so where a highlighter goes over its own ink again the colour builds up.
+   */
+  passes: number[]
 }
 
 export function strokeFill(stroke: InkStroke): StrokeFill {
@@ -125,10 +130,64 @@ export function strokeFill(stroke: InkStroke): StrokeFill {
     const pts: Vec2[] = []
     const p = stroke.points
     for (let i = 0; i + 1 < p.length; i += STRIDE) pts.push({ x: p[i], y: p[i + 1] })
-    return { polygons: highlighterParts(pts, stroke.style.width, stroke.style.cap ?? 'flat'), union: true }
+    const passes = highlighterPasses(pts, stroke.style.width, stroke.style.cap ?? 'flat')
+    return { polygons: passes.flat(), union: true, passes: passes.map((q) => q.length) }
   }
   const o = strokeOutline(stroke)
-  return { polygons: o.length > 2 ? [o] : [], union: false }
+  return { polygons: o.length > 2 ? [o] : [], union: false, passes: o.length > 2 ? [1] : [] }
+}
+
+/** Shortest distance between segments a-b and c-d (0 when they cross). */
+function segmentDistance(a: Vec2, b: Vec2, c: Vec2, d: Vec2): number {
+  const cross = (o: Vec2, p: Vec2, q: Vec2) => (p.x - o.x) * (q.y - o.y) - (p.y - o.y) * (q.x - o.x)
+  const d1 = cross(a, b, c), d2 = cross(a, b, d), d3 = cross(c, d, a), d4 = cross(c, d, b)
+  if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return 0
+  const toSeg = (p: Vec2, s: Vec2, e: Vec2) => {
+    const dx = e.x - s.x, dy = e.y - s.y
+    const l2 = dx * dx + dy * dy
+    const t = l2 ? Math.max(0, Math.min(1, ((p.x - s.x) * dx + (p.y - s.y) * dy) / l2)) : 0
+    return Math.hypot(p.x - s.x - dx * t, p.y - s.y - dy * t)
+  }
+  return Math.min(toSeg(a, c, d), toSeg(b, c, d), toSeg(c, a, b), toSeg(d, a, b))
+}
+
+/**
+ * Pass index of each segment: a new pass starts where the band comes back over ink laid
+ * earlier in the current pass (not its own neighbours along the path, which always touch).
+ */
+function segmentPasses(pts: Vec2[], arc: Float64Array, width: number): Int32Array {
+  const pass = new Int32Array(Math.max(0, pts.length - 1))
+  // segments of the current pass bucketed by grid cell (cell size = width), so each check is local
+  const grid = new Map<string, number[]>()
+  const cellsOf = (a: Vec2, b: Vec2, pad: number): string[] => {
+    const out: string[] = []
+    const x0 = Math.floor(Math.min(a.x, b.x) / width), x1 = Math.floor(Math.max(a.x, b.x) / width)
+    const y0 = Math.floor(Math.min(a.y, b.y) / width), y1 = Math.floor(Math.max(a.y, b.y) / width)
+    for (let x = x0 - pad; x <= x1 + pad; x++) for (let y = y0 - pad; y <= y1 + pad; y++) out.push(`${x},${y}`)
+    return out
+  }
+  let cur = 0
+  for (let j = 0; j + 1 < pts.length; j++) {
+    let overlaps = false
+    for (const c of cellsOf(pts[j], pts[j + 1], 1)) {
+      for (const i of grid.get(c) ?? []) {
+        if (arc[j] - arc[i + 1] <= width * 1.5) continue
+        if (segmentDistance(pts[i], pts[i + 1], pts[j], pts[j + 1]) < width * 0.9) { overlaps = true; break }
+      }
+      if (overlaps) break
+    }
+    if (overlaps) {
+      cur++
+      grid.clear()
+    }
+    pass[j] = cur
+    for (const c of cellsOf(pts[j], pts[j + 1], 0)) {
+      let list = grid.get(c)
+      if (!list) grid.set(c, (list = []))
+      list.push(j)
+    }
+  }
+  return pass
 }
 
 /** Drop near-duplicate samples and smooth lightly (keeps both ends). */
@@ -202,12 +261,21 @@ function wavyCap(origin: Vec2, direction: Vec2, radius: number, depth: number): 
  * so Canvas2D can fill their union in one pass without overlapping alpha.
  */
 export function highlighterParts(input: Vec2[], width: number, cap: HighlighterCap): Vec2[][] {
+  return highlighterPasses(input, width, cap).flat()
+}
+
+/**
+ * The parts of a highlighter band (see highlighterParts) grouped into passes: the union of each
+ * pass is filled on its own, so where the stroke goes back over itself the ink builds up like a
+ * real marker, while the joints of a stroke that does not cross itself stay even.
+ */
+export function highlighterPasses(input: Vec2[], width: number, cap: HighlighterCap): Vec2[][][] {
   let pts = cleanPath(input)
   const hw = width / 2
   if (!pts.length) return []
   if (pts.length === 1) {
     const c = pts[0]
-    return [cap === 'round' || cap === 'curvy' ? disc(c, hw) : [{ x: c.x - hw, y: c.y - hw }, { x: c.x + hw, y: c.y - hw }, { x: c.x + hw, y: c.y + hw }, { x: c.x - hw, y: c.y + hw }]]
+    return [[cap === 'round' || cap === 'curvy' ? disc(c, hw) : [{ x: c.x - hw, y: c.y - hw }, { x: c.x + hw, y: c.y - hw }, { x: c.x + hw, y: c.y + hw }, { x: c.x - hw, y: c.y + hw }]]]
   }
   // Collinear samples must not shorten a chisel cap or leave joints across its cut.
   if (cap === 'slanted') {
@@ -235,7 +303,9 @@ export function highlighterParts(input: Vec2[], width: number, cap: HighlighterC
     if (total - to < hw + skew + waveDepth) polygon = clipCap(polygon, endCut, endDir, skew / hw, true)
     return polygon
   }
-  const parts: Vec2[][] = []
+  const segPass = segmentPasses(pts, arc, width)
+  const passes: Vec2[][][] = Array.from({ length: (segPass[n - 2] ?? 0) + 1 }, () => [])
+  const add = (pass: number, ...polys: Vec2[][]) => { for (const p of polys) if (p.length > 2) passes[pass].push(p) }
   for (let i = 0; i + 1 < n; i++) {
     const a = pts[i], b = pts[i + 1]
     const len = Math.hypot(b.x - a.x, b.y - a.y) || 1
@@ -251,18 +321,21 @@ export function highlighterParts(input: Vec2[], width: number, cap: HighlighterC
       if (i === 0) for (const j of [0, 3]) { quad[j].x -= dx * skew; quad[j].y -= dy * skew }
       if (i === n - 2) for (const j of [1, 2]) { quad[j].x += dx * skew; quad[j].y += dy * skew }
     }
-    parts.push(cut(quad, arc[i], arc[i + 1]))
+    add(segPass[i], cut(quad, arc[i], arc[i + 1]))
   }
   for (let i = 1; i < n - 1; i++) {
     const before = unit(pts[i], pts[i - 1]), after = unit(pts[i + 1], pts[i])
     if (Math.abs(before.x * after.y - before.y * after.x) < 1e-6 && before.x * after.x + before.y * after.y > 0) continue
-    parts.push(cut(disc(pts[i], hw), arc[i], arc[i]))
+    // a turn belongs to the segment that arrives at it
+    add(segPass[i - 1], cut(disc(pts[i], hw), arc[i], arc[i]))
   }
-  if (cap === 'round') parts.push(disc(pts[0], hw), disc(pts[n - 1], hw))
+  const last = segPass[n - 2]
+  if (cap === 'round') { add(0, disc(pts[0], hw)); add(last, disc(pts[n - 1], hw)) }
   if (cap === 'curvy') {
-    parts.push(...wavyCap(pts[0], startDir, hw, waveDepth), ...wavyCap(pts[n - 1], { x: -endDir.x, y: -endDir.y }, hw, waveDepth))
+    add(0, ...wavyCap(pts[0], startDir, hw, waveDepth))
+    add(last, ...wavyCap(pts[n - 1], { x: -endDir.x, y: -endDir.y }, hw, waveDepth))
   }
-  return parts.filter((p) => p.length > 2)
+  return passes.filter((p) => p.length)
 }
 
 /** Triangulate a simple polygon; returns triangle vertex indices into `polygon`. */
