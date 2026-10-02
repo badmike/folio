@@ -3,6 +3,11 @@
 All notable changes to folio are documented here.
 Commits follow the [Gitmoji](https://gitmoji.dev/) convention.
 
+## [v26.10.3-8d2152f] — 2026-10-3
+
+- ✅ sync: compare the large base64 round trip without a deep equal
+- ✅ e2e: pick the pen before drawing in the sync tests
+
 ## [v26.10.3-a00799a] — 2026-10-3
 
 - ✨ renderer: highlighter ink blends like a real marker
