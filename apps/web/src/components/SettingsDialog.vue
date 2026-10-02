@@ -278,10 +278,10 @@ const STORAGE: Record<typeof svc.storageKind, string> = { 'sqlite-opfs': 'SQLite
 
 .nav {
   width: 220px; flex: none; display: flex; flex-direction: column; gap: 2px;
-  padding: 20px 12px 14px; background: var(--sidebar); border-right: 1px solid var(--border);
+  padding: 22px 12px 14px; background: var(--sidebar);
 }
 .intro { padding: 0 8px 16px; }
-.intro h2 { font-size: 18px; }
+.intro h2 { font-size: 20px; font-weight: 650; color: var(--text-strong); letter-spacing: -0.01em; }
 .intro p { margin: 2px 0 0; font-size: 13px; }
 .tab {
   display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 0 10px; border: 0; border-radius: var(--radius);
@@ -296,13 +296,14 @@ const STORAGE: Record<typeof svc.storageKind, string> = { 'sqlite-opfs': 'SQLite
 .pane { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .pane header {
   display: flex; align-items: center; justify-content: space-between;
-  margin: 0 12px 0 28px; padding: 14px 0 12px; border-bottom: 1px solid var(--border);
+  margin: 0 14px 0 24px; padding: 18px 0 12px;
 }
-.pane h3 { font-size: 16px; }
-.rows { flex: 1; overflow: auto; padding: 4px 28px 24px; }
+.pane header .icon-btn { width: 30px; height: 30px; color: var(--muted); }
+.pane header .icon-btn:hover { color: var(--text-strong); }
+.pane h3 { font-size: 16px; font-weight: 650; color: var(--text-strong); }
+.rows { flex: 1; overflow: auto; padding: 0 24px 24px; display: flex; flex-direction: column; gap: 8px; }
 
-.setting { display: flex; align-items: center; gap: 24px; padding: 16px 0; border-bottom: 1px solid var(--border); }
-.setting:last-child { border-bottom: 0; }
+.setting { display: flex; align-items: center; gap: 24px; padding: 12px 14px; border-radius: var(--radius); background: color-mix(in srgb, var(--surface-2) 50%, var(--surface)); }
 .text { flex: 1; min-width: 0; }
 .name { display: flex; align-items: center; gap: 4px; font-size: 14px; font-weight: 600; color: var(--text-strong); }
 .text p { margin: 3px 0 0; font-size: 13px; line-height: 1.45; color: var(--muted); }
@@ -323,7 +324,7 @@ kbd { font-size: 11px; font-weight: 500; }
 
 @media (max-width: 640px) {
   .settings { flex-direction: column; }
-  .nav { width: auto; flex-direction: row; gap: 4px; overflow-x: auto; padding: 10px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .nav { width: auto; flex-direction: row; gap: 4px; overflow-x: auto; padding: 10px; }
   .intro, .version, .nav .spacer { display: none; }
   .tab { flex: none; }
   .pane header { margin: 0 6px 0 16px; padding: 6px 0; }

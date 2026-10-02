@@ -31,7 +31,7 @@ function submit() {
 </script>
 
 <template>
-  <Modal title="New notebook" @close="emit('close')">
+  <Modal title="New notebook" description="Pick a page type and a background. You can change both later, page by page." @close="emit('close')">
     <form id="new-nb" @submit.prevent="submit">
       <div class="field">
         <label for="nb-title">Title</label>

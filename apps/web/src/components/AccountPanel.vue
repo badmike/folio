@@ -52,8 +52,10 @@ const label = computed(() => {
 </template>
 
 <style scoped>
-.setting { display: flex; align-items: center; gap: 14px; padding: 16px 0; border-bottom: 1px solid var(--border); }
-.setting:last-child { border-bottom: 0; }
+.setting {
+  display: flex; align-items: center; gap: 14px; padding: 12px 14px; margin-bottom: 8px; border-radius: var(--radius);
+  background: color-mix(in srgb, var(--surface-2) 50%, var(--surface));
+}
 .text { flex: 1; min-width: 0; }
 .name { font-size: 14px; font-weight: 600; color: var(--text-strong); }
 .text p { margin: 3px 0 0; font-size: 13px; line-height: 1.45; color: var(--muted); overflow-wrap: anywhere; }
