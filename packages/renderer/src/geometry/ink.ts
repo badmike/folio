@@ -1,6 +1,6 @@
 import earcut from 'earcut'
 import { getStroke } from 'perfect-freehand'
-import type { HighlighterCap, InkStroke, Vec2 } from '@folio/document'
+import { isDarkColor, type HighlighterCap, type InkStroke, type Vec2 } from '@folio/document'
 import { STRIDE } from '../bounds'
 
 /** Options passed to perfect-freehand for a stroke; exported for tests. */
@@ -135,6 +135,15 @@ export function strokeFill(stroke: InkStroke): StrokeFill {
   }
   const o = strokeOutline(stroke)
   return { polygons: o.length > 2 ? [o] : [], union: false, passes: o.length > 2 ? [1] : [] }
+}
+
+/**
+ * How highlighter ink mixes with what is below it, like a real marker's transparent dye: it
+ * multiplies on light pages, so text underneath stays crisp, and screens on dark pages, where
+ * multiplying would hide it.
+ */
+export function highlighterBlend(background: string): 'multiply' | 'screen' {
+  return isDarkColor(background) ? 'screen' : 'multiply'
 }
 
 /** Shortest distance between segments a-b and c-d (0 when they cross). */

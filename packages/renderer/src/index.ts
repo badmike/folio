@@ -1,6 +1,6 @@
 export * from './contract'
 export { createLiveInkLayer, pressureFactor } from './live-ink'
-export { strokeOutline, strokeFill, triangulate, freehandOptions, highlighterOutline, highlighterParts, highlighterPasses, type StrokeFill } from './geometry/ink'
+export { strokeOutline, strokeFill, triangulate, freehandOptions, highlighterOutline, highlighterParts, highlighterPasses, highlighterBlend, type StrokeFill } from './geometry/ink'
 export {
   buildShapeGeometry, buildArrowGeometry, opsetToPolylines, arrowHeadPoints, arrowHeadLength, effectiveRoughness,
   arrowheadParts, pathEndTangent, wobblePath, type HeadParts,

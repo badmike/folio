@@ -1,7 +1,7 @@
 import { adaptColor } from '@folio/document'
 import type { InkPoint, StrokeStyle } from '@folio/document'
 import type { Camera, LiveInkLayer, Size } from './contract'
-import { highlighterPasses } from './geometry/ink'
+import { highlighterBlend, highlighterPasses } from './geometry/ink'
 
 /** Width multiplier for a pressure value; matches perfect-freehand thinning 0.5 at mid pressure. */
 export function pressureFactor(pressure: number): number {
@@ -144,6 +144,8 @@ export function createLiveInkLayer(canvas: HTMLCanvasElement): LiveInkLayer {
     },
     begin(s) {
       style = s
+      // the live canvas sits over the scene, so a marker mixes with it through CSS like the committed ink
+      canvas.style.mixBlendMode = s.tool === 'highlighter' ? highlighterBlend(background) : ''
       pts = []
       drawn = 0
       prevMid = null

@@ -8,6 +8,7 @@ import { pathMidpoint } from './canvas2d'
 import { FRAME_LABEL_SIZE } from './hit'
 import { parseColor, premultiplied } from './color'
 import type { Camera, Renderer, Scene, Size, VisualTheme } from './contract'
+import { highlighterBlend } from './geometry/ink'
 import { buildArrowMesh, buildInkMesh, buildInkStencilMesh, buildShapeMesh, addPolygon, addPolyline, MeshBuilder, VERTEX_FLOATS, type StencilFill } from './geometry/mesh'
 import { ImageCache, type ImageResolver, type ImageSource } from './images'
 import { IDENTITY, multiply, toMat3, transformMatrix, type Mat } from './math'
@@ -783,13 +784,22 @@ export class WebGLRenderer implements Renderer {
     const clean = theme === 'clean'
     const bgc = scene.page.background.color
     switch (obj.type) {
-      case 'ink':
+      case 'ink': {
+        const gl = this.gl
+        const marker = (obj as InkStroke).style.tool === 'highlighter'
+        // premultiplied blends: multiply = src·dst + dst·(1 − a), screen = src + dst·(1 − src)
+        if (marker) {
+          if (highlighterBlend(bgc) === 'multiply') gl.blendFunc(gl.DST_COLOR, gl.ONE_MINUS_SRC_ALPHA)
+          else gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_COLOR)
+        }
         this.drawCachedMesh(
           obj.id, objectKey(obj, theme, bgc), transformMatrix(obj.transform), camera,
           // without a stencil buffer fall back to ear clipping (wrong only for self-crossing strokes)
           (mb) => (this.hasStencil ? buildInkStencilMesh(mb, obj as InkStroke, bgc) : void buildInkMesh(mb, obj as InkStroke, bgc)), cache,
         )
+        if (marker) gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
         break
+      }
       case 'shape': {
         const s = obj as ShapeObject
         if (s.kind === 'blur') {

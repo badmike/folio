@@ -11,7 +11,7 @@ import {
 import { parseColor } from './color'
 import type { Camera, Renderer, Scene, Size, VisualTheme } from './contract'
 import { buildArrowGeometry, buildShapeGeometry, type PathGeometry } from './geometry/rough'
-import { strokeFill } from './geometry/ink'
+import { highlighterBlend, strokeFill } from './geometry/ink'
 import { ImageCache, type ImageResolver } from './images'
 import { transformMatrix } from './math'
 import { buildOverlay } from './overlay'
@@ -442,6 +442,7 @@ export function paintScene(
     ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5])
     switch (obj.type) {
       case 'ink': {
+        if (obj.style.tool === 'highlighter') ctx.globalCompositeOperation = highlighterBlend(bgColor)
         ctx.fillStyle = col(obj.style.color, obj.style.opacity)
         for (const pass of geo.inkPolygons(obj, scene.theme)) {
           ctx.beginPath()

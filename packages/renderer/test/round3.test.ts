@@ -194,6 +194,12 @@ describe('ink stencil mesh and highlighter parts', () => {
     expect(highlighterPasses(arc, 20, 'flat')).toHaveLength(1)
   })
 
+  it('highlighter ink multiplies on light pages and screens on dark ones', async () => {
+    const { highlighterBlend } = await import('../src/geometry/ink')
+    expect(highlighterBlend('#ffffff')).toBe('multiply')
+    expect(highlighterBlend('#121212')).toBe('screen')
+  })
+
   it('caps: flat ends square, round and slanted reach past the ends, curvy stays full width', async () => {
     const { highlighterParts } = await import('../src/geometry/ink')
     const line = Array.from({ length: 11 }, (_, i) => ({ x: i * 20, y: 0 }))
