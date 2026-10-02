@@ -3,6 +3,37 @@
 All notable changes to folio are documented here.
 Commits follow the [Gitmoji](https://gitmoji.dev/) convention.
 
+## [v26.10.3-a00799a] — 2026-10-3
+
+- ✨ renderer: highlighter ink blends like a real marker
+- 🐛 renderer: no dark dot where a highlighter stroke starts a new pass
+- 💄 web: lighter dialogs without separators
+- ✨ web: insert, paste and drop images, and show them on the canvas
+- ✨ editor: note and counter tools
+- ✨ renderer: twelve new page patterns with previews in the picker
+- ✨ renderer: highlighter ink builds up where a stroke goes over itself
+- 💄 renderer: sloppy arrows bow and draw twice like shapes
+- ✨ renderer: outline, diamond and crow's foot arrowheads
+- 💄 web: new notebook dialog in the clean UI style
+- ✨ web: add and remove quick colour swatches
+- 🐛 editor: arrow bend points move, rotate and scale with the arrow
+- ✨ web: Preferences submenu in the notebook menu
+- 🐛 editor: Alt-drag moves a copy in one undo step
+- ✨ editor: snap to objects and grid, and a wrap selection mode
+- 💄 web: icon-only selection actions with clearer icons
+- 💄 renderer: clean rounded corners
+- 🐛 renderer: pattern dots keep their size when zooming in
+- 🐛 editor: text editing lines up with the rendered text
+- ✨ recognition: calibrate OCR to the writer and learn from corrections
+- ✨ web: Tidy straightens handwriting lines and evens out their spacing
+- ✨ editor: scribble over ink with the pen to erase it
+- 💄 web: minimize icon, aligned checkbox and calmer sliders in tool options
+- 💄 web: grouped search results and a tidier pages panel
+- ✨ web: presenter mode and a compact notebook HUD
+- 💄 toolbar: keep undo and redo outside the scrolling tool strip
+- 🚸 web: open notebooks with the select tool
+- ♻️ web: vendor Lucide icons with typed names
+
 ## [v26.10.2-6c04d28] — 2026-10-2
 
 - 🍱 web: favicon.ico, padded touch icon and an Open Graph share card
