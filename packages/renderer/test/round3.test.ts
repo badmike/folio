@@ -172,6 +172,24 @@ describe('ink stencil mesh and highlighter parts', () => {
     // pen samples are dense: out along y = 0 and back along y = 6
     const back = [...Array.from({ length: 51 }, (_, i) => ({ x: i * 2, y: 0 })), ...Array.from({ length: 51 }, (_, i) => ({ x: 100 - i * 2, y: 6 }))]
     expect(highlighterPasses(back, 20, 'flat').length).toBeGreaterThan(1)
+    // the second pass does not reach back over the end of the first (filled twice, a dark dot)
+    const bent = [...back.slice(0, 51), ...Array.from({ length: 51 }, (_, i) => ({ x: 100 - i * 2, y: 6 + i * i * 0.004 }))]
+    const [, second] = highlighterPasses(bent, 20, 'flat')
+    const q = second[0]
+    const seam = { x: (q[0].x + q[3].x) / 2, y: (q[0].y + q[3].y) / 2 }
+    const len = Math.hypot(q[1].x - q[0].x, q[1].y - q[0].y)
+    const dir = { x: (q[1].x - q[0].x) / len, y: (q[1].y - q[0].y) / len }
+    const inside = (p: { x: number; y: number }, poly: { x: number; y: number }[]) => {
+      let c = false
+      for (let a = 0, b = poly.length - 1; a < poly.length; b = a++) {
+        if ((poly[a].y > p.y) !== (poly[b].y > p.y) && p.x < ((poly[b].x - poly[a].x) * (p.y - poly[a].y)) / (poly[b].y - poly[a].y) + poly[a].x) c = !c
+      }
+      return c
+    }
+    for (let k = 1; k <= 8; k++) {
+      const behind = { x: seam.x - dir.x * k, y: seam.y - dir.y * k }
+      expect(second.some((poly) => inside(behind, poly))).toBe(false)
+    }
     const arc = Array.from({ length: 30 }, (_, i) => ({ x: Math.cos(i / 10) * 200, y: Math.sin(i / 10) * 200 }))
     expect(highlighterPasses(arc, 20, 'flat')).toHaveLength(1)
   })

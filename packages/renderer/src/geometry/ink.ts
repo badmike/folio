@@ -323,11 +323,22 @@ export function highlighterPasses(input: Vec2[], width: number, cap: Highlighter
     }
     add(segPass[i], cut(quad, arc[i], arc[i + 1]))
   }
+  // first segment of each pass: where one pass hands over to the next
+  const starts: number[] = [0]
+  for (let i = 1; i + 1 < n; i++) if (segPass[i] !== segPass[i - 1]) starts.push(i)
   for (let i = 1; i < n - 1; i++) {
     const before = unit(pts[i], pts[i - 1]), after = unit(pts[i + 1], pts[i])
     if (Math.abs(before.x * after.y - before.y * after.x) < 1e-6 && before.x * after.x + before.y * after.y > 0) continue
-    // a turn belongs to the segment that arrives at it
-    add(segPass[i - 1], cut(disc(pts[i], hw), arc[i], arc[i]))
+    // a turn belongs to the segment that leaves it; near a hand-over its disc is trimmed at the
+    // seam, otherwise it would reach into the other pass and be filled twice (a dark dot)
+    const pass = segPass[i]
+    let part = cut(disc(pts[i], hw), arc[i], arc[i])
+    const seam = (s: number, end: boolean) => {
+      if (Math.abs(arc[i] - arc[s]) < hw) part = clipCap(part, pts[s], unit(pts[s + 1], pts[s - 1]), 0, end)
+    }
+    if (pass > 0) seam(starts[pass], false)
+    if (pass + 1 < starts.length) seam(starts[pass + 1], true)
+    add(pass, part)
   }
   const last = segPass[n - 2]
   if (cap === 'round') { add(0, disc(pts[0], hw)); add(last, disc(pts[n - 1], hw)) }
