@@ -40,11 +40,23 @@ describe('excalidraw import', () => {
     ])
     const [a, arrow, b] = objects as [ShapeObject, ArrowObject, ShapeObject]
     expect(arrow).toMatchObject({
-      type: 'arrow', start: { x: 100, y: 25 }, end: { x: 200, y: 25 }, startHead: 'dot', endHead: 'triangle',
+      type: 'arrow', start: { x: 100, y: 25 }, end: { x: 200, y: 25 }, startHead: 'dot-outline', endHead: 'triangle',
       startBinding: { objectId: a.id }, endBinding: { objectId: b.id },
     })
     expect(arrow.arrowType).toBeUndefined()
     expect([a.id, b.id]).not.toContain('a')
+  })
+
+  it('maps the outline, diamond and crow\'s foot arrowheads', () => {
+    const heads = (start: string, end: string) => {
+      const { objects } = run([el({ id: 'x', type: 'arrow', points: [[0, 0], [100, 0]], startArrowhead: start, endArrowhead: end })])
+      const a = objects[0] as ArrowObject
+      return [a.startHead, a.endHead]
+    }
+    expect(heads('triangle_outline', 'circle_outline')).toEqual(['triangle-outline', 'dot-outline'])
+    expect(heads('diamond', 'diamond_outline')).toEqual(['diamond', 'diamond-outline'])
+    expect(heads('crowfoot_one', 'crowfoot_many')).toEqual(['crowfoot-one', 'crowfoot-many'])
+    expect(heads('crowfoot_one_or_many', 'circle')).toEqual(['crowfoot-one-or-many', 'dot'])
   })
 
   it('turns container text into a label with labelSize', () => {

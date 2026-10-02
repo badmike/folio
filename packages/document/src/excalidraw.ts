@@ -200,10 +200,15 @@ function arrowhead(head: string | null): Arrowhead {
     case null: return 'none'
     case 'bar': return 'bar'
     case 'dot':
-    case 'circle':
-    case 'circle_outline': return 'dot'
-    case 'triangle':
-    case 'triangle_outline': return 'triangle'
+    case 'circle': return 'dot'
+    case 'circle_outline': return 'dot-outline'
+    case 'triangle': return 'triangle'
+    case 'triangle_outline': return 'triangle-outline'
+    case 'diamond': return 'diamond'
+    case 'diamond_outline': return 'diamond-outline'
+    case 'crowfoot_one': return 'crowfoot-one'
+    case 'crowfoot_many': return 'crowfoot-many'
+    case 'crowfoot_one_or_many': return 'crowfoot-one-or-many'
     default: return 'arrow'
   }
 }

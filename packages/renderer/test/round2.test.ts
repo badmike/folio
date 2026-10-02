@@ -110,6 +110,50 @@ describe('arrowheads', () => {
     expect(bar[0].y).toBeCloseTo(-bar[1].y + 100)
     expect(arrowheadParts('none', { x: 0, y: 0 }, { x: 1, y: 0 }, style, 10)).toEqual({ strokes: [], solids: [] })
   })
+  it('outline heads are closed strokes without solids', () => {
+    const tip = { x: 100, y: 0 }, dir = { x: 1, y: 0 }
+    for (const kind of ['triangle-outline', 'dot-outline', 'diamond-outline'] as const) {
+      const p = arrowheadParts(kind, tip, dir, style, 200)
+      expect(p.solids).toHaveLength(0)
+      expect(p.strokes).toHaveLength(1)
+      expect(p.strokes[0][0]).toEqual(p.strokes[0][p.strokes[0].length - 1])
+    }
+  })
+  it('diamond: tip at the arrow tip, symmetric about the direction', () => {
+    const d = arrowheadParts('diamond', { x: 100, y: 0 }, { x: 1, y: 0 }, style, 200).solids[0]
+    expect(d).toHaveLength(4)
+    expect(d[0]).toEqual({ x: 100, y: 0 })
+    expect(d[2].x).toBeCloseTo(100 - arrowHeadLength(style, 200))
+    expect(d[1].y).toBeCloseTo(-d[3].y)
+  })
+  it('crow\'s foot: one is a bar behind the tip, many fans two lines from the shaft', () => {
+    const tip = { x: 100, y: 0 }, dir = { x: 1, y: 0 }
+    const len = arrowHeadLength(style, 200)
+    const one = arrowheadParts('crowfoot-one', tip, dir, style, 200).strokes
+    expect(one).toHaveLength(1)
+    expect(one[0][0].x).toBeLessThan(100)
+    const many = arrowheadParts('crowfoot-many', tip, dir, style, 200).strokes
+    expect(many).toHaveLength(2)
+    for (const line of many) {
+      expect(line[0]).toEqual({ x: 100 - len, y: 0 })
+      expect(line[1].x).toBeCloseTo(100)
+    }
+    const both = arrowheadParts('crowfoot-one-or-many', tip, dir, style, 200).strokes
+    expect(both).toHaveLength(3)
+    expect(both[2][0].x).toBeLessThan(100 - len)
+  })
+  it('shaft stops at the head for outline heads and reaches the tip otherwise', () => {
+    const maxX = (g: ReturnType<typeof buildArrowGeometry>) => Math.max(...g.strokes[0].map((q) => q.x))
+    const build = (endHead: 'triangle-outline' | 'dot-outline' | 'diamond-outline' | 'triangle') => {
+      const a = arrow('a', { x: 0, y: 0 }, { x: 200, y: 0 }, { endHead, style })
+      return buildArrowGeometry(a, [a.start, a.end], 'clean')
+    }
+    const len = arrowHeadLength(style, 200)
+    expect(maxX(build('triangle-outline'))).toBeCloseTo(200 - len * Math.cos(Math.PI / 7))
+    expect(maxX(build('diamond-outline'))).toBeCloseTo(200 - len)
+    expect(maxX(build('dot-outline'))).toBeLessThan(200 - 5)
+    expect(maxX(build('triangle'))).toBeCloseTo(200)
+  })
   it('is oriented along the path tangent at both ends', () => {
     const path = catmullRom([{ x: 0, y: 0 }, { x: 50, y: 60 }, { x: 100, y: 0 }]).path
     const t = pathEndTangent(path, true)

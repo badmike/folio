@@ -227,7 +227,9 @@ export interface ArrowBinding {
  * the target automatically updates the arrow. transform is identity for arrows.
  */
 export type ArrowType = 'straight' | 'curved' | 'elbow'
-export type Arrowhead = 'none' | 'arrow' | 'triangle' | 'dot' | 'bar'
+export type Arrowhead =
+  | 'none' | 'arrow' | 'triangle' | 'triangle-outline' | 'dot' | 'dot-outline' | 'bar'
+  | 'diamond' | 'diamond-outline' | 'crowfoot-one' | 'crowfoot-many' | 'crowfoot-one-or-many'
 
 export interface ArrowObject extends BaseObject {
   type: 'arrow'

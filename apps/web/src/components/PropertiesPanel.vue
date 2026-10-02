@@ -84,7 +84,11 @@ const ARROW_TYPES: Option<ArrowType>[] = [
 ]
 const HEADS: Option<Arrowhead>[] = [
   { value: 'none', glyph: 'head-none', label: 'None' }, { value: 'arrow', glyph: 'head-arrow', label: 'Arrow' }, { value: 'triangle', glyph: 'head-triangle', label: 'Triangle' },
-  { value: 'dot', glyph: 'head-dot', label: 'Dot' }, { value: 'bar', glyph: 'head-bar', label: 'Bar' },
+  { value: 'triangle-outline', glyph: 'head-triangle-outline', label: 'Triangle outline' },
+  { value: 'dot', glyph: 'head-dot', label: 'Dot' }, { value: 'dot-outline', glyph: 'head-dot-outline', label: 'Circle outline' }, { value: 'bar', glyph: 'head-bar', label: 'Bar' },
+  { value: 'diamond', glyph: 'head-diamond', label: 'Diamond' }, { value: 'diamond-outline', glyph: 'head-diamond-outline', label: 'Diamond outline' },
+  { value: 'crowfoot-one', glyph: 'head-crowfoot-one', label: "Crow's foot one" }, { value: 'crowfoot-many', glyph: 'head-crowfoot-many', label: "Crow's foot many" },
+  { value: 'crowfoot-one-or-many', glyph: 'head-crowfoot-one-or-many', label: "Crow's foot one or many" },
 ]
 const SIZES: Option<number>[] = (Object.entries(FONT_SIZE_PRESETS) as [string, number][]).map(([k, v]) => ({ value: v, text: k, label: `Font size ${k}` }))
 const ALIGNS: Option<'left' | 'center' | 'right'>[] = [

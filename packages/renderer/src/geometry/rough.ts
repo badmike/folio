@@ -230,24 +230,118 @@ export function arrowheadParts(kind: Arrowhead, tip: Vec2, dir: Vec2, style: Sha
       out.solids.push([tip, a, b])
       break
     }
-    case 'dot': {
-      const r = Math.min(len * 0.4, 3 + style.strokeWidth * 1.4)
-      const c = { x: tip.x - dir.x * r, y: tip.y - dir.y * r }
-      const poly: Vec2[] = []
-      for (let i = 0; i < 16; i++) {
-        const t = (i / 16) * Math.PI * 2
-        poly.push({ x: c.x + Math.cos(t) * r, y: c.y + Math.sin(t) * r })
-      }
-      out.solids.push(poly)
+    case 'triangle-outline': {
+      const [a, b] = arrowHeadPoints(from, tip, len)
+      out.strokes.push([tip, a, b, tip])
       break
     }
-    case 'bar': {
-      const half = Math.min(len * 0.55, 6 + style.strokeWidth * 1.5)
-      out.strokes.push([{ x: tip.x + nx * half, y: tip.y + ny * half }, { x: tip.x - nx * half, y: tip.y - ny * half }])
+    case 'dot': {
+      const r = dotRadius(style, len)
+      out.solids.push(circlePolygon({ x: tip.x - dir.x * r, y: tip.y - dir.y * r }, r, 16))
+      break
+    }
+    case 'dot-outline': {
+      const r = dotRadius(style, len)
+      const ring = circlePolygon({ x: tip.x - dir.x * r, y: tip.y - dir.y * r }, r, 24)
+      out.strokes.push([...ring, ring[0]])
+      break
+    }
+    case 'diamond':
+    case 'diamond-outline': {
+      const w = len * DIAMOND_HALF_WIDTH
+      const poly = [
+        tip,
+        { x: tip.x - dir.x * len / 2 + nx * w, y: tip.y - dir.y * len / 2 + ny * w },
+        { x: tip.x - dir.x * len, y: tip.y - dir.y * len },
+        { x: tip.x - dir.x * len / 2 - nx * w, y: tip.y - dir.y * len / 2 - ny * w },
+      ]
+      if (kind === 'diamond') out.solids.push(poly)
+      else out.strokes.push([...poly, poly[0]])
+      break
+    }
+    case 'bar':
+      out.strokes.push(crossBar(tip, nx, ny, barHalf(style, len)))
+      break
+    case 'crowfoot-one':
+      out.strokes.push(crossBar({ x: tip.x - dir.x * len * 0.5, y: tip.y - dir.y * len * 0.5 }, nx, ny, barHalf(style, len)))
+      break
+    case 'crowfoot-many':
+    case 'crowfoot-one-or-many': {
+      const half = barHalf(style, len)
+      const apex = { x: tip.x - dir.x * len, y: tip.y - dir.y * len }
+      out.strokes.push(
+        [apex, { x: tip.x + nx * half, y: tip.y + ny * half }],
+        [apex, { x: tip.x - nx * half, y: tip.y - ny * half }],
+      )
+      if (kind === 'crowfoot-one-or-many') {
+        out.strokes.push(crossBar({ x: tip.x - dir.x * len * 1.3, y: tip.y - dir.y * len * 1.3 }, nx, ny, half))
+      }
       break
     }
   }
   return out
+}
+
+/** Half-width of a diamond head relative to its length. */
+const DIAMOND_HALF_WIDTH = 0.4
+
+const dotRadius = (style: ShapeStyle, len: number): number => Math.min(len * 0.4, 3 + style.strokeWidth * 1.4)
+const barHalf = (style: ShapeStyle, len: number): number => Math.min(len * 0.55, 6 + style.strokeWidth * 1.5)
+
+function crossBar(c: Vec2, nx: number, ny: number, half: number): Vec2[] {
+  return [{ x: c.x + nx * half, y: c.y + ny * half }, { x: c.x - nx * half, y: c.y - ny * half }]
+}
+
+function circlePolygon(c: Vec2, r: number, steps: number): Vec2[] {
+  const poly: Vec2[] = []
+  for (let i = 0; i < steps; i++) {
+    const t = (i / steps) * Math.PI * 2
+    poly.push({ x: c.x + Math.cos(t) * r, y: c.y + Math.sin(t) * r })
+  }
+  return poly
+}
+
+/**
+ * How far back from the tip the shaft must stop so it does not show through the
+ * head: outline heads are hollow, every other head sits on top of the shaft.
+ */
+export function arrowheadTrim(kind: Arrowhead, style: ShapeStyle, shaftLength: number): number {
+  const len = arrowHeadLength(style, shaftLength)
+  switch (kind) {
+    case 'triangle-outline': return len * Math.cos(Math.PI / 7)
+    case 'dot-outline': return dotRadius(style, len) * 2
+    case 'diamond-outline': return len
+    default: return 0
+  }
+}
+
+/** Cut `start` / `end` arc length off the ends of a flattened path; null when nothing is left. */
+export function trimPath(path: Vec2[], start: number, end: number): Vec2[] | null {
+  if (start <= 0 && end <= 0) return path
+  let total = 0
+  for (let i = 1; i < path.length; i++) total += Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y)
+  const to = total - Math.max(0, end)
+  const from = Math.max(0, start)
+  if (to - from < 0.5) return null
+  const out: Vec2[] = []
+  let acc = 0
+  for (let i = 0; i < path.length; i++) {
+    const seg = i ? Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y) : 0
+    const next = acc + seg
+    if (i > 0 && seg > 0) {
+      const lerp = (d: number): Vec2 => {
+        const t = (d - acc) / seg
+        return { x: path[i - 1].x + (path[i].x - path[i - 1].x) * t, y: path[i - 1].y + (path[i].y - path[i - 1].y) * t }
+      }
+      if (out.length === 0 && next > from) out.push(lerp(from))
+      if (out.length > 0) {
+        if (next >= to) { out.push(lerp(to)); break }
+        out.push(path[i])
+      }
+    }
+    acc = next
+  }
+  return out.length > 1 ? out : null
 }
 
 /** Arrow shaft + heads in WORLD space (arrows carry an identity transform). `path` = arrowPath(). */
@@ -301,7 +395,7 @@ export function buildArrowGeometry(arrow: ArrowObject, path: Vec2[], theme: Visu
       const tmp: PathGeometry = { strokes: [], fills: [], hatch: [], solids: [], strokeWidth: 0, hatchWidth: 0 }
       const fillOptions = { ...ho, fill: style.strokeColor, fillStyle: 'solid' }
       if (kind === 'dot') {
-        const r = Math.min(arrowHeadLength(style, len) * 0.4, 3 + style.strokeWidth * 1.4)
+        const r = dotRadius(style, arrowHeadLength(style, len))
         const dir = pathEndTangent(path, atEnd)
         collect(generator.ellipse(tip.x - dir.x * r, tip.y - dir.y * r, r * 2, r * 2, fillOptions), tmp)
       } else collect(generator.polygon(poly.map((p) => [p.x, p.y] as [number, number]), fillOptions), tmp)
