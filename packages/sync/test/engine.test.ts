@@ -20,7 +20,10 @@ function device(server: FakeServer, name: string, extra: { threshold?: number; l
 describe('base64', () => {
   it('round-trips large arrays', () => {
     const b = Uint8Array.from({ length: 1_000_000 }, (_, i) => i % 251)
-    expect(base64ToBytes(bytesToBase64(b))).toEqual(b)
+    const back = base64ToBytes(bytesToBase64(b))
+    // compare directly: a deep equal over a million elements can take seconds on a slow runner
+    expect(back.length).toBe(b.length)
+    expect(back.every((v, i) => v === b[i])).toBe(true)
   })
 })
 
