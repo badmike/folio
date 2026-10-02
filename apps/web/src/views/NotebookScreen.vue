@@ -48,22 +48,50 @@ const touches = new Map<number, { x: number; y: number; t: number; moved: boolea
 function onHostPointerDown(e: PointerEvent) {
   if (ctl.highlighted.value) ctl.clearHighlight()
   armFade()
-  if (!settings.autoHideHud) return
   if (e.pointerType === 'touch') {
+    if (!settings.autoHideHud && !presenting.value) return
     for (const t of touches.values()) t.moved = true // a second finger: gesture, not a tap
     touches.set(e.pointerId, { x: e.clientX, y: e.clientY, t: e.timeStamp, moved: touches.size > 0 })
-  } else if (INK_TOOLS.includes(ctl.tool.value)) hudHidden.value = true
+  } else if (settings.autoHideHud && INK_TOOLS.includes(ctl.tool.value)) hudHidden.value = true
 }
 const INK_TOOLS = ['pen', 'highlighter', 'eraser']
 function onHostPointerMove(e: PointerEvent) {
+  if (presenting.value && e.pointerType === 'mouse' && !e.buttons) revealExit()
   const t = touches.get(e.pointerId)
   if (t && Math.hypot(e.clientX - t.x, e.clientY - t.y) > 10) t.moved = true
 }
 function onHostPointerUp(e: PointerEvent) {
   const t = touches.get(e.pointerId)
   touches.delete(e.pointerId)
-  if (!t || e.type === 'pointercancel') return
-  if (!t.moved && e.timeStamp - t.t < 350 && hudHidden.value) hudHidden.value = false
+  if (!t || e.type === 'pointercancel' || t.moved || e.timeStamp - t.t >= 350) return
+  if (presenting.value) revealExit()
+  else hudHidden.value = false
+}
+
+/**
+ * Presenter mode: no interface at all, only the canvas. Esc or Alt+P leaves it; moving the mouse
+ * or tapping the canvas shows an exit button for a moment. Not persisted, a reload shows the HUD again.
+ */
+const presenting = ref(false)
+const exitShown = ref(false)
+let exitTimer: ReturnType<typeof setTimeout> | undefined
+function revealExit() {
+  exitShown.value = true
+  clearTimeout(exitTimer)
+  exitTimer = setTimeout(() => { exitShown.value = false }, 2500)
+}
+function setPresenting(on: boolean) {
+  presenting.value = on
+  if (on) {
+    panel.value = null
+    showSettings.value = false
+    ctl.showToolOptions.value = false
+    ctl.editor.value?.clearSelection()
+    revealExit()
+  } else {
+    clearTimeout(exitTimer)
+    exitShown.value = false
+  }
 }
 watch(() => settings.autoHideHud, (on) => { if (!on) hudHidden.value = false })
 watch(zen, (on) => {
@@ -80,9 +108,11 @@ function onKeyDown(e: KeyboardEvent) {
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
   // Before the handled check: the editor also uses Esc (deselect) and Space (pan), and both still apply.
   if (e.key === 'Escape' || e.key === ' ') hudHidden.value = false
+  if (e.key === 'Escape' && presenting.value) { setPresenting(false); return }
   if (e.defaultPrevented) return
   const mod = e.metaKey || e.ctrlKey
   if (e.altKey && !mod && e.code === 'KeyZ') { e.preventDefault(); toggleZen(); return }
+  if (e.altKey && !mod && e.code === 'KeyP') { e.preventDefault(); setPresenting(!presenting.value); return }
   if (e.altKey && !mod && e.code === 'KeyR') { e.preventDefault(); ctl.setLocked(!ctl.locked.value); return }
   if (mod && !e.shiftKey && e.key === "'") { e.preventDefault(); ctl.toggleGrid(); return }
   if (mod && !e.shiftKey && e.key.toLowerCase() === 'f') { e.preventDefault(); togglePanel('search'); return }
@@ -158,6 +188,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeyDown)
   document.removeEventListener('fullscreenchange', onFullscreenChange)
   clearTimeout(fadeTimer)
+  clearTimeout(exitTimer)
   void ctl.destroy().catch((e) => diagnostics.log('notebook.destroy', e))
 })
 
@@ -172,6 +203,7 @@ const mainItems = computed((): MenuItem[] => [
   { label: 'Lock notebook', icon: 'lock', checked: ctl.locked.value, action: () => ctl.setLocked(!ctl.locked.value) },
   { label: 'Show grid', icon: 'grid', checked: ctl.gridShown, action: () => ctl.toggleGrid() },
   { label: 'Zen mode', icon: 'zen', checked: settings.zen, action: () => toggleZen() },
+  { label: 'Presenter mode', icon: 'presenter', action: () => setPresenting(true) },
   { label: 'Hide interface while drawing', icon: 'compact', checked: settings.autoHideHud, action: () => { settings.autoHideHud = !settings.autoHideHud } },
   ...(canFullscreen ? [{ label: 'Full screen', icon: 'fullscreen', checked: fullscreen.value, action: () => void toggleFullscreen() } satisfies MenuItem] : []),
   { divider: true },
@@ -202,15 +234,15 @@ const zoomPct = computed(() => Math.round(ctl.zoom.value * 100))
 </script>
 
 <template>
-  <div class="screen" :class="{ 'hud-hidden': hudHidden }" data-testid="notebook-screen">
+  <div class="screen" :class="{ 'hud-hidden': hudHidden && !presenting }" data-testid="notebook-screen">
     <div ref="host" class="canvas-host" data-testid="editor-host" @pointerdown.capture="onHostPointerDown" @pointermove.capture="onHostPointerMove"
          @pointerup.capture="onHostPointerUp" @pointercancel.capture="onHostPointerUp" />
 
-    <header v-if="!zen" class="topbar">
+    <header v-if="!zen && !presenting" class="topbar">
       <Menu :items="mainItems" align="left">
         <template #default="{ open }">
           <button class="icon-btn panel floating menu-btn" :class="{ active: open }" aria-label="Menu" :title="ctl.title.value || 'Untitled'" data-testid="main-menu">
-            <Icon name="menu" />
+            <Icon name="menu" :size="18" />
             <span class="dot" :class="syncClass" :title="syncTitle" data-testid="sync-dot" />
           </button>
         </template>
@@ -219,26 +251,29 @@ const zoomPct = computed(() => Math.round(ctl.zoom.value * 100))
         </template>
       </Menu>
       <span class="spacer" />
+      <div class="zoom panel floating">
+        <button class="icon-btn step" aria-label="Zoom out" title="Zoom out (⌘-)" data-testid="zoom-out" @click="ctl.zoomBy(1 / 1.2)"><Icon name="minus" :size="16" /></button>
+        <button class="zoom-pct" aria-label="Reset zoom to 100%" title="Reset zoom (⌘0)" data-testid="zoom-pct" @click="ctl.resetZoom()">{{ zoomPct }}%</button>
+        <button class="icon-btn step" aria-label="Zoom in" title="Zoom in (⌘+)" data-testid="zoom-in" @click="ctl.zoomBy(1.2)"><Icon name="plus" :size="16" /></button>
+        <button class="icon-btn" aria-label="Fit to content" title="Fit (Shift+1)" data-testid="zoom-fit" @click="ctl.fit()"><Icon name="fit" :size="16" /></button>
+      </div>
       <div class="actions panel floating">
-        <button class="icon-btn" :class="{ active: panel === 'search' }" aria-label="Search in notebook" title="Search (⌘F)" data-testid="open-search" @click="togglePanel('search')"><Icon name="search" /></button>
-        <button class="icon-btn" :class="{ active: panel === 'pages' }" aria-label="Pages and background" title="Pages" data-testid="open-pages" @click="togglePanel('pages')"><Icon name="layers" /></button>
-        <button class="icon-btn" :class="{ active: panel === 'ai' }" aria-label="AI assistant" title="AI assistant" data-testid="open-ai" @click="togglePanel('ai')"><Icon name="sparkles" /></button>
+        <button class="icon-btn" :class="{ active: panel === 'search' }" aria-label="Search in notebook" title="Search (⌘F)" data-testid="open-search" @click="togglePanel('search')"><Icon name="search" :size="18" /></button>
+        <button class="icon-btn" :class="{ active: panel === 'pages' }" aria-label="Pages and background" title="Pages" data-testid="open-pages" @click="togglePanel('pages')"><Icon name="layers" :size="18" /></button>
+        <button class="icon-btn" :class="{ active: panel === 'ai' }" aria-label="AI assistant" title="AI assistant" data-testid="open-ai" @click="togglePanel('ai')"><Icon name="sparkles" :size="18" /></button>
       </div>
     </header>
     <input ref="excalInput" type="file" accept=".excalidraw,application/json" hidden data-testid="excalidraw-input" @change="onExcalidrawFile" />
 
-    <Toolbar :zen="zen" :faded="zen && faded" @wake="wake" />
-    <PropertiesPanel :zen="zen" :hud-hidden="hudHidden" />
-    <button v-if="zen" class="zen-exit panel floating" data-testid="zen-exit" @click="toggleZen(false)">Exit zen mode</button>
+    <template v-if="!presenting">
+      <Toolbar :zen="zen" :faded="zen && faded" @wake="wake" />
+      <PropertiesPanel :zen="zen" :hud-hidden="hudHidden" />
+      <button v-if="zen" class="zen-exit panel floating" data-testid="zen-exit" @click="toggleZen(false)">Exit zen mode</button>
+    </template>
+    <button v-else class="zen-exit presenter-exit panel floating" :class="{ shown: exitShown }" data-testid="presenter-exit"
+            @pointermove="revealExit" @focus="revealExit" @click="setPresenting(false)">Exit presenter mode</button>
 
-    <div v-if="!zen" class="zoom panel floating">
-      <button class="icon-btn" aria-label="Zoom out" title="Zoom out (⌘-)" data-testid="zoom-out" @click="ctl.zoomBy(1 / 1.2)"><Icon name="minus" :size="18" /></button>
-      <button class="zoom-pct" aria-label="Reset zoom to 100%" title="Reset zoom (⌘0)" data-testid="zoom-pct" @click="ctl.resetZoom()">{{ zoomPct }}%</button>
-      <button class="icon-btn" aria-label="Zoom in" title="Zoom in (⌘+)" data-testid="zoom-in" @click="ctl.zoomBy(1.2)"><Icon name="plus" :size="18" /></button>
-      <button class="icon-btn" aria-label="Fit to content" title="Fit (Shift+1)" data-testid="zoom-fit" @click="ctl.fit()"><Icon name="fit" :size="18" /></button>
-    </div>
-
-    <template v-if="!zen">
+    <template v-if="!zen && !presenting">
       <PagePanel v-if="panel === 'pages'" @close="panel = null" />
       <NotebookSearch v-else-if="panel === 'search'" @close="panel = null" />
       <AiPanel v-else-if="panel === 'ai'" @close="panel = null" />
@@ -251,35 +286,40 @@ const zoomPct = computed(() => Math.round(ctl.zoom.value * 100))
 <style scoped>
 .screen { position: fixed; top: 0; left: 0; width: var(--app-w); height: var(--app-h); overflow: hidden; background: var(--bg); touch-action: none; }
 /* auto-hide: the HUD slides off its edge; the compact properties bar stays and slides to the corner */
-.screen > .topbar, .screen > .zoom, .screen :deep(.dock), .screen :deep(.sheet) { transition: transform 0.28s ease, opacity 0.28s ease; }
-.screen.hud-hidden > .topbar, .screen.hud-hidden > .zoom { transform: translateY(-140%); opacity: 0; pointer-events: none; }
+.screen > .topbar, .screen :deep(.dock), .screen :deep(.sheet) { transition: transform 0.28s ease, opacity 0.28s ease; }
+.screen.hud-hidden > .topbar { transform: translateY(-140%); opacity: 0; pointer-events: none; }
 .screen.hud-hidden :deep(.dock) { transform: translateY(140%); opacity: 0; pointer-events: none; }
 .screen.hud-hidden :deep(.sheet) { transform: translateX(110%); opacity: 0; pointer-events: none; }
 .screen.hud-hidden :deep(.dock > *) { pointer-events: none; }
 .canvas-host { position: absolute; inset: 0; touch-action: none; }
 .topbar {
-  position: absolute; z-index: 25; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 8px; pointer-events: none;
+  position: absolute; z-index: 25; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 6px; pointer-events: none;
   padding: calc(8px + var(--safe-top)) calc(8px + var(--safe-right)) 0 calc(8px + var(--safe-left));
 }
 .topbar > * { pointer-events: auto; }
 .topbar > .spacer { pointer-events: none; }
-.menu-btn { width: 44px; height: 44px; }
+/* HUD buttons match the tool options panel: 32px inside a 2px-padded group, 36px tall overall */
+.menu-btn { width: 36px; height: 36px; }
 .menu-title { padding: 6px 12px 8px; font-weight: 650; color: var(--text-strong); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dot { position: absolute; right: 7px; top: 7px; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); border: 2px solid var(--surface); box-sizing: content-box; }
+.dot { position: absolute; right: 5px; top: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); border: 2px solid var(--surface); box-sizing: content-box; }
 .dot.idle { background: var(--ok); }
 .dot.syncing { background: var(--accent); }
 .dot.offline, .dot.signed-out { background: var(--warn); }
 .dot.error { background: var(--danger); }
 .dot.local { background: var(--surface-3); box-shadow: inset 0 0 0 2px var(--muted); }
 .actions { display: flex; padding: 2px; }
-.actions .icon-btn { width: 40px; height: 40px; }
-.zoom { position: absolute; z-index: 18; top: calc(60px + var(--safe-top)); right: calc(8px + var(--safe-right)); display: flex; align-items: center; padding: 2px; }
-.zoom .icon-btn { width: 36px; height: 36px; }
-.zoom-pct { border: 0; background: transparent; min-width: 50px; min-height: 36px; padding: 0 4px; border-radius: var(--radius); font-variant-numeric: tabular-nums; font-size: 13px; }
+.actions .icon-btn { width: 32px; height: 32px; }
+.zoom { display: flex; align-items: center; padding: 2px; }
+.zoom .icon-btn { width: 32px; height: 32px; }
+.zoom-pct { border: 0; background: transparent; min-width: 46px; min-height: 32px; padding: 0 4px; border-radius: var(--radius); font-variant-numeric: tabular-nums; font-size: 12.5px; }
 .zoom-pct:hover { background: var(--surface-2); }
+/* phones: pinch zooms, so only the percentage (reset) and fit stay */
+@media (max-width: 520px) { .zoom .step { display: none; } }
 .zen-exit {
   position: absolute; z-index: 26; top: calc(12px + var(--safe-top)); right: calc(12px + var(--safe-right)); min-height: 36px; padding: 0 14px;
   font-size: 13px; color: var(--muted); opacity: 0.75; border-radius: 99px;
 }
 .zen-exit:hover, .zen-exit:focus-visible { opacity: 1; color: var(--text); }
+.presenter-exit { transition: opacity 0.3s; }
+.presenter-exit:not(.shown) { opacity: 0; pointer-events: none; }
 </style>

@@ -15,7 +15,7 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
   ] },
   { title: 'View', rows: [
     ['Zoom in / out', mod + '+ + / ' + mod + '+ −'], ['Reset zoom', mod + '+0'], ['Zoom to fit', 'Shift+1'], ['Zoom to selection', 'Shift+2'],
-    ['Pan', 'Space+drag · wheel'], ['Zen mode', alt + '+Z'], ['Toggle grid', mod + "+'"], ['Lock notebook (view mode)', alt + '+R'],
+    ['Pan', 'Space+drag · wheel'], ['Zen mode', alt + '+Z'], ['Presenter mode', alt + '+P'], ['Toggle grid', mod + "+'"], ['Lock notebook (view mode)', alt + '+R'],
     ['Search in notebook', mod + '+F'], ['Show hidden interface', 'Esc · Space'], ['This list', '?'],
   ] },
   { title: 'Editor', rows: [

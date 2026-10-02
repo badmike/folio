@@ -8,7 +8,7 @@ defineEmits<{ (e: 'close'): void }>()
   <aside class="sheet panel floating" :aria-label="title" @pointerdown.stop>
     <header>
       <h3>{{ title }}</h3>
-      <button class="icon-btn" aria-label="Close panel" @click="$emit('close')"><Icon name="x" /></button>
+      <button class="icon-btn" aria-label="Close panel" @click="$emit('close')"><Icon name="x" :size="18" /></button>
     </header>
     <div class="content"><slot /></div>
   </aside>
@@ -16,11 +16,12 @@ defineEmits<{ (e: 'close'): void }>()
 
 <style scoped>
 .sheet {
-  position: absolute; z-index: 30; top: calc(60px + var(--safe-top)); right: calc(8px + var(--safe-right)); bottom: calc(8px + var(--safe-bottom));
+  position: absolute; z-index: 30; top: calc(52px + var(--safe-top)); right: calc(8px + var(--safe-right)); bottom: calc(8px + var(--safe-bottom));
   width: 340px; display: flex; flex-direction: column; overflow: hidden;
 }
-header { display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 4px 16px; border-bottom: 1px solid var(--border); }
-h3 { font-size: 16px; }
+header { display: flex; align-items: center; justify-content: space-between; min-height: 40px; padding: 4px 4px 4px 16px; border-bottom: 1px solid var(--border); }
+header .icon-btn { width: 32px; height: 32px; }
+h3 { font-size: 14px; }
 .content { flex: 1; overflow: auto; padding: 14px 16px; }
 @media (max-width: 640px) {
   .sheet { left: 8px; right: 8px; top: auto; height: min(62%, 520px); }

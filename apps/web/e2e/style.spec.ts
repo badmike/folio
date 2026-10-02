@@ -191,3 +191,21 @@ test.describe('zen mode', () => {
     await expect(page.getByTestId('main-menu')).toBeVisible()
   })
 })
+
+test.describe('presenter mode', () => {
+  test('Alt+P hides every control, a mouse move shows the exit button, Esc restores', async ({ page }) => {
+    await newNotebook(page, 'Presenter')
+    await page.keyboard.press('Alt+p')
+    for (const id of ['main-menu', 'toolbar', 'zoom-pct', 'properties-panel']) await expect(page.getByTestId(id)).toHaveCount(0)
+    const exit = page.getByTestId('presenter-exit')
+    await expect.poll(() => exit.evaluate((el) => getComputedStyle(el).opacity), { timeout: 6000 }).toBe('0')
+    const b = await hostBox(page)
+    await page.mouse.move(b.x + 300, b.y + 300)
+    await page.mouse.move(b.x + 320, b.y + 310)
+    await expect.poll(() => exit.evaluate((el) => getComputedStyle(el).opacity)).not.toBe('0')
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('main-menu')).toBeVisible()
+    await expect(page.getByTestId('toolbar')).toBeVisible()
+    await expect(exit).toHaveCount(0)
+  })
+})
