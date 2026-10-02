@@ -304,15 +304,15 @@ const title = computed(() => (hasSel.value ? `${sel.value.count} selected` : TOO
           <section class="actions" data-testid="selection-bar" role="toolbar" aria-label="Selection actions">
             <label>Actions</label>
             <div class="opt-row">
-              <button v-if="sel.ink" class="btn small" data-testid="cleanup" :disabled="busy" @click="cleanUp"><Icon name="cleanup" :size="18" /> {{ busy ? 'Working…' : 'Clean Up' }}</button>
-              <button v-if="sel.ink" class="btn small" data-testid="tidy" title="Straighten lines and even out spacing, keeps your handwriting" @click="tidy"><Icon name="align-left" :size="18" /> Tidy</button>
-              <button v-if="sel.derived" class="btn small" data-testid="restore-ink" @click="ctl.recognitionApi?.restoreSelection()"><Icon name="restore" :size="18" /> Restore ink</button>
+              <button v-if="sel.ink" class="opt" aria-label="Clean Up: turn ink into text and shapes" :title="busy ? 'Working…' : 'Clean Up'" data-testid="cleanup" :disabled="busy" @click="cleanUp"><Icon name="cleanup" :size="20" /></button>
+              <button v-if="sel.ink" class="opt" aria-label="Tidy: straighten lines and even out spacing" title="Tidy" data-testid="tidy" @click="tidy"><Icon name="tidy" :size="20" /></button>
+              <button v-if="sel.derived" class="opt" aria-label="Restore ink" title="Restore ink" data-testid="restore-ink" @click="ctl.recognitionApi?.restoreSelection()"><Icon name="restore" :size="20" /></button>
+              <button v-if="sel.text" class="opt" aria-label="Copy recognized text" title="Copy text" @click="copy"><Icon name="copy-text" :size="20" /></button>
               <button class="opt" aria-label="Duplicate" title="Duplicate" data-testid="duplicate" @click="e().duplicateSelection()"><Icon name="copy" :size="20" /></button>
               <button v-if="sel.count > 1" class="opt" aria-label="Group" title="Group" @click="e().groupSelection()"><Icon name="group" :size="20" /></button>
               <button v-if="sel.group" class="opt" aria-label="Ungroup" title="Ungroup" @click="e().ungroupSelection()"><Icon name="ungroup" :size="20" /></button>
-              <button v-if="sel.frame" class="btn small" data-testid="frame-select-content" @click="ctl.selectFrameContent()"><Icon name="select" :size="18" /> Select content</button>
-              <button v-if="sel.frame" class="btn small" data-testid="frame-remove" title="Remove the frame, keep what is inside" @click="ctl.unframeSelection()"><Icon name="frame" :size="18" /> Remove frame</button>
-              <button v-if="sel.text" class="opt" aria-label="Copy recognized text" title="Copy text" @click="copy"><Icon name="doc" :size="20" /></button>
+              <button v-if="sel.frame" class="opt" aria-label="Select frame content" title="Select content" data-testid="frame-select-content" @click="ctl.selectFrameContent()"><Icon name="frame-content" :size="20" /></button>
+              <button v-if="sel.frame" class="opt" aria-label="Remove frame, keep what is inside" title="Remove frame" data-testid="frame-remove" @click="ctl.unframeSelection()"><Icon name="unframe" :size="20" /></button>
               <button class="opt danger" aria-label="Delete" title="Delete" data-testid="delete-selection" @click="e().deleteSelection()"><Icon name="trash" :size="20" /></button>
             </div>
           </section>
