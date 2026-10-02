@@ -19,6 +19,18 @@ describe('manipulation patches', () => {
     expect(patches[1].patch).toMatchObject({ start: { x: 10, y: -5 }, end: { x: 60, y: 45 }, $unset: ['startBinding'] })
   })
 
+  it('arrow waypoints move, rotate, scale and copy with the arrow', () => {
+    const a = arrow('a', 0, 0, 100, 0, { arrowType: 'curved', waypoints: [{ x: 50, y: 20 }] })
+    const res = R({ a })
+    expect(computeMovePatches([a], 10, 5, res)[0].patch).toMatchObject({ waypoints: [{ x: 60, y: 25 }] })
+    const rotated = computeRotatePatches([a], { x: 0, y: 0 }, Math.PI, res)[0].patch as { waypoints: { x: number; y: number }[] }
+    expect(rotated.waypoints[0].x).toBeCloseTo(-50)
+    expect(rotated.waypoints[0].y).toBeCloseTo(-20)
+    const scaled = computeScalePatches([a], { anchor: { x: 0, y: 0 }, theta: 0, sx: 2, sy: 2 }, res)[0].patch
+    expect(scaled).toMatchObject({ waypoints: [{ x: 100, y: 40 }] })
+    expect(cloneObjects([a], 10, 10, 0).objects[0]).toMatchObject({ waypoints: [{ x: 60, y: 30 }] })
+  })
+
   it('rotate about a center', () => {
     const sh = shape('s', 100, 0)
     const [p] = computeRotatePatches([sh], { x: 0, y: 0 }, Math.PI / 2, R({ s: sh }))

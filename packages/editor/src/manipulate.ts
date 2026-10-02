@@ -115,8 +115,11 @@ export function scaleFromHandle(frame: SelectionFrame, handle: HandleId, p: Vec2
 const stamp = (now: number): Partial<ObjectPatch> => ({ updatedAt: now })
 
 /** Patch for an arrow after its stored coordinates were transformed; drops bindings to unselected targets. */
-function arrowPatch(a: ArrowObject, start: Vec2, end: Vec2, selected: Set<ObjectId>, now: number): ObjectPatch {
-  const patch: ObjectPatch = { start, end, ...stamp(now) }
+/** Patch for an arrow whose points (ends and waypoints) all go through `map`. */
+function arrowPatch(a: ArrowObject, map: (p: Vec2) => Vec2, resolve: Resolve, selected: Set<ObjectId>, now: number): ObjectPatch {
+  const { start, end } = arrowEnds(a, resolve)
+  const patch: ObjectPatch = { start: map(start), end: map(end), ...stamp(now) }
+  if (a.waypoints) (patch as Record<string, unknown>).waypoints = a.waypoints.map(map)
   const unset: string[] = []
   if (a.startBinding && !selected.has(a.startBinding.objectId)) unset.push('startBinding')
   if (a.endBinding && !selected.has(a.endBinding.objectId)) unset.push('endBinding')
@@ -132,13 +135,7 @@ function arrowEnds(a: ArrowObject, resolve: Resolve): { start: Vec2; end: Vec2 }
 export function computeMovePatches(leaves: CanvasObject[], dx: number, dy: number, resolve: Resolve, now = Date.now()): ObjectPatchEntry[] {
   const selected = new Set(leaves.map((l) => l.id))
   return leaves.map((o) => {
-    if (o.type === 'arrow') {
-      const { start, end } = arrowEnds(o, resolve)
-      return {
-        id: o.id,
-        patch: arrowPatch(o, { x: start.x + dx, y: start.y + dy }, { x: end.x + dx, y: end.y + dy }, selected, now),
-      }
-    }
+    if (o.type === 'arrow') return { id: o.id, patch: arrowPatch(o, (p) => ({ x: p.x + dx, y: p.y + dy }), resolve, selected, now) }
     const t: Transform = { ...o.transform, x: o.transform.x + dx, y: o.transform.y + dy }
     return { id: o.id, patch: { transform: t, ...stamp(now) } }
   })
@@ -149,10 +146,7 @@ export function computeRotatePatches(
 ): ObjectPatchEntry[] {
   const selected = new Set(leaves.map((l) => l.id))
   return leaves.map((o) => {
-    if (o.type === 'arrow') {
-      const { start, end } = arrowEnds(o, resolve)
-      return { id: o.id, patch: arrowPatch(o, rotateAround(start, center, delta), rotateAround(end, center, delta), selected, now) }
-    }
+    if (o.type === 'arrow') return { id: o.id, patch: arrowPatch(o, (p) => rotateAround(p, center, delta), resolve, selected, now) }
     const p = rotateAround({ x: o.transform.x, y: o.transform.y }, center, delta)
     const t: Transform = { ...o.transform, x: p.x, y: p.y, rotation: o.transform.rotation + delta }
     return { id: o.id, patch: { transform: t, ...stamp(now) } }
@@ -175,10 +169,7 @@ export function computeScalePatches(leaves: CanvasObject[], spec: ScaleSpec, res
     return rotateAround(s, anchor, theta)
   }
   return leaves.map((o) => {
-    if (o.type === 'arrow') {
-      const { start, end } = arrowEnds(o, resolve)
-      return { id: o.id, patch: arrowPatch(o, mapPoint(start), mapPoint(end), selected, now) }
-    }
+    if (o.type === 'arrow') return { id: o.id, patch: arrowPatch(o, mapPoint, resolve, selected, now) }
     // factors in the object's own axes
     const d = Math.abs(angleDiff(o.transform.rotation - theta))
     let fx = sx
@@ -245,6 +236,7 @@ export function cloneObjects(objects: CanvasObject[], dx: number, dy: number, ba
     else if (o.type === 'arrow') {
       o.start = { x: o.start.x + dx, y: o.start.y + dy }
       o.end = { x: o.end.x + dx, y: o.end.y + dy }
+      if (o.waypoints) o.waypoints = o.waypoints.map((p) => ({ x: p.x + dx, y: p.y + dy }))
       for (const key of ['startBinding', 'endBinding'] as const) {
         const b = o[key]
         if (!b) continue
