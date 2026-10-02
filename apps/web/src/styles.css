@@ -160,7 +160,16 @@ code, kbd, .mono { font-family: var(--font-mono); }
 }
 @media (prefers-color-scheme: dark) { .input, select.input { border-color: var(--gray-800); background: var(--gray-850); } }
 .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-input[type='range'] { width: 100%; accent-color: var(--accent); height: 28px; }
+/* Range: a thin quiet rail and a flat accent knob, no white track or knob border. */
+input[type='range'] { -webkit-appearance: none; appearance: none; width: 100%; height: 28px; margin: 0; background: transparent; cursor: pointer; }
+input[type='range']::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--surface-3); }
+input[type='range']::-moz-range-track { height: 4px; border-radius: 2px; background: var(--surface-3); }
+input[type='range']::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--accent); }
+input[type='range']::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -6px; border: 0; border-radius: 50%; background: var(--accent); }
+input[type='range']::-moz-range-thumb { width: 16px; height: 16px; border: 0; border-radius: 50%; background: var(--accent); }
+input[type='range']:focus-visible { outline: none; }
+input[type='range']:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px var(--accent-soft); }
+input[type='range']:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 4px var(--accent-soft); }
 .row { display: flex; align-items: center; gap: 8px; }
 .spacer { flex: 1; }
 .muted { color: var(--muted); }

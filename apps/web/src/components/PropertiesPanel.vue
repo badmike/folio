@@ -164,8 +164,8 @@ const title = computed(() => (hasSel.value ? `${sel.value.count} selected` : TOO
     <template v-else>
       <header class="head">
         <strong>{{ title }}</strong>
-        <button class="icon-btn mini" type="button" aria-label="Collapse properties" :aria-expanded="true" data-testid="props-collapse" @click="toggleCollapsed">
-          <Icon name="compact" :size="18" />
+        <button class="icon-btn mini" type="button" aria-label="Minimize tool options" title="Minimize" :aria-expanded="true" data-testid="props-collapse" @click="toggleCollapsed">
+          <Icon name="minus" :size="18" />
         </button>
       </header>
 
@@ -357,7 +357,7 @@ section > label b { color: var(--text); }
 .head-list .opt { background: var(--surface); width: 32px; }
 .aa { font-size: 15px; line-height: 1; }
 .scale { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: -4px; }
-.check { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text) !important; font-weight: 500 !important; }
+.check { display: flex; align-items: center; justify-content: flex-start !important; gap: 8px; font-size: 14px; color: var(--text) !important; font-weight: 500 !important; }
 .check input { width: 20px; height: 20px; accent-color: var(--accent); }
 .actions .btn { min-height: 34px; }
 </style>
