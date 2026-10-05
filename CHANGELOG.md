@@ -3,6 +3,10 @@
 All notable changes to folio are documented here.
 Commits follow the [Gitmoji](https://gitmoji.dev/) convention.
 
+## [v26.10.5-9705a3a] — 2026-10-5
+
+- 🐛 editor: stop iPadOS from swallowing quick Pencil strokes
+
 ## [v26.10.3-8d2152f] — 2026-10-3
 
 - ✅ sync: compare the large base64 round trip without a deep equal
