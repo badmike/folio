@@ -4,7 +4,7 @@ import { requireServices } from '../app'
 import { confirmDialog } from '../services/dialogs'
 import { exportDiagnostics } from '../services/diagnostics'
 import { handwriting, resetHandwriting } from '../services/handwriting'
-import { offlineReady } from '../services/pwa'
+import { offlineReady, refreshApp } from '../services/pwa'
 import { settings, toggleZen } from '../services/settings'
 import AccountPanel from './AccountPanel.vue'
 import CalibrationDialog from './CalibrationDialog.vue'
@@ -60,6 +60,13 @@ const cloudDisabledReason = computed(() => {
   if (!svc.auth.signedIn.value) return 'Sign in to enable.'
   return ''
 })
+
+const refreshing = ref(false)
+async function refresh() {
+  refreshing.value = true
+  await svc.workspace.flushAll()
+  await refreshApp()
+}
 
 const STORAGE: Record<typeof svc.storageKind, string> = { 'sqlite-opfs': 'SQLite', indexeddb: 'IndexedDB', memory: 'Memory only' }
 </script>
@@ -258,6 +265,15 @@ const STORAGE: Record<typeof svc.storageKind, string> = { 'sqlite-opfs': 'SQLite
               <span class="value" :class="{ ok: offlineReady }">
                 <Icon v-if="offlineReady" name="check" :size="14" />{{ offlineReady ? 'Ready' : 'Preparing…' }}
               </span>
+            </div>
+            <div class="setting">
+              <div class="text">
+                <div class="name">Updates</div>
+                <p>Running folio {{ version }}. Reload to get the latest version. Your notebooks are saved first.</p>
+              </div>
+              <button class="btn small" :disabled="refreshing" data-testid="refresh-app" @click="refresh">
+                {{ refreshing ? 'Reloading…' : 'Reload' }}
+              </button>
             </div>
             <div class="setting">
               <div class="text">
