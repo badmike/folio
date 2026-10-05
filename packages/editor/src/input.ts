@@ -5,7 +5,7 @@
  * pointerup → build InkStroke → deferred commit. Nothing in here runs
  * recognition, persistence or sync.
  */
-import { DRAWABLE_SHAPE_KINDS, type ArrowObject, type CanvasObject, type InkPoint, type ObjectId, type ObjectPatch, type Rect, type ShapeKind, type ShapeObject, type Vec2 } from '@folio/document'
+import { DRAWABLE_SHAPE_KINDS, INK_POINT_STRIDE, type ArrowObject, type CanvasObject, type InkPoint, type ObjectId, type ObjectPatch, type Rect, type ShapeKind, type ShapeObject, type Vec2 } from '@folio/document'
 import { ROTATE_HANDLE_OFFSET, arrowPath, elbowWaypointsAfterDrag, linePointsAfterDrag } from '@folio/renderer'
 import { buildArrow, buildShape, shapeGeometry, snapAngle } from './create'
 import type { Editor } from './editor'
@@ -44,11 +44,15 @@ interface Interaction {
   flush?(): void
   up(s: Sample): void
   cancel(): void
+  /** The system took the pointer away (pointercancel, lost pointerup): keep the work so far. Defaults to cancel. */
+  interrupt?(): void
 }
 
 const TAP_MAX_MOVE = 6
 const DOUBLE_TAP_MS = 350
 const DOUBLE_TAP_DIST = 24
+/** Touches landing this soon after the Pencil lifts are a palm between strokes, not a pan. */
+const PALM_AFTER_PEN_MS = 500
 
 /**
  * Pan velocity from the last ~80 ms of pointer samples, and the coasting loop that
@@ -123,7 +127,9 @@ export class InputController {
   private touches = new Map<number, { x: number; y: number }>()
   private ignored = new Set<number>()
   private penSeen = false
-  private penDown = 0
+  /** Pointer ids of Pencils on the glass; a set so a lost pointerup can't leave it stuck. */
+  private pens = new Set<number>()
+  private penUpAt = -Infinity
   private spaceDown = false
   private pointerInside = false
   private lastTap?: { t: number; x: number; y: number }
@@ -141,6 +147,13 @@ export class InputController {
     on(this.el, 'pointermove', (e) => this.onPointerMove(e))
     on(this.el, 'pointerup', (e) => this.onPointerUp(e, false))
     on(this.el, 'pointercancel', (e) => this.onPointerUp(e, true))
+    // iPadOS gesture recognizers (Scribble, text selection, double-tap) swallow quick Pencil
+    // strokes unless the touch default is cancelled; touch-action and pointer events don't stop them.
+    const blockTouchDefault = (e: TouchEvent): void => {
+      if (e.cancelable && !(e.target instanceof HTMLTextAreaElement)) e.preventDefault()
+    }
+    on(this.el, 'touchstart', blockTouchDefault, { passive: false })
+    on(this.el, 'touchmove', blockTouchDefault, { passive: false })
     on(this.el, 'wheel', (e) => { this.flick.stop(); this.onWheel(e) }, { passive: false })
     on(this.el, 'contextmenu', (e) => e.preventDefault())
     // two quick pen taps (dotting an i) must not trigger the browser's double-click zoom / selection
@@ -205,16 +218,18 @@ export class InputController {
     this.rect.left = r.left
     this.rect.top = r.top
     const type = e.pointerType === 'pen' || e.pointerType === 'touch' ? e.pointerType : 'mouse'
+    // a fresh contact; WebKit can reuse ids whose pointerup never arrived
+    this.ignored.delete(e.pointerId)
 
     if (type === 'pen') {
       this.penSeen = true
-      this.penDown++
+      this.pens.add(e.pointerId)
       // A palm may already be resting on the canvas when the Pencil arrives.
       for (const id of this.touches.keys()) this.ignored.add(id)
       this.touches.clear()
     }
-    // palm rejection: no touches while the pen is down
-    if (type === 'touch' && this.penDown > 0) {
+    // palm rejection: no touches while the pen is down or just lifted between strokes
+    if (type === 'touch' && (this.pens.size > 0 || e.timeStamp - this.penUpAt < PALM_AFTER_PEN_MS)) {
       this.ignored.add(e.pointerId)
       return
     }
@@ -229,8 +244,8 @@ export class InputController {
     try { ed.opts.container.focus({ preventScroll: true }) } catch { /* ignore */ }
 
     if (this.interaction && type !== 'touch') {
-      // a new primary pointer replaces a stale interaction
-      this.interaction.cancel()
+      // a new primary pointer replaces a stale interaction; a stroke whose pointerup got lost is kept
+      this.interrupt(this.interaction)
       this.interaction = undefined
     }
     const s = this.fill(e)
@@ -333,7 +348,7 @@ export class InputController {
   }
 
   private onPointerUp(e: PointerEvent, cancelled: boolean): void {
-    if (e.pointerType === 'pen') this.penDown = Math.max(0, this.penDown - 1)
+    if (this.pens.delete(e.pointerId)) this.penUpAt = e.timeStamp
     const wasTouchPan = this.touches.has(e.pointerId) && this.touches.size === 1 && !(this.interaction && this.interaction.pointerId === e.pointerId)
     this.touches.delete(e.pointerId)
     if (wasTouchPan && !cancelled) this.flick.release(e.timeStamp)
@@ -342,8 +357,14 @@ export class InputController {
     const it = this.interaction
     if (!it || it.pointerId !== e.pointerId) return
     this.interaction = undefined
-    if (cancelled) it.cancel()
+    // iOS cancels Pencil pointers it hands to a system gesture; the ink written so far stays
+    if (cancelled) this.interrupt(it)
     else it.up(this.fill(e))
+  }
+
+  private interrupt(it: Interaction): void {
+    if (it.interrupt) it.interrupt()
+    else it.cancel()
   }
 
   private onTap(s: Sample, hit: CanvasObject | undefined): void {
@@ -621,8 +642,18 @@ class StrokeInteraction implements Interaction {
 
   up(s: Sample): void {
     if (s.wx !== this.lastX || s.wy !== this.lastY) this.push(s)
-    if (this.flat.length <= 6) this.push(s) // tap → dot
+    if (this.flat.length <= INK_POINT_STRIDE) this.push(s) // tap → dot
     this.flush()
+    this.commit()
+  }
+
+  interrupt(): void {
+    if (this.flat.length <= INK_POINT_STRIDE) this.flat.push(...this.flat) // tap → dot
+    this.flush()
+    this.commit()
+  }
+
+  private commit(): void {
     if (this.tool === 'pen' && this.ed.scribbleErase && this.eraseScribbled()) return
     const stroke = buildInkStroke(this.flat, {
       id: createId(), style: this.style, pointerType: this.pointerType, startedAt: this.startedAt, z: this.ed.nextZ(),

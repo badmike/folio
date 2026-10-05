@@ -91,6 +91,47 @@ describe('pen drawing', () => {
 })
 
 describe('touch and pen modes', () => {
+  it('keeps a Pencil stroke iOS cancels or whose pointerup never arrives', () => {
+    h = setup()
+    const pen = { pointerType: 'pen', id: 1 }
+    pointer(h, 'pointerdown', 10, 10, pen)
+    pointer(h, 'pointermove', 30, 20, pen)
+    pointer(h, 'pointercancel', 0, 0, pen)
+    pointer(h, 'pointerdown', 50, 10, pen)
+    pointer(h, 'pointermove', 70, 20, pen)
+    // no pointerup: the next contact replaces it
+    pointer(h, 'pointerdown', 90, 10, pen)
+    pointer(h, 'pointercancel', 0, 0, pen)
+    flush()
+    const strokes = objs(h) as InkStroke[]
+    expect(strokes).toHaveLength(3)
+    expect(strokes[0].transform).toMatchObject({ x: 10, y: 10 })
+    expect(h.live.cancel).not.toHaveBeenCalled()
+  })
+
+  it('treats a touch right after the Pencil lifts as a palm, not a pan', () => {
+    h = setup()
+    const t0 = performance.now()
+    drag(h, [10, 10], [20, 20], { pointerType: 'pen', id: 1, time: t0 })
+    drag(h, [300, 300], [350, 340], { pointerType: 'touch', id: 2, time: t0 + 200 })
+    expect(h.editor.camera).toEqual({ x: 0, y: 0, zoom: 1 })
+    drag(h, [300, 300], [350, 340], { pointerType: 'touch', id: 3, time: t0 + 1000 })
+    expect(h.editor.camera.x).toBeCloseTo(-50)
+  })
+
+  it('cancels touch defaults on the canvas so iPadOS gestures cannot take Pencil strokes', () => {
+    h = setup()
+    const touch = (target: EventTarget) => {
+      const e = new Event('touchstart', { bubbles: true, cancelable: true })
+      target.dispatchEvent(e)
+      return e.defaultPrevented
+    }
+    expect(touch(h.editor.root)).toBe(true)
+    const ta = document.createElement('textarea')
+    h.editor.domLayer.appendChild(ta)
+    expect(touch(ta)).toBe(false)
+  })
+
   it('rejects a palm that arrived before the pen, including a second finger', () => {
     h = setup({ penMode: 'pen-only' })
     pointer(h, 'pointerdown', 300, 300, { pointerType: 'touch', id: 2 })
@@ -116,16 +157,17 @@ describe('touch and pen modes', () => {
     flush()
     expect(objs(h)).toHaveLength(1)
     const cam0 = { ...h.editor.camera }
-    drag(h, [300, 300], [350, 340], { pointerType: 'touch', id: 2 })
+    const later = performance.now() + 1000
+    drag(h, [300, 300], [350, 340], { pointerType: 'touch', id: 2, time: later })
     flush()
     expect(objs(h)).toHaveLength(1)
     expect(h.editor.camera.x).toBeCloseTo(cam0.x - 50)
     expect(h.editor.camera.y).toBeCloseTo(cam0.y - 40)
     // pinch: two fingers moving apart zoom in
-    pointer(h, 'pointerdown', 400, 400, { pointerType: 'touch', id: 3 })
-    pointer(h, 'pointerdown', 500, 400, { pointerType: 'touch', id: 4 })
-    pointer(h, 'pointermove', 350, 400, { pointerType: 'touch', id: 3 })
-    pointer(h, 'pointermove', 550, 400, { pointerType: 'touch', id: 4 })
+    pointer(h, 'pointerdown', 400, 400, { pointerType: 'touch', id: 3, time: later })
+    pointer(h, 'pointerdown', 500, 400, { pointerType: 'touch', id: 4, time: later })
+    pointer(h, 'pointermove', 350, 400, { pointerType: 'touch', id: 3, time: later })
+    pointer(h, 'pointermove', 550, 400, { pointerType: 'touch', id: 4, time: later })
     expect(h.editor.camera.zoom).toBeGreaterThan(1.5)
     pointer(h, 'pointerup', 350, 400, { pointerType: 'touch', id: 3 })
     pointer(h, 'pointerup', 550, 400, { pointerType: 'touch', id: 4 })
