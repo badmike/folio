@@ -171,6 +171,10 @@ async fn tool_loop_over_two_steps() {
     // The cheap model titles the thread in the background.
     for _ in 0..50 {
         if detail(&app, &thread).await["thread"]["title"] == "Mock title" {
+            // Thinking could use up the small budget, and the model must title, not answer.
+            let title = app.mock.title_requests.lock().unwrap()[0].clone();
+            assert!(!title.reasoning);
+            assert!(texts(&title.messages[0]).starts_with("<message>\n"));
             return;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;

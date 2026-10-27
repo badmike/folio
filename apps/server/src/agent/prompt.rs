@@ -347,6 +347,7 @@ pub async fn build(
         tools: TOOLS.clone(),
         max_tokens: STEP_MAX_TOKENS,
         cache_breakpoint,
+        reasoning: true,
     })
 }
 

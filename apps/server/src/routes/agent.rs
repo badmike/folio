@@ -15,7 +15,7 @@ use crate::agent::store::{self, ListFilter};
 use crate::agent::{
     prompt, AiConfigRes, AiLimits, AiPreset, ContinueReq, CreateThreadReq, Environment,
     Instructions, ItemBody, StartTurnReq, StepEvent, StepReq, ThreadDetailRes, ThreadSummary,
-    ToolResult, TurnInfo, TurnStatus, UpdateThreadReq, UserMessage,
+    ToolResult, TurnInfo, TurnStatus, UpdateThreadReq, UserMessage, NEW_THREAD_TITLE,
 };
 use crate::auth::AuthUser;
 use crate::config::AiPreset as PresetConfig;
@@ -345,6 +345,11 @@ async fn next_step(
             user_item,
         },
     );
+    // The auto title usually lands after the first step's stream closed.
+    if turn.seq == 1 && turn.steps == 1 && thread.title != NEW_THREAD_TITLE {
+        let thread = store::summary(&st.db, &thread.user_id, &thread.id).await?;
+        first.push(StepEvent::Thread { thread });
+    }
     let step = Step {
         st,
         thread,
