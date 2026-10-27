@@ -1,9 +1,14 @@
 <script setup lang="ts">
 import type { BackgroundPattern, NotebookEntry, ThemeId } from '@folio/document'
 import type { SearchHit } from '@folio/persistence'
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { AiApi } from '../ai/api'
+import { AI_DOCK_KEY, AiDock as AiDockState, DOCK_PUSH_MIN_WINDOW } from '../ai/dock'
+import { contextBuilder, createToolRunner, revertEffects } from '../ai/tools'
 import { requireServices } from '../app'
+import AiDock from '../components/ai/AiDock.vue'
+import CommandPalette from '../components/CommandPalette.vue'
 import FolderTree from '../components/FolderTree.vue'
 import Icon from '../components/Icon.vue'
 import IconName from '../components/IconName.vue'
@@ -18,6 +23,7 @@ import { useLibrary } from '../composables'
 import { diagnostics } from '../services/diagnostics'
 import { appearanceDialog, chooseDialog, confirmDialog, promptDialog } from '../services/dialogs'
 import { exportFolioFile, exportMarkdownFor, importNotebookFile } from '../services/export'
+import type { PaletteItem } from '../services/palette'
 import { isIosSafariNotInstalled, offlineReady } from '../services/pwa'
 import type { DefaultPageType } from '../services/settings'
 import { toast, toastError } from '../services/toast'
@@ -210,6 +216,50 @@ async function openSearch() {
   searchInput.value?.focus()
 }
 
+// ---- AI and the palette ----------------------------------------------------------
+/** The library dock holds library threads: no notebook is open, the AI searches and reads notebooks. */
+const ai = new AiDockState(new AiApi({ getToken: () => auth.getToken() }), ws, auth, null, { createToolRunner, revertEffects, contextBuilder })
+provide(AI_DOCK_KEY, ai)
+const windowW = ref(typeof window === 'undefined' ? DOCK_PUSH_MIN_WINDOW : window.innerWidth)
+const onWindowResize = () => { windowW.value = window.innerWidth }
+const dockMode = computed(() => (windowW.value >= DOCK_PUSH_MIN_WINDOW ? 'push' : 'overlay'))
+const mainStyle = computed(() => (ai.open.value && dockMode.value === 'push' ? { marginRight: `${ai.width.value}px` } : undefined))
+
+const palette = shallowRef<PaletteItem[] | null>(null)
+/** Cmd+K in the library: notebooks, then the header's commands, as of opening. */
+const paletteItems = (): PaletteItem[] => [
+  ...notebooks.value.map((n): PaletteItem => ({ id: `nb:${n.id}`, label: n.title || 'Untitled', group: 'notebook', run: () => void open(n.id) })),
+  { id: 'cmd:new', label: 'New notebook', group: 'command', icon: 'plus', run: () => { showNew.value = true } },
+  { id: 'cmd:import', label: 'Import .folio or .excalidraw', group: 'command', icon: 'upload', run: () => fileInput.value?.click() },
+  { id: 'cmd:ai', label: 'AI assistant', group: 'command', icon: 'sparkles', run: () => ai.setOpen(true) },
+  ...(Object.keys(SORTS) as Sort[]).map((k): PaletteItem => ({ id: `cmd:sort:${k}`, label: `Sort by ${SORTS[k].toLowerCase()}`, group: 'command', icon: 'sort', run: () => { sort.value = k } })),
+  { id: 'cmd:settings', label: 'Settings', group: 'command', icon: 'settings', run: () => { showSettings.value = true } },
+]
+function askFromPalette(query: string) {
+  void ai.compose({ fresh: true, text: query, send: true })
+}
+
+function onKeyDown(e: KeyboardEvent) {
+  if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return
+  const k = e.key.toLowerCase()
+  if (k === 'j') {
+    e.preventDefault()
+    ai.toggle()
+  } else if (k === 'k') {
+    e.preventDefault()
+    palette.value = palette.value ? null : paletteItems()
+  }
+}
+onMounted(() => {
+  window.addEventListener('keydown', onKeyDown)
+  window.addEventListener('resize', onWindowResize)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeyDown)
+  window.removeEventListener('resize', onWindowResize)
+  ai.dispose()
+})
+
 const syncLabel = computed(() => (sync.uiState.value === 'local' ? '' : sync.uiState.value))
 const showIosHint = ref(isIosSafariNotInstalled() && !sessionStorageGet('folio.iosHint'))
 function sessionStorageGet(k: string) { try { return sessionStorage.getItem(k) } catch { return null } }
@@ -247,7 +297,7 @@ function dismissHint() { showIosHint.value = false; try { sessionStorage.setItem
     </aside>
     <div v-if="drawer" class="scrim" @click="drawer = false" />
 
-    <main class="main">
+    <main class="main" :style="mainStyle">
       <header class="head">
         <button class="icon-btn only-narrow" aria-label="Folders" @click="drawer = true"><Icon name="menu" :size="20" /></button>
         <h1 v-if="query.trim()">Search results</h1>
@@ -259,6 +309,9 @@ function dismissHint() { showIosHint.value = false; try { sessionStorage.setItem
         </span>
         <span class="spacer" />
         <button class="icon-btn only-narrow" aria-label="Search" @click="openSearch"><Icon name="search" :size="20" /></button>
+        <button class="icon-btn" :class="{ active: ai.open.value }" aria-label="AI assistant" title="AI assistant (⌘J)" data-testid="open-ai" @click="ai.toggle()">
+          <Icon name="sparkles" :size="20" />
+        </button>
         <template v-if="!query.trim()">
           <Menu align="right" :items="sortItems">
             <button class="btn small ghost sort" aria-label="Sort">
@@ -303,6 +356,8 @@ function dismissHint() { showIosHint.value = false; try { sessionStorage.setItem
       </div>
     </main>
 
+    <AiDock v-if="ai.open.value" :mode="dockMode" />
+    <CommandPalette v-if="palette" :items="palette" placeholder="Jump to a notebook, run a command, or ask AI" @close="palette = null" @ask="askFromPalette" />
     <NewNotebookDialog v-if="showNew" @close="showNew = false" @create="createNotebook" />
     <SettingsDialog v-if="showSettings" @close="showSettings = false" />
   </div>
@@ -310,6 +365,7 @@ function dismissHint() { showIosHint.value = false; try { sessionStorage.setItem
 
 <style scoped>
 .lib {
+  position: relative;
   height: 100%;
   display: flex;
   background: var(--sidebar);

@@ -28,6 +28,8 @@ const rows = computed(() => {
 })
 const busy = computed(() => props.session.busy.value)
 const empty = computed(() => !rows.value.length && !props.session.loading.value)
+/** Library threads have no page to act on: other copy, no starters. */
+const library = dock.notebookId === null
 
 /** Follow new output while the user is at the bottom; leave them alone when they scrolled up. */
 let pinned = true
@@ -73,8 +75,9 @@ defineExpose({ focus: () => composer.value?.focus() })
       <div v-if="empty" class="empty" data-testid="ai-empty">
         <Icon name="sparkles" :size="22" />
         <h4>Ask about your notes</h4>
-        <p>The AI reads this notebook, answers here, and can draw, write and tidy up on the page. Every turn is one undo step.</p>
-        <div class="starters">
+        <p v-if="library">The AI searches and reads your notebooks to answer here. It asks before it writes to a notebook.</p>
+        <p v-else>The AI reads this notebook, answers here, and can draw, write and tidy up on the page. Every turn is one undo step.</p>
+        <div v-if="!library" class="starters">
           <button v-for="c in SLASH_COMMANDS" :key="c.id" class="starter" :disabled="session.readOnly.value" :data-testid="`ai-starter-${c.id}`"
                   @click="composer?.runCommand(c)">
             <span class="s-label">{{ c.label }}</span>

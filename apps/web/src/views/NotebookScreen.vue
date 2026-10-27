@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import type { ThemeId } from '@folio/document'
-import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { AiApi } from '../ai/api'
 import { AI_DOCK_KEY, AiDock as AiDockState, DOCK_PUSH_MIN_WINDOW } from '../ai/dock'
 import { contextBuilder, createToolRunner, revertEffects } from '../ai/tools'
 import { requireServices } from '../app'
 import AiDock from '../components/ai/AiDock.vue'
+import PromptNoteLayer from '../components/ai/PromptNoteLayer.vue'
+import CommandPalette from '../components/CommandPalette.vue'
 import Icon from '../components/Icon.vue'
 import Menu, { type MenuItem } from '../components/Menu.vue'
 import NotebookSearch from '../components/NotebookSearch.vue'
@@ -22,6 +24,7 @@ import { diagnostics } from '../services/diagnostics'
 import { exportFolioFile, exportMarkdownFile, exportPdf, exportPng } from '../services/export'
 import { assetImageResolver } from '../services/images'
 import { hasKeyboard } from '../services/input-mode'
+import { menuCommands, type PaletteItem } from '../services/palette'
 import { settings, toggleZen } from '../services/settings'
 import { toast, toastError } from '../services/toast'
 
@@ -113,6 +116,7 @@ function applyTheme(o: { theme: ThemeId; repaint: boolean }) {
   showTheme.value = false
 }
 const showShortcuts = ref(false)
+const palette = shallowRef<PaletteItem[] | null>(null)
 const excalInput = ref<HTMLInputElement | null>(null)
 
 /** AI dock: a column that pushes the canvas on wide windows, a sheet above it on narrow ones. */
@@ -126,6 +130,8 @@ const stageStyle = computed(() => (dockShown.value && dockMode.value === 'push' 
 watch([dockShown, dockMode, ai.width], () => void nextTick(() => ctl.remeasure()))
 // overlay dock and sheets share the right edge: one at a time
 watch(ai.open, (open) => { if (open && dockMode.value === 'overlay') panel.value = null })
+// every entry point (selection toolbar, palette, prompt note) brings the dock back from zen mode
+watch(ai.open, (open) => { if (open && zen.value) toggleZen(false) })
 
 /** App-level keys (the editor handles tools and editing itself and marks those events as handled). */
 function onKeyDown(e: KeyboardEvent) {
@@ -133,6 +139,11 @@ function onKeyDown(e: KeyboardEvent) {
   if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'j' && !presenting.value) {
     e.preventDefault()
     toggleAi()
+    return
+  }
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k' && !presenting.value) {
+    e.preventDefault()
+    togglePalette()
     return
   }
   const t = e.target as HTMLElement | null
@@ -269,6 +280,23 @@ const mainItems = computed((): MenuItem[] => [
   { label: 'Settings', icon: 'settings', action: () => { showSettings.value = true } },
 ])
 
+/** Cmd+K: pages of this notebook, other notebooks, then the main menu's commands, as of opening. */
+const paletteItems = (): PaletteItem[] => [
+  ...ctl.pages.value.map((p, i): PaletteItem => ({
+    id: `page:${p.id}`, label: p.title || `Page ${i + 1}`, group: 'page', hint: p.id === ctl.pageId.value ? 'Current page' : 'Page', run: () => ctl.setPage(p.id),
+  })),
+  ...ws.notebooks().filter((n) => !n.deleted && n.id !== ctl.id).map((n): PaletteItem => ({
+    id: `nb:${n.id}`, label: n.title || 'Untitled', group: 'notebook', run: () => void router.push({ name: 'notebook', params: { id: n.id } }),
+  })),
+  ...menuCommands(mainItems.value),
+]
+function togglePalette() {
+  palette.value = palette.value ? null : paletteItems()
+}
+function askFromPalette(query: string) {
+  void ai.compose({ fresh: true, text: query, send: true })
+}
+
 const syncClass = computed(() => sync.uiState.value)
 const syncTitle = computed(() => {
   switch (sync.uiState.value) {
@@ -288,6 +316,7 @@ const zoomPct = computed(() => Math.round(ctl.zoom.value * 100))
     <div class="stage" :style="stageStyle">
     <div ref="host" class="canvas-host" data-testid="editor-host" @pointerdown.capture="onHostPointerDown" @pointermove.capture="onHostPointerMove"
          @pointerup.capture="onHostPointerUp" @pointercancel.capture="onHostPointerUp" />
+    <PromptNoteLayer v-if="!presenting" />
 
     <header v-if="!zen && !presenting" class="topbar">
       <Menu :items="mainItems" align="left">
@@ -333,6 +362,7 @@ const zoomPct = computed(() => Math.round(ctl.zoom.value * 100))
     <SettingsDialog v-if="showSettings" @close="showSettings = false" />
     <ThemeDialog v-if="showTheme" :current="ctl.theme.value.id" @close="showTheme = false" @apply="applyTheme" />
     <ShortcutsDialog v-if="showShortcuts" @close="showShortcuts = false" />
+    <CommandPalette v-if="palette" :items="palette" @close="palette = null" @ask="askFromPalette" />
   </div>
 </template>
 

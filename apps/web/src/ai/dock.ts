@@ -1,6 +1,7 @@
 /**
- * State of the AI dock on a notebook screen: open and width, server config and credit, the thread list,
- * and one AiSession per opened thread (a thread keeps running while another one is shown).
+ * State of the AI dock on a notebook screen (or the library, without a notebook): open and width, server
+ * config and credit, the thread list, and one AiSession per opened thread (a thread keeps running while
+ * another one is shown).
  */
 import { computed, ref, shallowRef, type InjectionKey, type ShallowRef } from 'vue'
 import type { NotebookController } from '../notebook'
@@ -10,7 +11,7 @@ import type { Workspace } from '../services/workspace'
 import { AiApi, AiApiError, aiDisabledReason } from './api'
 import { createAppHost } from './app-host'
 import type { ContextBuilder, CreateToolRunner, RevertEffects } from './host'
-import type { AiConfigRes, AiCredit, AiPreset, ThreadSummary } from './protocol'
+import type { AiConfigRes, AiCredit, AiPreset, ContextChip, ThreadSummary } from './protocol'
 import { AiSession, type BaseHost } from './session'
 
 export const DOCK_MIN = 340
@@ -50,6 +51,19 @@ export interface DockTools {
   contextBuilder: ContextBuilder
 }
 
+/** What an entry point (selection toolbar, palette, prompt note) hands the composer. */
+export interface ComposeRequest {
+  chips: ContextChip[]
+  text: string
+  /** Send right away instead of waiting in the composer. */
+  send: boolean
+}
+
+/** Identity of a chip in the composer; automatic page and selection chips use the same keys. */
+export function chipKey(c: ContextChip): string {
+  return c.kind === 'page' ? `page:${c.ref.pageId}` : `${c.kind}:${[...(c.ref.objectIds ?? [c.ref.notebookId])].sort().join(',')}`
+}
+
 export class AiDock {
   readonly open = ref(false)
   readonly view = ref<'thread' | 'threads'>('thread')
@@ -63,6 +77,8 @@ export class AiDock {
   readonly showSettled = ref(false)
   readonly search = ref('')
   readonly listLoading = ref(false)
+  /** A request from an entry point, taken by the composer of the shown thread. */
+  readonly request = shallowRef<ComposeRequest | null>(null)
   /** The thread shown in the dock; a draft until its first message. */
   readonly session: ShallowRef<AiSession>
 
@@ -80,14 +96,16 @@ export class AiDock {
     readonly api: AiApi,
     private readonly ws: Workspace,
     private readonly auth: Pick<AuthService, 'signedIn' | 'online'>,
-    private readonly ctl: NotebookController,
+    /** null in the library: library threads, no current page. */
+    private readonly ctl: NotebookController | null,
     readonly tools: DockTools,
   ) {
     this.host = createAppHost(ws, () => this.ctl)
     this.session = shallowRef(this.draft())
   }
 
-  get notebookId(): string { return this.ctl.id }
+  get notebookId(): string | null { return this.ctl?.id ?? null }
+  private get lastKey(): string { return threadKey(this.notebookId ?? 'library') }
 
   toggle(): void { this.setOpen(!this.open.value) }
   setOpen(v: boolean): void {
@@ -109,10 +127,31 @@ export class AiDock {
   private async activate(): Promise<void> {
     if (aiDisabledReason(this.auth)) return
     if (!this.config.value) await this.loadConfig()
-    const last = lsGet(threadKey(this.notebookId))
+    const last = lsGet(this.lastKey)
     if (last && !this.session.value.id) {
-      await this.openThread(last).catch(() => lsSet(threadKey(this.notebookId), null))
+      await this.openThread(last).catch(() => lsSet(this.lastKey, null))
     }
+  }
+
+  /**
+   * Entry points: open the dock on a thread (a new one when `fresh`) and hand its composer chips and text,
+   * focused, or sent right away with `send`. Resolves with the session that takes the request, or null
+   * when AI is unavailable (the dock then shows why).
+   */
+  async compose(req: Partial<ComposeRequest> & { fresh?: boolean }): Promise<AiSession | null> {
+    if (req.fresh) this.newThread()
+    this.view.value = 'thread'
+    this.open.value = true
+    await this.activate()
+    if (this.disabledReason.value) return null
+    this.request.value = { chips: req.chips ?? [], text: req.text ?? '', send: req.send ?? false }
+    return this.session.value
+  }
+
+  /** "Ask AI" on the selection toolbar: the selection as a chip, the composer focused. */
+  async askAboutSelection(): Promise<void> {
+    const chip = await this.tools.contextBuilder.selectionChip(this.session.value.host)
+    await this.compose({ chips: chip ? [chip] : [] })
   }
 
   async loadConfig(): Promise<void> {
@@ -136,7 +175,7 @@ export class AiDock {
       revertEffects: tools.revertEffects,
       environment: (h) => tools.contextBuilder.environment(h),
       deviceId: this.ws.deviceId,
-      notebookId: this.ctl.id,
+      notebookId: this.notebookId,
       presetId: () => this.preset.value?.id ?? this.presetId.value,
       onCredit: (c) => { this.credit.value = c },
       onThread: (t) => this.onThread(t),
@@ -146,7 +185,7 @@ export class AiDock {
   private onThread(t: ThreadSummary): void {
     const s = this.session.value
     if (s.id === t.id && !this.sessions.has(t.id)) this.sessions.set(t.id, s)
-    lsSet(threadKey(this.notebookId), t.id)
+    lsSet(this.lastKey, t.id)
     const known = this.threads.value.some((x) => x.id === t.id)
     this.threads.value = known ? this.threads.value.map((x) => (x.id === t.id ? t : x)) : [t, ...this.threads.value]
   }
@@ -156,7 +195,7 @@ export class AiDock {
     if (!cur.id && !cur.busy.value) cur.dispose()
     this.session.value = this.draft()
     this.view.value = 'thread'
-    lsSet(threadKey(this.notebookId), null)
+    lsSet(this.lastKey, null)
   }
 
   async openThread(id: string): Promise<void> {
@@ -165,12 +204,12 @@ export class AiDock {
     let s = this.sessions.get(id)
     if (!s) {
       const known = [...this.threads.value, ...this.settled.value].find((t) => t.id === id)
-      s = this.draft(known ?? { id, notebookId: this.ctl.id, title: '', pinKey: null, settledAt: null, lastActivityAt: 0, createdAt: 0, status: 'idle' })
+      s = this.draft(known ?? { id, notebookId: this.notebookId, title: '', pinKey: null, settledAt: null, lastActivityAt: 0, createdAt: 0, status: 'idle' })
       this.sessions.set(id, s)
     }
     this.session.value = s
     this.view.value = 'thread'
-    lsSet(threadKey(this.notebookId), id)
+    lsSet(this.lastKey, id)
     if (s.busy.value) return
     try {
       await s.load()
@@ -186,7 +225,7 @@ export class AiDock {
     const seq = ++this.listSeq
     this.listLoading.value = true
     try {
-      const q = { notebookId: this.ctl.id, search: this.search.value }
+      const q = { notebookId: this.notebookId, search: this.search.value }
       const [active, settled] = await Promise.all([
         this.api.threads({ ...q, settled: false }),
         this.showSettled.value || this.search.value.trim() ? this.api.threads({ ...q, settled: true }) : Promise.resolve(this.settled.value),

@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, inject, ref } from 'vue'
+import { AiApi, aiDisabledReason } from '../ai/api'
 import { requireServices } from '../app'
+import { NOTEBOOK_KEY, type NotebookController } from '../notebook'
 import { confirmDialog } from '../services/dialogs'
 import { exportDiagnostics } from '../services/diagnostics'
 import { handwriting, resetHandwriting } from '../services/handwriting'
@@ -9,6 +11,7 @@ import { settings, toggleZen } from '../services/settings'
 import AccountPanel from './AccountPanel.vue'
 import CalibrationDialog from './CalibrationDialog.vue'
 import Icon from './Icon.vue'
+import InstructionsField from './InstructionsField.vue'
 import Modal from './Modal.vue'
 import Switch from './Switch.vue'
 import ThemeSettings from './ThemeSettings.vue'
@@ -22,6 +25,7 @@ const SECTIONS = [
   { id: 'handwriting', label: 'Handwriting', icon: 'pen' },
   { id: 'drawing', label: 'Drawing', icon: 'shape' },
   { id: 'themes', label: 'Themes', icon: 'palette' },
+  { id: 'ai', label: 'AI', icon: 'sparkles' },
   { id: 'data', label: 'Data & offline', icon: 'layers' },
 ] as const
 type Section = (typeof SECTIONS)[number]['id']
@@ -69,6 +73,11 @@ async function refresh() {
   await svc.workspace.flushAll()
   await refreshApp()
 }
+
+/** The open notebook, when settings are opened from one: its own instructions show too. */
+const notebook = inject<NotebookController | null>(NOTEBOOK_KEY, null)
+const aiApi = new AiApi({ getToken: () => svc.auth.getToken() })
+const aiReason = computed(() => aiDisabledReason(svc.auth))
 
 const STORAGE: Record<typeof svc.storageKind, string> = { 'sqlite-opfs': 'SQLite', indexeddb: 'IndexedDB', memory: 'Memory only' }
 </script>
@@ -147,6 +156,18 @@ const STORAGE: Record<typeof svc.storageKind, string> = { 'sqlite-opfs': 'SQLite
 
           <template v-else-if="section === 'themes'">
             <ThemeSettings />
+          </template>
+
+          <template v-else-if="section === 'ai'">
+            <div class="setting">
+              <InstructionsField :api="aiApi" :notebook-id="null" :disabled-reason="aiReason" label="Your instructions"
+                description="The AI follows these in every thread, for example the language, tone or what you study. Stored on the server with your account." />
+            </div>
+            <div v-if="notebook" class="setting">
+              <InstructionsField :api="aiApi" :notebook-id="notebook.id" :disabled-reason="aiReason" :label="`This notebook: ${notebook.title.value || 'Untitled'}`"
+                description="Only for threads in this notebook, on top of yours." />
+            </div>
+            <p v-else class="aside muted">Open a notebook to give it its own instructions.</p>
           </template>
 
           <template v-else-if="section === 'drawing'">
@@ -326,6 +347,7 @@ kbd { font-size: 11px; font-weight: 500; }
 
 .input { width: auto; min-width: 160px; min-height: 34px; font-size: 14px; }
 .pair { display: flex; gap: 8px; }
+.aside { margin: 4px 2px 0; font-size: 13px; }
 .pair .input { min-width: 0; }
 
 .seg { flex: none; }
