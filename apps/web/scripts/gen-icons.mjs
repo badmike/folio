@@ -91,6 +91,7 @@ const ICONS = {
   'align-bottom': 'align-end-horizontal',
   'distribute-x': 'align-horizontal-distribute-center',
   'distribute-y': 'align-vertical-distribute-center',
+  palette: 'palette',
 }
 
 /** Child elements of a Lucide SVG as [tag, attributes] pairs. */
