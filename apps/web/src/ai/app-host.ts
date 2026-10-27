@@ -31,6 +31,10 @@ export function createAppHost(ws: Workspace, ctl: () => NotebookController | nul
   }
 
   return {
+    async notebooks() {
+      return ws.notebooks().map((n) => ({ id: n.id, title: n.title, tags: n.tags }))
+    },
+
     view() {
       const c = ctl()
       const viewport = c?.viewRect()

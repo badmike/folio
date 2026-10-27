@@ -6,6 +6,7 @@ import type { NotebookId } from '@folio/document'
 import type { AuthService } from '../services/auth'
 import { runtimeConfig } from '../services/runtime-config'
 import type {
+  ContinueReq,
   AiConfigRes, AiErrorCode, CreateThreadReq, Instructions, StartTurnReq, StepEvent, StepReq, ThreadDetailRes,
   ThreadListRes, ThreadSummary, TurnInfo, UpdateThreadReq,
 } from './protocol'
@@ -19,7 +20,7 @@ export function aiDisabledReason(auth: Pick<AuthService, 'signedIn' | 'online'>)
 }
 
 const ERROR_CODES: readonly AiErrorCode[] = [
-  'ai_not_configured', 'credit_exhausted', 'not_turn_device', 'turn_not_awaiting', 'no_vision', 'upstream', 'bad_request',
+  'ai_not_configured', 'credit_exhausted', 'not_turn_device', 'turn_not_awaiting', 'no_vision', 'upstream', 'bad_request', 'conflict',
 ]
 const isErrorCode = (v: unknown): v is AiErrorCode => ERROR_CODES.includes(v as AiErrorCode)
 
@@ -31,6 +32,7 @@ const FRIENDLY: Record<AiErrorCode, string> = {
   no_vision: 'This preset cannot see images. Pick another preset or remove the images.',
   upstream: 'The AI provider had a problem. Try again in a moment.',
   bad_request: 'The server did not accept the request.',
+  conflict: 'Another turn in this thread is still running.',
 }
 
 /** A user-facing message by error code first, then by HTTP status. */
@@ -190,8 +192,8 @@ export class AiApi {
   step(turnId: string, req: StepReq, signal?: AbortSignal): AsyncGenerator<StepEvent> {
     return this.stream(`/ai/turns/${enc(turnId)}/step`, req, signal)
   }
-  continueTurn(turnId: string, signal?: AbortSignal): AsyncGenerator<StepEvent> {
-    return this.stream(`/ai/turns/${enc(turnId)}/continue`, {}, signal)
+  continueTurn(turnId: string, req: ContinueReq, signal?: AbortSignal): AsyncGenerator<StepEvent> {
+    return this.stream(`/ai/turns/${enc(turnId)}/continue`, req, signal)
   }
   cancel(turnId: string): Promise<TurnInfo> { return this.json('POST', `/ai/turns/${enc(turnId)}/cancel`) }
   revert(turnId: string): Promise<ThreadDetailRes> { return this.json('POST', `/ai/turns/${enc(turnId)}/revert`) }

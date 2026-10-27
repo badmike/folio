@@ -79,7 +79,7 @@ describe('AiSession turn loop', () => {
     expect(run).toHaveBeenCalledWith(call, 'u1')
     expect(api.step).toHaveBeenCalledTimes(1)
     expect(api.step.mock.calls[0][0]).toBe('u1')
-    expect(api.step.mock.calls[0][1]).toEqual({ results: [result], environment: env })
+    expect(api.step.mock.calls[0][1]).toEqual({ deviceId: 'dev-a', results: [result], environment: env })
   })
 
   it('sends a message typed while a turn runs with the next step', async () => {

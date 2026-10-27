@@ -137,7 +137,8 @@ export class AiSession {
   async continueTurn(turn: TurnInfo): Promise<void> {
     if (!this.canContinue(turn)) return
     this.cancelled = false
-    await this.drive(turn.id, (signal) => this.deps.api.continueTurn(turn.id, signal))
+    const environment = await this.deps.environment(this.host)
+    await this.drive(turn.id, (signal) => this.deps.api.continueTurn(turn.id, { deviceId: this.deps.deviceId, environment }, signal))
   }
 
   /** Resend a failed turn's message as a new turn. */
@@ -249,7 +250,7 @@ export class AiSession {
         const steer = this.takeQueued()
         if (steer) this.addLocalUser(steer, id)
         this.phase.value = 'streaming'
-        status = await this.consume(this.deps.api.step(id, { results, environment, ...(steer ? { steer } : {}) }, signal))
+        status = await this.consume(this.deps.api.step(id, { deviceId: this.deps.deviceId, results, environment, ...(steer ? { steer } : {}) }, signal))
       }
     } catch (e) {
       if (!this.cancelled && !(e instanceof DOMException && e.name === 'AbortError')) this.failTurn(e)
@@ -392,7 +393,7 @@ export class AiSession {
 
   private addLocalUser(message: UserMessage, turnId: string): void { this.addLocal(turnId, { kind: 'user', payload: message }) }
 
-  /** Shown until the server's copy arrives (the next refresh). */
+  /** Shown until the server echoes its copy in the next step stream. */
   private addLocal(turnId: string, entry: ItemEntry): void {
     const item: ThreadItem = { id: `local:${++this.localSeq}`, threadId: this.id ?? '', turnId, seq: this.nextSeq(), createdAt: Date.now(), ...entry }
     this.items.value = [...this.items.value, item]
@@ -410,8 +411,11 @@ export class AiSession {
     this.items.value = insertSorted(rest.filter((i) => i.id !== item.id), item)
   }
 
+  /** A server tool result also replaces the optimistic one for the same call. */
   private upsertItem(item: ThreadItem): void {
-    this.items.value = insertSorted(this.items.value.filter((i) => i.id !== item.id), item)
+    const callId = item.kind === 'tool_result' ? item.payload.toolCallId : null
+    const keep = (i: ThreadItem) => i.id !== item.id && !(callId && isLocalItem(i) && i.kind === 'tool_result' && i.payload.toolCallId === callId)
+    this.items.value = insertSorted(this.items.value.filter(keep), item)
   }
 
   private appendText(itemId: string, delta: string): void {
