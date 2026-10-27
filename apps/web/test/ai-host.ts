@@ -18,6 +18,7 @@ export function fakeHost(docs: NotebookDocument[], decisions: ApprovalDecision[]
   }
   const host: ToolHost = {
     view: () => view,
+    notebooks: async () => docs.map((d) => ({ id: d.id, title: d.meta().title, tags: d.meta().tags })),
     withNotebook: async (id, fn) => fn(doc(id)),
     apply: (id, ops) => doc(id).apply(ops),
     search: async () => [],

@@ -122,7 +122,7 @@ function plan(doc: NotebookDocumentApi, effect: ToolEffect) {
       // an added page with content the user put there stays
       if (!matches(cur, e) || (e.present && doc.objects(pageId).length)) {
         skipPages.add(pageId)
-        skipped.push({ notebookId: effect.notebookId, pageId, id: pageId })
+        skipped.push({ kind: 'page', notebookId: effect.notebookId, pageId, id: pageId })
       }
     } else if (!cur) skipPages.add(pageId)
     else pageFields.set(pageId, changedFields(cur, e))
@@ -131,7 +131,7 @@ function plan(doc: NotebookDocumentApi, effect: ToolEffect) {
     const pageMissing = !doc.page(pageId) && exp.pages.get(pageId)?.present !== false
     if (skipPages.has(pageId) || pageMissing || !matches(doc.object(pageId, id), e)) {
       skipObjects.add(k)
-      skipped.push({ notebookId: effect.notebookId, pageId, id })
+      skipped.push({ kind: 'object', notebookId: effect.notebookId, pageId, id })
     }
   }
   const meta = doc.meta()

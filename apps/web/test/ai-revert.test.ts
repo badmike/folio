@@ -23,7 +23,7 @@ describe('revertEffects', () => {
 
     const report = await revertEffects(host, [...recolored.effects, ...created.effects])
 
-    expect(report).toEqual({ reverted: 2, skipped: [{ notebookId: doc.id, pageId, id: touched }] })
+    expect(report).toEqual({ reverted: 2, skipped: [{ kind: 'object', notebookId: doc.id, pageId, id: touched }] })
     expect(doc.object(pageId, touched)).toMatchObject({ label: 'mine now' })
     expect(doc.object(pageId, untouched)).toBeUndefined()
     expect(doc.object(pageId, mine.id)).toEqual(mine)

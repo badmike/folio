@@ -35,7 +35,12 @@ export type AskUserAnswer = { option: string } | { text: string } | { dismissed:
 
 export interface ToolHost {
   view(): HostView | null
-  /** Live document of an open notebook, or a temporarily opened session for any other notebook. */
+  /** Every notebook in the library, for library threads. */
+  notebooks(): Promise<{ id: NotebookId; title: string; tags: string[] }[]>
+  /**
+   * Live document of an open notebook, or a temporarily opened session for any other notebook.
+   * The session stays open until `fn` settles; tools call `apply` and `highlight` from inside it.
+   */
   withNotebook<T>(id: NotebookId, fn: (doc: NotebookDocumentApi) => T | Promise<T>): Promise<T>
   /**
    * Apply one tool's operations. Routes through the editor when it shows that page, so the whole
@@ -62,7 +67,7 @@ export type CreateToolRunner = (host: ToolHost) => ToolRunner
 export interface RevertReport {
   reverted: number
   /** Objects the user changed after the AI did; left as they are. */
-  skipped: { notebookId: NotebookId; pageId: PageId; id: ObjectId }[]
+  skipped: { kind: 'object' | 'page'; notebookId: NotebookId; pageId: PageId; id: ObjectId }[]
 }
 /** Implemented in `./tools/revert.ts`. Effects are passed newest first. */
 export type RevertEffects = (host: ToolHost, effects: ToolEffect[]) => Promise<RevertReport>

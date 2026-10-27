@@ -4,7 +4,15 @@ import type { ContextChip } from '../protocol'
 import { withDescendants } from './objects'
 import { OUTLINE_MAX_CHARS, notebookOutline, pageEntries, pageHeader, pageOutline, renderEntries } from './outline'
 
-const LIBRARY = 'LIBRARY: no notebook is open. Use search_notebooks to find notebooks and read_notebook to read one.'
+const LIBRARY = 'LIBRARY: no notebook is open. Use search_notebooks to find content and read_notebook to read one.'
+const MAX_LISTED_NOTEBOOKS = 200
+
+/** Library outline: one line per notebook, so the model can pick ids for read_notebook. */
+function libraryOutline(notebooks: { id: string; title: string; tags: string[] }[]): string {
+  const lines = notebooks.slice(0, MAX_LISTED_NOTEBOOKS).map((n) => `[${n.id}] "${n.title || 'Untitled'}"${n.tags.length ? ` tags: ${n.tags.join(', ')}` : ''}`)
+  const more = notebooks.length - lines.length
+  return [LIBRARY, `NOTEBOOKS (${notebooks.length}):`, ...lines, ...(more > 0 ? [`… ${more} more, use search_notebooks`] : [])].join('\n')
+}
 /** How far around a prompt note its neighbours count as context. */
 const NEARBY = 240
 
@@ -40,7 +48,7 @@ function promptNoteMembers(doc: NotebookDocumentApi, pageId: PageId, ids: Object
 export const contextBuilder: ContextBuilder = {
   async environment(host) {
     const view = host.view()
-    if (!view) return { notebookId: null, notebookTitle: null, pageId: null, viewport: null, outline: LIBRARY }
+    if (!view) return { notebookId: null, notebookTitle: null, pageId: null, viewport: null, outline: libraryOutline(await host.notebooks()) }
     return host.withNotebook(view.notebookId, (doc) => {
       const page = doc.page(view.pageId)
       return {

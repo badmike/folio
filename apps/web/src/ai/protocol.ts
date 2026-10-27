@@ -32,7 +32,7 @@ export interface AiCredit {
   resetsAt: number
 }
 
-/** GET /ai/config */
+/** GET /ai/config. 503 `ai_not_configured` when the server has no API key: hide the AI features. */
 export interface AiConfigRes {
   presets: AiPreset[]
   defaultPresetId: string
@@ -167,7 +167,7 @@ export interface Environment {
   outline: string
 }
 
-/** POST /ai/threads/{id}/turns -> text/event-stream of StepEvent */
+/** POST /ai/threads/{id}/turns -> text/event-stream of StepEvent. 409 `conflict` while another turn is running or awaiting tools. */
 export interface StartTurnReq {
   message: UserMessage
   presetId: string
@@ -201,6 +201,7 @@ export interface ToolResult {
 
 /** POST /ai/turns/{id}/step -> text/event-stream of StepEvent. Only the turn's device may call this. */
 export interface StepReq {
+  deviceId: string
   results: ToolResult[]
   environment: Environment
   /** A message typed while the turn ran; added after the tool results (steering). */
@@ -220,11 +221,15 @@ export interface StepReq {
  * For an 'awaiting_tools' turn whose results were lost (tab closed). The server answers every pending
  * tool call with an "interrupted, re-read the notebook" error result and runs the next step.
  */
+export interface ContinueReq {
+  deviceId: string
+  environment: Environment
+}
 
 export type StepEvent =
   | { type: 'turn'; turn: TurnInfo; userItem?: ThreadItem }
   | { type: 'text_delta'; itemId: string; delta: string }
-  /** A complete assistant text or tool call item, as persisted. */
+  /** A complete item as persisted: assistant text, tool calls, and tool results (posted or synthesised by continue). */
   | { type: 'item'; item: ThreadItem }
   | { type: 'usage'; turn: TurnInfo; credit: AiCredit }
   | { type: 'step_end'; status: 'tool_calls' | TurnStatus }
@@ -239,6 +244,7 @@ export type AiErrorCode =
   | 'no_vision'
   | 'upstream'
   | 'bad_request'
+  | 'conflict'
 
 // ---------------------------------------------------------------------------
 // Instructions
