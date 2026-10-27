@@ -92,6 +92,15 @@ const ICONS = {
   'distribute-x': 'align-horizontal-distribute-center',
   'distribute-y': 'align-vertical-distribute-center',
   palette: 'palette',
+  pin: 'pin',
+  'pin-off': 'pin-off',
+  send: 'arrow-up',
+  stop: 'square',
+  paperclip: 'paperclip',
+  threads: 'messages-square',
+  archive: 'archive',
+  retry: 'rotate-ccw',
+  play: 'play',
 }
 
 /** Child elements of a Lucide SVG as [tag, attributes] pairs. */
