@@ -132,6 +132,7 @@ async fn chat_streams_text_and_tool_calls_without_retrying_failures() {
         tools: vec![json!({"type": "function", "function": {"name": "look"}})],
         max_tokens: 50,
         cache_breakpoint: Some(0),
+        reasoning: true,
     };
     let p = OpenRouterProvider::new("k".into(), url).with_backoff(Duration::from_millis(1));
     let deltas: Vec<ChatDelta> = p

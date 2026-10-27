@@ -49,6 +49,9 @@ pub struct ChatRequest {
     pub max_tokens: u32,
     /// Index of the last message of the stable history, cached for the next step.
     pub cache_breakpoint: Option<usize>,
+    /// Lets the model think first (the provider's default). Off for short utility calls, where
+    /// thinking can use up `max_tokens` before any text.
+    pub reasoning: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -381,6 +384,9 @@ pub fn build_chat_body(req: &ChatRequest) -> Value {
     });
     if !req.tools.is_empty() {
         body["tools"] = Value::Array(req.tools.clone());
+    }
+    if !req.reasoning {
+        body["reasoning"] = json!({"enabled": false});
     }
     body
 }
@@ -728,9 +734,11 @@ mod tests {
             tools: vec![json!({"type": "function", "function": {"name": "look"}})],
             max_tokens: 100,
             cache_breakpoint: Some(3),
+            reasoning: true,
         };
         let b = build_chat_body(&req);
         assert_eq!(b["stream"], true);
+        assert!(b.get("reasoning").is_none());
         assert_eq!(b["tools"][0]["function"]["name"], "look");
         let m = b["messages"].as_array().unwrap();
         let roles: Vec<&str> = m.iter().map(|m| m["role"].as_str().unwrap()).collect();
@@ -758,9 +766,11 @@ mod tests {
         assert!(m[6]["content"][0].get("cache_control").is_none());
 
         req.model = "openai/gpt-x".into();
+        req.reasoning = false;
         let b = build_chat_body(&req);
         assert_eq!(b["messages"][0]["content"], "base\n\ninstructions");
         assert!(!b.to_string().contains("cache_control"));
+        assert_eq!(b["reasoning"], json!({"enabled": false}));
     }
 
     #[test]

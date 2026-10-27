@@ -1,6 +1,7 @@
 //! AI V2 endpoints: config, threads, turns and instructions. Shapes in `crate::agent`.
 
 use std::collections::HashSet;
+use std::time::Duration;
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -15,7 +16,7 @@ use crate::agent::store::{self, ListFilter};
 use crate::agent::{
     prompt, AiConfigRes, AiLimits, AiPreset, ContinueReq, CreateThreadReq, Environment,
     Instructions, ItemBody, StartTurnReq, StepEvent, StepReq, ThreadDetailRes, ThreadSummary,
-    ToolResult, TurnInfo, TurnStatus, UpdateThreadReq, UserMessage,
+    ToolResult, TurnInfo, TurnStatus, UpdateThreadReq, UserMessage, NEW_THREAD_TITLE,
 };
 use crate::auth::AuthUser;
 use crate::config::AiPreset as PresetConfig;
@@ -33,6 +34,8 @@ const MAX_IMAGE_B64: usize = 14 * 1024 * 1024;
 const MAX_TITLE_CHARS: usize = 200;
 const MAX_PIN_KEY_LEN: usize = 64;
 const MAX_INSTRUCTIONS_CHARS: usize = 4000;
+/// How long cancel waits for a streaming step to stop, in 100 ms polls.
+const CANCEL_WAIT_POLLS: usize = 30;
 
 fn ensure_configured(st: &AppState) -> AppResult<()> {
     if st.ai.is_configured() {
@@ -345,6 +348,11 @@ async fn next_step(
             user_item,
         },
     );
+    // The auto title usually lands after the first step's stream closed.
+    if turn.seq == 1 && turn.steps == 1 && thread.title != NEW_THREAD_TITLE {
+        let thread = store::summary(&st.db, &thread.user_id, &thread.id).await?;
+        first.push(StepEvent::Thread { thread });
+    }
     let step = Step {
         st,
         thread,
@@ -419,27 +427,33 @@ pub async fn continue_turn(
     next_step(st, claim, results, None, req.environment, true).await
 }
 
-/// POST /ai/turns/{id}/cancel
+/// POST /ai/turns/{id}/cancel. Answers with the settled turn, so the client's next read shows the
+/// step's partial text and the end of the turn.
 pub async fn cancel(
     State(st): State<AppState>,
     user: AuthUser,
     Path(id): Path<String>,
 ) -> AppResult<Json<TurnInfo>> {
     let (turn, _) = store::user_turn(&st.db, &user.user_id, &id).await?;
-    match turn.status {
-        TurnStatus::Running => store::request_cancel(&st.db, &turn.id).await?,
-        TurnStatus::AwaitingTools => {
-            store::transition(
-                &st.db,
-                &turn.id,
-                TurnStatus::AwaitingTools,
-                TurnStatus::Cancelled,
-                None,
-            )
-            .await?;
+    if turn.status == TurnStatus::Running {
+        store::request_cancel(&st.db, &turn.id).await?;
+        // The step checks the flag every 250 ms.
+        for _ in 0..CANCEL_WAIT_POLLS {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            if store::turn(&st.db, &turn.id).await?.status != TurnStatus::Running {
+                break;
+            }
         }
-        _ => {}
     }
+    // Also a step that ended with tool calls while the stop came in: nobody runs them now.
+    store::transition(
+        &st.db,
+        &turn.id,
+        TurnStatus::AwaitingTools,
+        TurnStatus::Cancelled,
+        None,
+    )
+    .await?;
     Ok(Json(store::turn(&st.db, &turn.id).await?))
 }
 

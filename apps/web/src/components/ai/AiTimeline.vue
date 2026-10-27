@@ -70,7 +70,7 @@ function toolError(t: ToolRow): string {
           </div>
           <p v-if="shownText(row.message)" class="text">{{ shownText(row.message) }}</p>
         </div>
-        <div v-if="!row.local" class="meta">
+        <div v-if="!row.local && !row.steer" class="meta">
           <button class="mini" :disabled="busy" title="Undo the AI's edits from here on and edit this message again"
                   data-testid="ai-revert" @click="emit('revert', row.id)">
             <Icon name="undo" :size="13" /> Revert to this message

@@ -9,6 +9,8 @@ export function fakeHost(docs: NotebookDocument[], decisions: ApprovalDecision[]
   const byId = new Map(docs.map((d) => [d.id, d]))
   const approvals: ApprovalRequest[] = []
   const highlights: string[][] = []
+  /** Per highlight: whether it asked to bring the objects into view. */
+  const zooms: boolean[] = []
   const open = docs[0]
   let view: HostView | null = { notebookId: open.id, pageId: open.pages()[0].id, viewport: VIEWPORT, selection: [] }
   const doc = (id: string) => {
@@ -29,9 +31,12 @@ export function fakeHost(docs: NotebookDocument[], decisions: ApprovalDecision[]
       return decisions.shift() ?? 'deny'
     },
     ask: async () => ({ dismissed: true }),
-    highlight: (_nb, _page, ids) => highlights.push(ids),
+    highlight: (_nb, _page, ids, zoom) => {
+      highlights.push(ids)
+      zooms.push(!!zoom)
+    },
   }
-  return { host, approvals, highlights, setView: (v: HostView | null) => (view = v) }
+  return { host, approvals, highlights, zooms, setView: (v: HostView | null) => (view = v) }
 }
 
 export const notebook = (title: string) => NotebookDocument.create({ title })

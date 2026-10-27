@@ -55,8 +55,9 @@ Binary values are base64 (standard alphabet) strings. Ids (`docId`, `deviceId`, 
   - `POST /ai/threads/{id}/turns` `{message, presetId, deviceId, environment}` starts a turn and streams its first model step
   - `POST /ai/turns/{id}/step` `{deviceId, results, environment, steer?}` posts the tool results and streams the next step (only the turn's device)
   - `POST /ai/turns/{id}/continue` `{deviceId, environment}` answers lost tool calls with an error and streams the next step
-  - `POST /ai/turns/{id}/cancel` -> turn, `POST /ai/turns/{id}/revert` -> thread detail
+  - `POST /ai/turns/{id}/cancel` -> the turn once it settled (waits up to 3 s for a streaming step to stop), `POST /ai/turns/{id}/revert` -> thread detail
   - `GET /ai/instructions?notebookId=`, `PUT /ai/instructions` `{notebookId, text}` (max 4000 characters, empty deletes)
+- Removed with AI V2: `POST /ai/summarize` and `POST /ai/ask`. Summaries and questions are ordinary turns now. `FOLIO_AI_MODEL`, `FOLIO_AI_VISION_MODEL` and `FOLIO_AI_DAILY_QUOTA` are no longer read: use `FOLIO_AI_PRESETS`, `FOLIO_AI_DEFAULT_PRESET` and `FOLIO_AI_DAILY_CREDIT_USD`.
 
 ## Deploy notes
 

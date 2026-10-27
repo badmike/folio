@@ -21,7 +21,8 @@ export interface ToolRow {
 export type TurnEndState = 'failed' | 'partial' | 'cancelled' | 'interrupted' | 'remote'
 
 export type TimelineRow =
-  | { kind: 'user'; id: string; turnId: string; message: UserMessage; local: boolean }
+  /** `steer`: sent while the turn ran. Reverting goes to the turn's first message, so steer rows offer no revert. */
+  | { kind: 'user'; id: string; turnId: string; message: UserMessage; local: boolean; steer: boolean }
   | { kind: 'assistant'; id: string; text: string; streaming: boolean }
   | { kind: 'tools'; id: string; summary: string; tools: ToolRow[]; running: boolean }
   | { kind: 'turn_end'; id: string; turn: TurnInfo; state: TurnEndState; message: string }
@@ -121,10 +122,14 @@ export function summarizeTools(rows: readonly ToolRow[]): string {
   if (pagesUpdated) parts.push(`updated ${counted(pagesUpdated, 'page')}`)
   if (pagesDeleted) parts.push(`deleted ${counted(pagesDeleted, 'page')}`)
   if (meta) parts.push('updated the notebook')
-  if (!parts.length) parts.push(...new Set(rows.map((r) => r.label.charAt(0).toLowerCase() + r.label.slice(1))))
-  const failed = rows.filter((r) => r.state === 'error').length
+  // calls the turn ended before (stop, failure) never ran: don't name them as if they did
+  const notRun = rows.filter((r) => !r.result && r.state === 'error').length
+  if (!parts.length) parts.push(...new Set(rows.filter((r) => r.result || r.state === 'running').map((r) => r.label.charAt(0).toLowerCase() + r.label.slice(1))))
+  const failed = rows.filter((r) => r.result?.isError).length
+  if (failed) parts.push(`${failed} failed`)
+  if (notRun) parts.push(`${notRun} ${notRun === 1 ? 'call' : 'calls'} not run`)
   const text = parts.join(', ')
-  return text.charAt(0).toUpperCase() + text.slice(1) + (failed ? `, ${failed} failed` : '')
+  return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
 function endState(turn: TurnInfo, input: TimelineInput): { state: TurnEndState; message: string } | null {
@@ -152,6 +157,7 @@ export function deriveTimeline(input: TimelineInput): TimelineRow[] {
   const rows: TimelineRow[] = []
   let tools: ToolRow[] = []
   let turnId: string | null = null
+  let turnHasUser = false
   const lastItem = input.items.at(-1)
 
   const flushTools = () => {
@@ -173,6 +179,7 @@ export function deriveTimeline(input: TimelineInput): TimelineRow[] {
     if (item.turnId !== turnId) {
       endTurn()
       turnId = item.turnId
+      turnHasUser = false
     }
     if (item.kind === 'tool_call') {
       const result = results.get(item.payload.toolCallId) ?? null
@@ -189,7 +196,8 @@ export function deriveTimeline(input: TimelineInput): TimelineRow[] {
     }
     flushTools()
     if (item.kind === 'user') {
-      rows.push({ kind: 'user', id: item.id, turnId: item.turnId, message: item.payload, local: item.id.startsWith('local:') })
+      rows.push({ kind: 'user', id: item.id, turnId: item.turnId, message: item.payload, local: item.id.startsWith('local:'), steer: turnHasUser })
+      turnHasUser = true
     } else {
       const streaming = item === lastItem && input.phase === 'streaming' && item.turnId === input.activeTurnId
       rows.push({ kind: 'assistant', id: item.id, text: item.payload.text, streaming })

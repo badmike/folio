@@ -1,4 +1,7 @@
-import type { NotebookDocumentApi, NotebookId, ObjectId, Operation, Page, PageId, Rect } from '@folio/document'
+import {
+  boundsUnion, rectContains, worldBounds,
+  type NotebookDocumentApi, type NotebookId, type ObjectId, type Operation, type Page, type PageId, type Rect,
+} from '@folio/document'
 import type { ApprovalRequest, ToolHost } from '../host'
 import type { ToolEffect } from '../protocol'
 import { ToolError, parseInput, type Parser } from './validate'
@@ -60,7 +63,8 @@ export interface Change {
 
 /**
  * Build and apply one tool's operations: authorize, compute the inverse against the state right
- * before applying, apply, then highlight. `build` throws a ToolError to abort without changes.
+ * before applying, apply, then highlight (and bring into view what landed outside it).
+ * `build` throws a ToolError to abort without changes.
  */
 export async function mutate<R extends Change>(
   ctx: ToolCtx,
@@ -74,7 +78,21 @@ export async function mutate<R extends Change>(
     if (!result.ops.length) return { result, effects: [] }
     const inverse = doc.inverse(result.ops)
     ctx.host.apply(notebookId, result.ops, ctx.turnId)
-    if (result.pageId && result.ids?.length) ctx.host.highlight(notebookId, result.pageId, result.ids)
+    if (result.pageId && result.ids?.length) {
+      ctx.host.highlight(notebookId, result.pageId, result.ids, outOfView(ctx.host, doc, result.pageId, result.ids))
+    }
     return { result, effects: [{ notebookId, ops: result.ops, inverse }] }
   })
+}
+
+/** Whether objects on the page the user looks at reach outside the visible area. */
+function outOfView(host: ToolHost, doc: NotebookDocumentApi, pageId: PageId, ids: ObjectId[]): boolean {
+  const view = host.view()
+  if (view?.notebookId !== doc.id || view.pageId !== pageId) return false
+  const resolve = (id: ObjectId) => doc.object(pageId, id)
+  const box = boundsUnion(ids.flatMap((id) => {
+    const o = resolve(id)
+    return o ? [worldBounds(o, resolve)] : []
+  }))
+  return !!box && !rectContains(view.viewport, box)
 }

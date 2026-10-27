@@ -977,7 +977,7 @@
             "grid",
             "radial"
           ],
-          "description": "layered: flowcharts and processes. tree: hierarchies. grid: unconnected items. radial: mind maps around a central idea."
+          "description": "layered: flowcharts and processes. tree: hierarchies. grid: unconnected items. radial: mind maps around a central idea. The flow direction is the separate direction field."
         },
         "direction": {
           "type": "string",
