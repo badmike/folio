@@ -1,5 +1,5 @@
 import type {
-  CanvasObject, DocChangeEvent, FolderEntry, FolderId, NotebookEntry, NotebookId, NotebookMeta,
+  CanvasObject, DocChangeEvent, FolderEntry, FolderId, NotebookEntry, NotebookId, NotebookMeta, TagStyle,
   ObjectId, Operation, Page, PageId, Recognition, Unsubscribe,
 } from './types'
 
@@ -32,7 +32,7 @@ export interface NotebookDocumentApi {
   version(): Uint8Array
 }
 
-/** Workspace index doc (folders + notebook entries), also CRDT-backed and synced. */
+/** Workspace index doc (folders, notebook entries, tag styles), also CRDT-backed and synced. */
 export interface WorkspaceDocumentApi {
   folders(): FolderEntry[] // excluding deleted
   notebooks(): NotebookEntry[] // excluding deleted
@@ -40,6 +40,9 @@ export interface WorkspaceDocumentApi {
   deleteFolder(id: FolderId): void
   upsertNotebook(n: NotebookEntry): void
   deleteNotebook(id: NotebookId): void
+  tagStyles(): TagStyle[]
+  upsertTagStyle(t: TagStyle): void
+  deleteTagStyle(name: string): void
   subscribe(listener: (origin: 'local' | 'remote' | 'load') => void): Unsubscribe
   exportSnapshot(): Uint8Array
   exportUpdates(since?: Uint8Array): Uint8Array

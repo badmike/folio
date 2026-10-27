@@ -98,7 +98,7 @@ describe('notebook CRUD', () => {
     expect(ws.entry(id)?.folderId).toBe(f)
     await ws.setTags(id, ['a', ' b ', 'a', ''])
     expect(ws.entry(id)?.tags).toEqual(['a', 'b'])
-    expect(ws.allTags()).toEqual(['a', 'b'])
+    expect(ws.allTags().map((t) => t.name)).toEqual(['a', 'b'])
     await ws.deleteNotebook(id)
     expect(ws.notebooks()).toHaveLength(0)
     expect(await ws.search('N')).toEqual([])
@@ -114,7 +114,7 @@ describe('folders', () => {
     const a = ws.createFolder('A')
     const b = ws.createFolder('B', a)
     const c = ws.createFolder('C', b)
-    ws.renameFolder(a, 'Alpha')
+    ws.updateFolder(a, { name: 'Alpha' })
     expect(ws.folders().find((f) => f.id === a)?.name).toBe('Alpha')
     expect(ws.moveFolder(a, c)).toBe(false) // into own descendant
     expect(ws.moveFolder(a, a)).toBe(false)
@@ -125,6 +125,30 @@ describe('folders', () => {
     ws.deleteFolder(b)
     expect(ws.folders().map((f) => f.id).sort()).toEqual([a, c].sort())
     expect(ws.entry(nb)?.folderId).toBe(a) // moved up to the nearest surviving parent
+  })
+})
+
+describe('appearance', () => {
+  it('stores a folder icon and colour and clears them again', () => {
+    const id = ws.createFolder('Work', null, { icon: 'briefcase', color: '#3B82F6' })
+    expect(ws.folders()[0]).toMatchObject({ name: 'Work', icon: 'briefcase', color: '#3B82F6' })
+    ws.updateFolder(id, { name: ' ', icon: null, color: null })
+    expect(ws.folders()[0]).toMatchObject({ name: 'Work', icon: null, color: null })
+  })
+
+  it('styles a tag and carries the style and the notebooks over when it is renamed', async () => {
+    const a = await ws.createNotebook({ title: 'A', tags: ['physics', 'exam'] })
+    const b = await ws.createNotebook({ title: 'B', tags: ['physics'] })
+    await ws.updateTag('physics', { name: 'physics', icon: 'atom', color: '#10B981' })
+    expect(ws.allTags()).toEqual([
+      { name: 'exam', icon: null, color: null },
+      { name: 'physics', icon: 'atom', color: '#10B981' },
+    ])
+    await ws.updateTag('physics', { name: 'Physics I', icon: 'atom', color: '#10B981' })
+    expect(ws.entry(a)?.tags).toEqual(['Physics I', 'exam'])
+    expect(ws.entry(b)?.tags).toEqual(['Physics I'])
+    expect(ws.allTags().find((t) => t.name === 'Physics I')).toEqual({ name: 'Physics I', icon: 'atom', color: '#10B981' })
+    expect(ws.doc.tagStyles().map((t) => t.name)).toEqual(['Physics I'])
   })
 })
 

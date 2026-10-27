@@ -1,14 +1,15 @@
 import { LoroDoc, LoroMap, VersionVector } from 'loro-crdt'
 import type { WorkspaceDocumentApi } from './api'
 import { cloneJson } from './internal'
-import type { FolderEntry, FolderId, NotebookEntry, NotebookId, Unsubscribe } from './types'
+import type { FolderEntry, FolderId, NotebookEntry, NotebookId, TagStyle, Unsubscribe } from './types'
 
 type Origin = 'local' | 'remote' | 'load'
 
 /**
- * Workspace index: folders + notebook entries.
+ * Workspace index: folders, notebook entries and tag styles.
  *   folders:   Map folderId   -> Map(field -> value)
  *   notebooks: Map notebookId -> Map(field -> value)
+ *   tags:      Map tag name   -> Map(field -> value)
  * Deletion is soft (`deleted: true`). Deleting a folder soft-deletes it and its nested
  * folders and moves every notebook inside them to the deleted folder's nearest live
  * ancestor (root if none), so notes are never lost. Reads are also defensive: entries
@@ -17,7 +18,7 @@ type Origin = 'local' | 'remote' | 'load'
 export class WorkspaceDocument implements WorkspaceDocumentApi {
   readonly loro: LoroDoc
   private listeners = new Set<(o: Origin) => void>()
-  private cache: { folders: FolderEntry[]; notebooks: NotebookEntry[] } | null = null
+  private cache: { folders: FolderEntry[]; notebooks: NotebookEntry[]; tags: TagStyle[] } | null = null
 
   constructor(opts: { peerId?: number | bigint | `${number}`; snapshot?: Uint8Array } = {}) {
     this.loro = new LoroDoc()
@@ -34,6 +35,7 @@ export class WorkspaceDocument implements WorkspaceDocumentApi {
     const json = this.loro.toJSON() as {
       folders?: Record<string, FolderEntry>
       notebooks?: Record<string, NotebookEntry>
+      tags?: Record<string, TagStyle>
     }
     const allFolders = new Map<FolderId, FolderEntry>()
     for (const [id, f] of Object.entries(json.folders ?? {})) {
@@ -65,9 +67,13 @@ export class WorkspaceDocument implements WorkspaceDocumentApi {
       const folderId = resolve(n.folderId)
       notebooks.push({ ...n, id, folderId, tags: n.tags ?? [] })
     }
+    const tags: TagStyle[] = []
+    for (const [name, t] of Object.entries(json.tags ?? {})) {
+      if (t && typeof t === 'object') tags.push({ ...t, name })
+    }
     folders.sort((a, b) => a.name.localeCompare(b.name) || (a.id < b.id ? -1 : 1))
     notebooks.sort((a, b) => b.updatedAt - a.updatedAt || (a.id < b.id ? -1 : 1))
-    return (this.cache = { folders, notebooks })
+    return (this.cache = { folders, notebooks, tags })
   }
 
   folders(): FolderEntry[] {
@@ -76,6 +82,23 @@ export class WorkspaceDocument implements WorkspaceDocumentApi {
 
   notebooks(): NotebookEntry[] {
     return this.read().notebooks.map((n) => cloneJson(n))
+  }
+
+  tagStyles(): TagStyle[] {
+    return this.read().tags.map((t) => cloneJson(t))
+  }
+
+  upsertTagStyle(t: TagStyle): void {
+    const { name, ...rest } = t
+    this.put(this.loro.getMap('tags'), name, rest)
+    this.commit('local')
+  }
+
+  deleteTagStyle(name: string): void {
+    const tags = this.loro.getMap('tags')
+    if (tags.get(name) === undefined) return
+    tags.delete(name)
+    this.commit('local')
   }
 
   upsertFolder(f: FolderEntry): void {

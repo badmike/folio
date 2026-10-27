@@ -1,16 +1,16 @@
 import type { FolderEntry, NotebookEntry } from '@folio/document'
 import { onBeforeUnmount, shallowRef, type ShallowRef } from 'vue'
-import type { Workspace } from './services/workspace'
+import type { Tag, Workspace } from './services/workspace'
 
-/** Reactive view of the workspace index (folders + notebooks). */
+/** Reactive view of the workspace index (folders, notebooks and tags in use). */
 export function useLibrary(ws: Workspace): {
   folders: ShallowRef<FolderEntry[]>
   notebooks: ShallowRef<NotebookEntry[]>
-  tags: ShallowRef<string[]>
+  tags: ShallowRef<Tag[]>
 } {
   const folders = shallowRef<FolderEntry[]>(ws.folders())
   const notebooks = shallowRef<NotebookEntry[]>(ws.notebooks())
-  const tags = shallowRef<string[]>(ws.allTags())
+  const tags = shallowRef<Tag[]>(ws.allTags())
   const refresh = () => {
     folders.value = ws.folders()
     notebooks.value = ws.notebooks()

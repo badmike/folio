@@ -2,11 +2,13 @@
 import type { NotebookEntry } from '@folio/document'
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { timeAgo } from '../composables'
-import type { Workspace } from '../services/workspace'
+import type { Tag, Workspace } from '../services/workspace'
 import Icon from './Icon.vue'
+import IconName from './IconName.vue'
 import Menu, { type MenuItem } from './Menu.vue'
 
-const props = defineProps<{ entry: NotebookEntry; ws: Workspace; items: MenuItem[] }>()
+/** `tags`: the entry's tags with their look, in the entry's order. */
+const props = defineProps<{ entry: NotebookEntry; tags: Tag[]; ws: Workspace; items: MenuItem[] }>()
 defineEmits<{ (e: 'open'): void; (e: 'tag', tag: string): void }>()
 
 const thumb = ref<string | null>(null)
@@ -36,7 +38,10 @@ function dragStart(e: DragEvent) {
         <button class="title" @click="$emit('open')">{{ entry.title || 'Untitled' }}</button>
         <div class="sub">
           <span>Edited {{ timeAgo(entry.updatedAt) }}</span>
-          <button v-for="t in entry.tags" :key="t" class="tag" @click="$emit('tag', t)">#{{ t }}</button>
+          <button v-for="t in tags" :key="t.name" class="tag" @click="$emit('tag', t.name)">
+            <IconName v-if="t.icon || t.color" :icon="t.icon" :color="t.color" :name="t.name" fallback="tag" :size="13" />
+            <template v-else>#{{ t.name }}</template>
+          </button>
         </div>
       </div>
       <Menu :items="items" align="right">
@@ -66,7 +71,8 @@ function dragStart(e: DragEvent) {
   font-size: 13.5px; font-weight: 600; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .sub { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin-top: 2px; font-size: 12.5px; color: var(--muted); }
-.tag { padding: 0; border: 0; background: transparent; color: var(--muted); font-size: inherit; }
+.tag { display: inline-flex; min-width: 0; padding: 0; border: 0; background: transparent; color: var(--muted); font-size: inherit; }
+.tag :deep(.icon-name) { gap: 3px; }
 .tag:hover { color: var(--accent); }
 .mini { width: 30px; height: 30px; margin-top: -4px; color: var(--muted); }
 @media (hover: hover) {

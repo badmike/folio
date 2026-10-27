@@ -425,7 +425,13 @@ export interface NotebookMeta {
   toolSettings?: ToolSettings
 }
 
-export interface FolderEntry {
+/** Look of a folder or tag in the library: a Lucide icon name and a CSS colour; null = none. */
+export interface Appearance {
+  icon?: string | null
+  color?: string | null
+}
+
+export interface FolderEntry extends Appearance {
   id: FolderId
   name: string
   parentId: FolderId | null
@@ -443,6 +449,12 @@ export interface NotebookEntry {
   createdAt: Timestamp
   updatedAt: Timestamp
   deleted?: boolean
+}
+
+/** Look of a tag (lives in the workspace doc, keyed by name; the tags themselves are strings on notebooks). */
+export interface TagStyle extends Appearance {
+  name: string
+  updatedAt: Timestamp
 }
 
 // ---------------------------------------------------------------------------

@@ -2,7 +2,7 @@ import {
   NotebookDocument, WorkspaceDocument, createId, createPage, defaultBackground, exportFolio, exportMarkdown,
   importExcalidraw, importFolio, searchDocsFor, type ExcalidrawAsset,
   CANVAS_BACKGROUNDS_DARK, defaultLineColor,
-  type AssetMap, type BackgroundPattern, type PageBackground, type FolderEntry, type FolderId, type NotebookEntry, type NotebookId,
+  type Appearance, type AssetMap, type BackgroundPattern, type PageBackground, type FolderEntry, type FolderId, type NotebookEntry, type NotebookId,
   type Operation, type Page,
 } from '@folio/document'
 import { DocPersister, type Diagnostics, type SearchHit, type Storage } from '@folio/persistence'
@@ -13,6 +13,11 @@ export const WORKSPACE_DOC_ID = 'workspace'
 const OPEN_CACHE_LIMIT = 6
 const TOUCH_DELAY_MS = 2000
 const REINDEX_DELAY_MS = 1500
+
+/** A tag in use on at least one notebook, with its look (unstyled tags have null icon and colour). */
+export interface Tag extends Appearance {
+  name: string
+}
 
 export class NotebookNotFoundError extends Error {
   override name = 'NotebookNotFoundError'
@@ -200,10 +205,15 @@ export class Workspace {
   folders(): FolderEntry[] { return this.doc.folders() }
   notebooks(): NotebookEntry[] { return this.doc.notebooks() }
   entry(id: NotebookId): NotebookEntry | undefined { return this.doc.notebooks().find((n) => n.id === id) }
-  allTags(): string[] {
-    const set = new Set<string>()
-    for (const n of this.notebooks()) for (const t of n.tags) set.add(t)
-    return [...set].sort((a, b) => a.localeCompare(b))
+  /** Tags in use, sorted by name. */
+  allTags(): Tag[] {
+    const names = new Set<string>()
+    for (const n of this.notebooks()) for (const t of n.tags) names.add(t)
+    const styles = new Map(this.doc.tagStyles().map((t) => [t.name, t]))
+    return [...names].sort((a, b) => a.localeCompare(b)).map((name) => {
+      const s = styles.get(name)
+      return { name, icon: s?.icon ?? null, color: s?.color ?? null }
+    })
   }
 
   /** Full-text search over titles, tags, typed text, handwriting and labels. */
@@ -440,6 +450,20 @@ export class Workspace {
     if (e) this.doc.upsertNotebook({ ...e, tags: clean, updatedAt: Date.now() })
   }
 
+  /**
+   * Change a tag's name and look. A new name is applied to every notebook carrying the tag
+   * (merging into an existing tag of that name).
+   */
+  async updateTag(name: string, next: Tag): Promise<void> {
+    const to = next.name.trim() || name
+    this.doc.upsertTagStyle({ name: to, icon: next.icon ?? null, color: next.color ?? null, updatedAt: Date.now() })
+    if (to === name) return
+    this.doc.deleteTagStyle(name)
+    for (const n of this.notebooks().filter((x) => x.tags.includes(name))) {
+      await this.setTags(n.id, n.tags.map((t) => (t === name ? to : t)))
+    }
+  }
+
   moveNotebook(id: NotebookId, folderId: FolderId | null): void {
     const e = this.entry(id)
     if (e) this.doc.upsertNotebook({ ...e, folderId, updatedAt: Date.now() })
@@ -460,16 +484,21 @@ export class Workspace {
   // folders
   // ---------------------------------------------------------------------------
 
-  createFolder(name: string, parentId: FolderId | null = null): FolderId {
+  createFolder(name: string, parentId: FolderId | null = null, look: Appearance = {}): FolderId {
     const now = Date.now()
-    const f: FolderEntry = { id: createId(), name: name.trim() || 'New folder', parentId, createdAt: now, updatedAt: now }
+    const f: FolderEntry = {
+      id: createId(), name: name.trim() || 'New folder', parentId, icon: look.icon ?? null, color: look.color ?? null, createdAt: now, updatedAt: now,
+    }
     this.doc.upsertFolder(f)
     return f.id
   }
 
-  renameFolder(id: FolderId, name: string): void {
+  /** Rename and restyle a folder; a blank name keeps the current one. */
+  updateFolder(id: FolderId, patch: Appearance & { name?: string }): void {
     const f = this.folders().find((x) => x.id === id)
-    if (f) this.doc.upsertFolder({ ...f, name: name.trim() || f.name, updatedAt: Date.now() })
+    if (!f) return
+    const name = patch.name?.trim() || f.name
+    this.doc.upsertFolder({ ...f, ...patch, name, updatedAt: Date.now() })
   }
 
   /** Move a folder; refuses to move it into itself or one of its descendants. */

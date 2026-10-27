@@ -3,6 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { afterEach, describe, expect, it } from 'vitest'
 import DialogHost from '../src/components/DialogHost.vue'
 import FolderTree from '../src/components/FolderTree.vue'
+import IconNameField from '../src/components/IconNameField.vue'
 import Menu from '../src/components/Menu.vue'
 import NewNotebookDialog from '../src/components/NewNotebookDialog.vue'
 import { chooseDialog, closeDialog, confirmDialog, dialog, promptDialog } from '../src/services/dialogs'
@@ -54,6 +55,17 @@ describe('FolderTree', () => {
     const w = mount(FolderTree, { props: { folders: [], selected: 'all', counts: {} }, ...teleportStub })
     await w.get('[data-testid="new-folder"]').trigger('click')
     expect(w.emitted('create')![0]).toEqual([null])
+  })
+})
+
+describe('IconNameField', () => {
+  it('updates the name and the colour, keeping the other fields', async () => {
+    const w = mount(IconNameField, { props: { modelValue: { name: 'Work', icon: 'folder', color: null }, label: 'Name' }, ...teleportStub })
+    await w.get('[data-testid="icon-name-input"]').setValue('Uni')
+    expect(w.emitted('update:modelValue')!.at(-1)![0]).toEqual({ name: 'Uni', icon: 'folder', color: null })
+    await w.get('[data-testid="color-select-trigger"]').trigger('click')
+    await w.get('[aria-label="Green"]').trigger('click')
+    expect(w.emitted('update:modelValue')!.at(-1)![0]).toEqual({ name: 'Uni', icon: 'folder', color: '#10B981' })
   })
 })
 

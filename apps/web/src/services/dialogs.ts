@@ -1,9 +1,11 @@
 import { shallowRef } from 'vue'
+import type { IconNameValue } from '../components/IconNameField.vue'
 
 export type DialogRequest =
   | { kind: 'confirm'; title: string; message: string; confirmLabel: string; danger: boolean; resolve: (ok: boolean) => void }
   | { kind: 'prompt'; title: string; label: string; value: string; confirmLabel: string; resolve: (v: string | null) => void }
   | { kind: 'choose'; title: string; options: { value: string; label: string; depth?: number }[]; resolve: (v: string | null) => void }
+  | { kind: 'appearance'; title: string; label: string; value: IconNameValue; confirmLabel: string; resolve: (v: IconNameValue | null) => void }
 
 /** The dialog currently shown by DialogHost (one at a time; further requests queue). */
 export const dialog = shallowRef<DialogRequest | null>(null)
@@ -31,4 +33,10 @@ export function promptDialog(o: { title: string; label?: string; value?: string;
 
 export function chooseDialog(o: { title: string; options: { value: string; label: string; depth?: number }[] }): Promise<string | null> {
   return new Promise((resolve) => push({ kind: 'choose', title: o.title, options: o.options, resolve }))
+}
+
+/** Edit a name together with its icon and colour (folders, tags). */
+export function appearanceDialog(o: { title: string; label?: string; value: IconNameValue; confirmLabel?: string }): Promise<IconNameValue | null> {
+  return new Promise((resolve) =>
+    push({ kind: 'appearance', title: o.title, label: o.label ?? 'Name', value: o.value, confirmLabel: o.confirmLabel ?? 'Save', resolve }))
 }

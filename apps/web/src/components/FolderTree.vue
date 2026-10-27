@@ -2,13 +2,14 @@
 import type { FolderEntry } from '@folio/document'
 import { computed, ref } from 'vue'
 import Icon from './Icon.vue'
+import IconName from './IconName.vue'
 import Menu, { type MenuItem } from './Menu.vue'
 
 const props = defineProps<{ folders: FolderEntry[]; selected: string; counts: Record<string, number> }>()
 const emit = defineEmits<{
   (e: 'select', id: string): void
   (e: 'create', parentId: string | null): void
-  (e: 'rename', id: string): void
+  (e: 'edit', id: string): void
   (e: 'move', id: string): void
   (e: 'delete', id: string): void
   (e: 'drop', folderId: string | null, notebookId: string): void
@@ -43,7 +44,7 @@ function onDrop(e: DragEvent, folderId: string | null) {
 function menuFor(f: FolderEntry): MenuItem[] {
   return [
     { label: 'New subfolder', icon: 'plus', action: () => emit('create', f.id) },
-    { label: 'Rename', icon: 'edit', action: () => emit('rename', f.id) },
+    { label: 'Edit…', icon: 'edit', action: () => emit('edit', f.id) },
     { label: 'Move…', icon: 'move', action: () => emit('move', f.id) },
     { divider: true },
     { label: 'Delete folder', icon: 'trash', danger: true, action: () => emit('delete', f.id) },
@@ -65,7 +66,7 @@ function menuFor(f: FolderEntry): MenuItem[] {
          :style="{ paddingLeft: 10 + r.depth * 16 + 'px' }" @click="emit('select', r.folder.id)"
          @dragover.prevent="dropTarget = r.folder.id" @dragleave="dropTarget = undefined" @drop.prevent="onDrop($event, r.folder.id)"
          data-testid="folder-row">
-      <Icon name="folder" :size="18" /><span class="name">{{ r.folder.name }}</span>
+      <IconName class="label-name" :icon="r.folder.icon" :color="r.folder.color" :name="r.folder.name" fallback="folder" :size="18" />
       <span class="count">{{ counts[r.folder.id] ?? 0 }}</span>
       <Menu :items="menuFor(r.folder)" align="right">
         <button class="icon-btn mini act" :aria-label="`Folder actions for ${r.folder.name}`"><Icon name="more" :size="16" /></button>
@@ -85,6 +86,7 @@ function menuFor(f: FolderEntry): MenuItem[] {
 .section { margin: 14px 0 2px; padding: 0 4px 0 10px; }
 .label { flex: 1; font-size: 12px; font-weight: 600; color: var(--muted); }
 .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.label-name { flex: 1; }
 .count { font-size: 12px; color: var(--muted); min-width: 16px; padding-right: 6px; text-align: right; font-variant-numeric: tabular-nums; }
 .mini { width: 26px; height: 26px; color: var(--muted); }
 @media (hover: hover) {

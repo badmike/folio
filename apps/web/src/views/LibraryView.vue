@@ -6,19 +6,22 @@ import { useRouter } from 'vue-router'
 import { requireServices } from '../app'
 import FolderTree from '../components/FolderTree.vue'
 import Icon from '../components/Icon.vue'
+import IconName from '../components/IconName.vue'
 import Logo from '../components/Logo.vue'
 import Menu, { type MenuItem } from '../components/Menu.vue'
 import NewNotebookDialog from '../components/NewNotebookDialog.vue'
 import NotebookCard from '../components/NotebookCard.vue'
 import SearchResults from '../components/SearchResults.vue'
 import SettingsDialog from '../components/SettingsDialog.vue'
+import TagList from '../components/TagList.vue'
 import { useLibrary } from '../composables'
 import { diagnostics } from '../services/diagnostics'
-import { chooseDialog, confirmDialog, promptDialog } from '../services/dialogs'
+import { appearanceDialog, chooseDialog, confirmDialog, promptDialog } from '../services/dialogs'
 import { exportFolioFile, exportMarkdownFor, importNotebookFile } from '../services/export'
 import { isIosSafariNotInstalled, offlineReady } from '../services/pwa'
 import type { DefaultPageType } from '../services/settings'
 import { toast, toastError } from '../services/toast'
+import type { Tag } from '../services/workspace'
 
 const router = useRouter()
 const { workspace: ws, auth, sync } = requireServices()
@@ -51,6 +54,15 @@ const counts = computed(() => {
   for (const n of notebooks.value) if (n.folderId) c[n.folderId] = (c[n.folderId] ?? 0) + 1
   return c
 })
+const tagCounts = computed(() => {
+  const c: Record<string, number> = {}
+  for (const n of notebooks.value) for (const t of n.tags) c[t] = (c[t] ?? 0) + 1
+  return c
+})
+const tagByName = computed(() => new Map(tags.value.map((t) => [t.name, t])))
+const tagOf = (name: string): Tag => tagByName.value.get(name) ?? { name, icon: null, color: null }
+const activeTag = computed(() => (tagFilter.value ? tagOf(tagFilter.value) : null))
+watch(tags, (ts) => { if (tagFilter.value && !ts.some((t) => t.name === tagFilter.value)) tagFilter.value = null })
 const heading = computed(() => (selected.value === 'all' ? 'All notebooks' : folders.value.find((f) => f.id === selected.value)?.name ?? 'Notebooks'))
 watch(folders, (fs) => { if (selected.value !== 'all' && !fs.some((f) => f.id === selected.value)) selected.value = 'all' })
 
@@ -121,6 +133,15 @@ async function moveNotebook(n: NotebookEntry) {
   const v = await chooseDialog({ title: 'Move to folder', options: folderOptions() })
   if (v !== null) ws.moveNotebook(n.id, v === '__root__' ? null : v)
 }
+async function editTag(name: string) {
+  const t = tagOf(name)
+  const v = await appearanceDialog({ title: 'Edit tag', value: { name: t.name, icon: t.icon ?? null, color: t.color ?? null } })
+  if (!v) return
+  await guard(async () => {
+    await ws.updateTag(name, v)
+    if (tagFilter.value === name) tagFilter.value = v.name.trim() || name
+  }, 'Could not update the tag.')
+}
 async function editTags(n: NotebookEntry) {
   const v = await promptDialog({ title: 'Tags', label: 'Comma separated', value: n.tags.join(', ') })
   if (v !== null) await ws.setTags(n.id, v.split(','))
@@ -145,16 +166,14 @@ function menuFor(n: NotebookEntry): MenuItem[] {
 
 // folders
 async function newFolder(parentId: string | null) {
-  const name = await promptDialog({ title: 'New folder', label: 'Name', confirmLabel: 'Create' })
-  if (name !== null) {
-    const id = ws.createFolder(name, parentId)
-    selected.value = id
-  }
+  const v = await appearanceDialog({ title: 'New folder', value: { name: '', icon: 'folder', color: null }, confirmLabel: 'Create' })
+  if (v) selected.value = ws.createFolder(v.name, parentId, v)
 }
-async function renameFolder(id: string) {
+async function editFolder(id: string) {
   const f = folders.value.find((x) => x.id === id)
-  const name = await promptDialog({ title: 'Rename folder', label: 'Name', value: f?.name ?? '' })
-  if (name !== null) ws.renameFolder(id, name)
+  if (!f) return
+  const v = await appearanceDialog({ title: 'Edit folder', value: { name: f.name, icon: f.icon ?? null, color: f.color ?? null } })
+  if (v) ws.updateFolder(id, v)
 }
 async function moveFolder(id: string) {
   const v = await chooseDialog({ title: 'Move folder to', options: folderOptions(id) })
@@ -217,15 +236,10 @@ function dismissHint() { showIosHint.value = false; try { sessionStorage.setItem
         </button>
       </label>
       <FolderTree :folders="folders" :selected="selected" :counts="counts"
-        @select="(id) => { selected = id; drawer = false; query = '' }" @create="newFolder" @rename="renameFolder"
+        @select="(id) => { selected = id; drawer = false; query = '' }" @create="newFolder" @edit="editFolder"
         @move="moveFolder" @delete="deleteFolder" @drop="(fid, nid) => ws.moveNotebook(nid, fid)" />
-      <div v-if="tags.length" class="tagbox">
-        <div class="label">Tags</div>
-        <div class="tagrow">
-          <button v-for="t in tags" :key="t" class="chip" :class="{ on: tagFilter === t }"
-            @click="tagFilter = tagFilter === t ? null : t">#{{ t }}</button>
-        </div>
-      </div>
+      <TagList v-if="tags.length" :tags="tags" :selected="tagFilter" :counts="tagCounts"
+        @select="(t) => { tagFilter = tagFilter === t ? null : t; drawer = false; query = '' }" @edit="editTag" />
       <span class="spacer" />
       <div v-if="offlineReady" class="status" title="folio works without a connection" data-testid="offline-ready">
         <Icon name="check" :size="14" /> Offline ready
@@ -238,7 +252,9 @@ function dismissHint() { showIosHint.value = false; try { sessionStorage.setItem
         <button class="icon-btn only-narrow" aria-label="Folders" @click="drawer = true"><Icon name="menu" :size="20" /></button>
         <h1 v-if="query.trim()">Search results</h1>
         <h1 v-else>{{ heading }}</h1>
-        <span v-if="tagFilter && !query.trim()" class="chip on">#{{ tagFilter }}
+        <span v-if="activeTag && !query.trim()" class="chip on">
+          <IconName v-if="activeTag.icon || activeTag.color" :icon="activeTag.icon" :color="activeTag.color" :name="activeTag.name" fallback="tag" :size="13" />
+          <template v-else>#{{ activeTag.name }}</template>
           <button class="x" aria-label="Clear tag filter" @click="tagFilter = null"><Icon name="x" :size="12" /></button>
         </span>
         <span class="spacer" />
@@ -280,7 +296,7 @@ function dismissHint() { showIosHint.value = false; try { sessionStorage.setItem
             <button class="btn small" @click="showNew = true"><Icon name="plus" :size="16" /> New notebook</button>
           </div>
           <div class="grid" data-testid="notebook-grid">
-            <NotebookCard v-for="n in visible" :key="n.id" :entry="n" :ws="ws" :items="menuFor(n)" @open="open(n.id)"
+            <NotebookCard v-for="n in visible" :key="n.id" :entry="n" :tags="n.tags.map(tagOf)" :ws="ws" :items="menuFor(n)" @open="open(n.id)"
               @tag="(t) => (tagFilter = t)" />
           </div>
         </template>
@@ -380,21 +396,6 @@ function dismissHint() { showIosHint.value = false; try { sessionStorage.setItem
   display: none;
 }
 
-.tagbox {
-  padding: 4px 10px 0;
-}
-
-.label {
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.tagrow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
-}
 
 .status {
   display: flex;
