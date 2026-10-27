@@ -30,7 +30,7 @@ function setup(opts: { api?: Partial<TurnApi>; run?: (c: ToolCall, turnId: strin
     continueTurn: vi.fn<TurnApi['continueTurn']>(o.continueTurn ?? (() => events())),
     cancel: vi.fn<TurnApi['cancel']>(o.cancel ?? (async (id) => turn({ id, status: 'cancelled' }))),
     revert: vi.fn<TurnApi['revert']>(o.revert ?? (async () => ({ thread, turns: [], items: [] }))),
-    thread: vi.fn<TurnApi['thread']>(async () => { if (opts.detail) return opts.detail; throw new Error('offline') }),
+    thread: vi.fn<TurnApi['thread']>(o.thread ?? (async () => { if (opts.detail) return opts.detail; throw new Error('offline') })),
   }
   const run = vi.fn(opts.run ?? (async () => result))
   const revertEffects = vi.fn<RevertEffects>(opts.revert ?? (async () => ({ reverted: 0, skipped: [] })))
@@ -118,6 +118,29 @@ describe('AiSession turn loop', () => {
     expect(api.cancel).toHaveBeenCalledWith('u1')
     expect(api.step).not.toHaveBeenCalled()
     expect(session.turns.value[0].status).toBe('cancelled')
+  })
+
+  it('shows the settled turn after a stop, even when the earlier refresh answers last', async () => {
+    const partial: ThreadItem = { id: 'a1', threadId: 't1', turnId: 'u1', seq: 2, kind: 'assistant', payload: { text: 'Half' }, createdAt: 1 }
+    let reads = 0
+    const { session } = setup({
+      api: {
+        startTurn: (_id, _req, signal) => (async function* (): AsyncGenerator<StepEvent> {
+          yield { type: 'turn', turn: turn() }
+          await new Promise((_, reject) => signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))
+        })(),
+        // the read right after the abort still sees the turn running, and its answer arrives last
+        thread: async () => ++reads === 1
+          ? new Promise<ThreadDetailRes>((r) => setTimeout(() => r({ thread, turns: [turn()], items: [] }), 20))
+          : { thread, turns: [turn({ status: 'cancelled' })], items: [partial] },
+      },
+    })
+    session.send(msg('long'))
+    await until(() => session.activeTurnId.value === 'u1')
+    await session.cancel()
+    await new Promise((r) => setTimeout(r, 40))
+    expect(session.turns.value[0].status).toBe('cancelled')
+    expect(session.items.value.map((i) => i.id)).toContain('a1')
   })
 })
 

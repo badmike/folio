@@ -88,6 +88,8 @@ export class AiSession {
   private otherNotebooksAllowed = false
   private pollTimer: ReturnType<typeof setTimeout> | undefined
   private disposed = false
+  /** Only the latest refresh applies; an older answer may describe a turn that has moved on. */
+  private refreshSeq = 0
 
   constructor(private readonly deps: SessionDeps, thread: ThreadSummary | null = null) {
     this.thread.value = thread
@@ -129,6 +131,8 @@ export class AiSession {
     const turnId = this.activeTurnId.value
     if (turnId) {
       try { this.upsertTurn(await this.deps.api.cancel(turnId)) } catch { /* the server ends it anyway */ }
+      // the server answers once the turn settled: show its partial text and how it ended
+      await this.refresh()
     }
     return queuedText
   }
@@ -360,8 +364,10 @@ export class AiSession {
   private async refresh(): Promise<void> {
     const id = this.id
     if (!id || this.disposed) return
+    const seq = ++this.refreshSeq
     try {
       const detail = await this.deps.api.thread(id)
+      if (seq !== this.refreshSeq) return
       // a failure the server never recorded (connection lost) stays visible
       const failed = this.turns.value.filter((t) => t.status === 'failed')
       this.applyDetail(detail)

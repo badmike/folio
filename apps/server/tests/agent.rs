@@ -360,7 +360,7 @@ async fn cancel_aborts_a_streaming_step() {
     .await
     .expect("cancel ends the stream");
     assert_eq!(s, StatusCode::OK);
-    assert_eq!(turn["status"], "running");
+    assert_eq!(turn["status"], "cancelled");
     assert_eq!(step_end(&ev), "cancelled");
 
     let d = detail(&app, &thread).await;
