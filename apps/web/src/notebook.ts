@@ -616,9 +616,58 @@ export class NotebookController {
     this.highlighted.value = true
   }
   clearHighlight() {
+    clearTimeout(this.flashTimer)
     this.editor.value?.setHighlights(undefined)
     this.highlighted.value = false
   }
+
+  // ---- AI ----------------------------------------------------------------------
+
+  /** The visible world rect, or null before the editor is mounted. */
+  viewRect(): Rect | null {
+    const e = this.editor.value
+    if (!e) return null
+    const tl = e.screenToWorld({ x: 0, y: 0 })
+    const br = e.screenToWorld({ x: e.viewportSize.width, y: e.viewportSize.height })
+    return { x: tl.x, y: tl.y, width: br.x - tl.x, height: br.y - tl.y }
+  }
+
+  /**
+   * Apply AI operations. Object edits on the shown page go through the editor, so a whole turn is one
+   * undo step (`group`); anything else (other pages, pages, meta) goes to the session directly.
+   */
+  applyAi(ops: Operation[], group: string): void {
+    const e = this.editor.value
+    if (e?.readOnly) throw new Error('The notebook is locked on this device.')
+    const onPage = (op: Operation) => (op.type === 'addObjects' || op.type === 'deleteObjects' || op.type === 'updateObjects') && op.pageId === e?.pageId
+    if (e && ops.every(onPage)) e.execute(ops, { group })
+    else {
+      this.session.apply(ops)
+      if (ops.some((op) => op.type === 'addPage' || op.type === 'updatePage' || op.type === 'deletePage')) this.pages.value = this.doc.pages()
+      e?.requestRender()
+    }
+  }
+
+  /** Glow objects briefly; with `zoom`, show their page and bring them into view. */
+  flash(pageId: PageId, ids: readonly string[], zoom: boolean) {
+    const e = this.editor.value
+    if (!e) return
+    if (zoom && pageId !== this.pageId.value) this.setPage(pageId)
+    if (e.pageId !== pageId) return
+    const rects = ids.flatMap((id) => this.boundsOf(pageId, id) ?? [])
+    if (!rects.length) return
+    if (zoom) {
+      const x0 = Math.min(...rects.map((r) => r.x)), y0 = Math.min(...rects.map((r) => r.y))
+      const x1 = Math.max(...rects.map((r) => r.x + r.width)), y1 = Math.max(...rects.map((r) => r.y + r.height))
+      e.zoomToRect({ x: x0, y: y0, width: x1 - x0, height: y1 - y0 }, 96)
+      if (e.zoom > 2) e.zoomAt({ x: e.viewportSize.width / 2, y: e.viewportSize.height / 2 }, 2 / e.zoom)
+    }
+    e.setHighlights(rects.map((r) => ({ x: r.x - 6, y: r.y - 6, width: r.width + 12, height: r.height + 12 })))
+    this.highlighted.value = true
+    clearTimeout(this.flashTimer)
+    this.flashTimer = setTimeout(() => this.clearHighlight(), 1500)
+  }
+  private flashTimer: ReturnType<typeof setTimeout> | undefined
 
   // recognition passthrough
   get recognitionApi(): AttachedRecognition | null { return this.rec }
@@ -655,7 +704,7 @@ export class NotebookController {
   async destroy(): Promise<void> {
     if (this.destroyed) return
     const editor = this.editor.value
-    clearTimeout(this.toolTimer); clearTimeout(this.camTimer); clearTimeout(this.thumbTimer)
+    clearTimeout(this.toolTimer); clearTimeout(this.camTimer); clearTimeout(this.thumbTimer); clearTimeout(this.flashTimer)
     if (editor) {
       editor.commitTextEdit()
       editor.flushPending()

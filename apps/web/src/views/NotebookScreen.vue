@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import type { ThemeId } from '@folio/document'
-import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { AiApi } from '../ai/api'
+import { AI_DOCK_KEY, AiDock as AiDockState, DOCK_PUSH_MIN_WINDOW } from '../ai/dock'
+import { contextBuilder, createToolRunner, revertEffects } from '../ai/tools'
 import { requireServices } from '../app'
-import AiPanel from '../components/AiPanel.vue'
+import AiDock from '../components/ai/AiDock.vue'
 import Icon from '../components/Icon.vue'
 import Menu, { type MenuItem } from '../components/Menu.vue'
 import NotebookSearch from '../components/NotebookSearch.vue'
@@ -30,7 +33,8 @@ const router = useRouter()
 const route = useRoute()
 const { workspace: ws, sync, auth } = requireServices()
 const host = ref<HTMLElement | null>(null)
-const panel = ref<'pages' | 'search' | 'ai' | null>(null)
+const panel = ref<'pages' | 'search' | null>(null)
+
 const zen = computed(() => settings.zen)
 /** Zen tool strip fades to low opacity 2 s after drawing starts; hover/tap near it brings it back. */
 const faded = ref(false)
@@ -87,6 +91,7 @@ function setPresenting(on: boolean) {
   presenting.value = on
   if (on) {
     panel.value = null
+    ai.setOpen(false)
     showSettings.value = false
     ctl.showToolOptions.value = false
     ctl.editor.value?.clearSelection()
@@ -110,8 +115,26 @@ function applyTheme(o: { theme: ThemeId; repaint: boolean }) {
 const showShortcuts = ref(false)
 const excalInput = ref<HTMLInputElement | null>(null)
 
+/** AI dock: a column that pushes the canvas on wide windows, a sheet above it on narrow ones. */
+const ai = new AiDockState(new AiApi({ getToken: () => auth.getToken() }), ws, auth, ctl, { createToolRunner, revertEffects, contextBuilder })
+provide(AI_DOCK_KEY, ai)
+const windowW = ref(typeof window === 'undefined' ? DOCK_PUSH_MIN_WINDOW : window.innerWidth)
+const onWindowResize = () => { windowW.value = window.innerWidth }
+const dockMode = computed(() => (windowW.value >= DOCK_PUSH_MIN_WINDOW ? 'push' : 'overlay'))
+const dockShown = computed(() => ai.open.value && !zen.value && !presenting.value)
+const stageStyle = computed(() => (dockShown.value && dockMode.value === 'push' ? { right: `${ai.width.value}px` } : undefined))
+watch([dockShown, dockMode, ai.width], () => void nextTick(() => ctl.remeasure()))
+// overlay dock and sheets share the right edge: one at a time
+watch(ai.open, (open) => { if (open && dockMode.value === 'overlay') panel.value = null })
+
 /** App-level keys (the editor handles tools and editing itself and marks those events as handled). */
 function onKeyDown(e: KeyboardEvent) {
+  // Cmd+J works from text fields too, so the composer can close the dock it lives in
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'j' && !presenting.value) {
+    e.preventDefault()
+    toggleAi()
+    return
+  }
   const t = e.target as HTMLElement | null
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
   // Before the handled check: the editor also uses Esc (deselect) and Space (pan), and both still apply.
@@ -125,11 +148,17 @@ function onKeyDown(e: KeyboardEvent) {
   if (mod && !e.shiftKey && e.key === "'") { e.preventDefault(); ctl.toggleGrid(); return }
   if (mod && !e.shiftKey && e.key.toLowerCase() === 'f') { e.preventDefault(); togglePanel('search'); return }
   if (!mod && !e.altKey && e.key === '?') { e.preventDefault(); showShortcuts.value = !showShortcuts.value; return }
-  if (e.key === 'Escape' && panel.value) { panel.value = null }
+  if (e.key === 'Escape' && panel.value) { panel.value = null; return }
+  if (e.key === 'Escape' && ai.open.value && dockMode.value === 'overlay') ai.setOpen(false)
 }
 
-function togglePanel(p: 'pages' | 'search' | 'ai') {
+function togglePanel(p: 'pages' | 'search') {
   panel.value = panel.value === p ? null : p
+  if (panel.value && dockMode.value === 'overlay') ai.setOpen(false)
+}
+function toggleAi() {
+  if (zen.value) toggleZen(false)
+  ai.toggle()
 }
 
 // ---- notebook actions ------------------------------------------------------------
@@ -181,6 +210,7 @@ onMounted(async () => {
   window.addEventListener('orientationchange', onViewport)
   window.addEventListener('pagehide', onPageHide, true)
   window.addEventListener('keydown', onKeyDown)
+  window.addEventListener('resize', onWindowResize)
   document.addEventListener('fullscreenchange', onFullscreenChange)
   const page = typeof route.query.page === 'string' ? route.query.page : undefined
   ctl.mount(host.value!, page)
@@ -196,7 +226,9 @@ onBeforeUnmount(() => {
   window.removeEventListener('orientationchange', onViewport)
   window.removeEventListener('pagehide', onPageHide, true)
   window.removeEventListener('keydown', onKeyDown)
+  window.removeEventListener('resize', onWindowResize)
   document.removeEventListener('fullscreenchange', onFullscreenChange)
+  ai.dispose()
   clearTimeout(fadeTimer)
   clearTimeout(exitTimer)
   void ctl.destroy().catch((e) => diagnostics.log('notebook.destroy', e))
@@ -253,6 +285,7 @@ const zoomPct = computed(() => Math.round(ctl.zoom.value * 100))
 
 <template>
   <div class="screen" :class="{ 'hud-hidden': hudHidden && !presenting }" data-testid="notebook-screen">
+    <div class="stage" :style="stageStyle">
     <div ref="host" class="canvas-host" data-testid="editor-host" @pointerdown.capture="onHostPointerDown" @pointermove.capture="onHostPointerMove"
          @pointerup.capture="onHostPointerUp" @pointercancel.capture="onHostPointerUp" />
 
@@ -278,7 +311,7 @@ const zoomPct = computed(() => Math.round(ctl.zoom.value * 100))
       <div class="actions panel floating">
         <button class="icon-btn" :class="{ active: panel === 'search' }" aria-label="Search in notebook" title="Search (⌘F)" data-testid="open-search" @click="togglePanel('search')"><Icon name="search" :size="18" /></button>
         <button class="icon-btn" :class="{ active: panel === 'pages' }" aria-label="Pages and background" title="Pages" data-testid="open-pages" @click="togglePanel('pages')"><Icon name="layers" :size="18" /></button>
-        <button class="icon-btn" :class="{ active: panel === 'ai' }" aria-label="AI assistant" title="AI assistant" data-testid="open-ai" @click="togglePanel('ai')"><Icon name="sparkles" :size="18" /></button>
+        <button class="icon-btn" :class="{ active: dockShown }" aria-label="AI assistant" title="AI assistant (⌘J)" data-testid="open-ai" @click="toggleAi"><Icon name="sparkles" :size="18" /></button>
       </div>
     </header>
     <input ref="excalInput" type="file" accept=".excalidraw,application/json" hidden data-testid="excalidraw-input" @change="onExcalidrawFile" />
@@ -294,8 +327,9 @@ const zoomPct = computed(() => Math.round(ctl.zoom.value * 100))
     <template v-if="!zen && !presenting">
       <PagePanel v-if="panel === 'pages'" @close="panel = null" />
       <NotebookSearch v-else-if="panel === 'search'" @close="panel = null" />
-      <AiPanel v-else-if="panel === 'ai'" @close="panel = null" />
     </template>
+    </div>
+    <AiDock v-if="dockShown" :mode="dockMode" />
     <SettingsDialog v-if="showSettings" @close="showSettings = false" />
     <ThemeDialog v-if="showTheme" :current="ctl.theme.value.id" @close="showTheme = false" @apply="applyTheme" />
     <ShortcutsDialog v-if="showShortcuts" @close="showShortcuts = false" />
@@ -305,11 +339,12 @@ const zoomPct = computed(() => Math.round(ctl.zoom.value * 100))
 <style scoped>
 .screen { position: fixed; top: 0; left: 0; width: var(--app-w); height: var(--app-h); overflow: hidden; background: var(--bg); touch-action: none; }
 /* auto-hide: the HUD slides off its edge; the compact properties bar stays and slides to the corner */
-.screen > .topbar, .screen :deep(.dock), .screen :deep(.sheet) { transition: transform 0.28s ease, opacity 0.28s ease; }
-.screen.hud-hidden > .topbar { transform: translateY(-140%); opacity: 0; pointer-events: none; }
+.stage > .topbar, .screen :deep(.dock), .screen :deep(.sheet), .screen :deep(.ai-dock.overlay) { transition: transform 0.28s ease, opacity 0.28s ease; }
+.screen.hud-hidden .stage > .topbar { transform: translateY(-140%); opacity: 0; pointer-events: none; }
 .screen.hud-hidden :deep(.dock) { transform: translateY(140%); opacity: 0; pointer-events: none; }
-.screen.hud-hidden :deep(.sheet) { transform: translateX(110%); opacity: 0; pointer-events: none; }
+.screen.hud-hidden :deep(.sheet), .screen.hud-hidden :deep(.ai-dock.overlay) { transform: translateX(110%); opacity: 0; pointer-events: none; }
 .screen.hud-hidden :deep(.dock > *) { pointer-events: none; }
+.stage { position: absolute; inset: 0; }
 .canvas-host { position: absolute; inset: 0; touch-action: none; }
 .topbar {
   position: absolute; z-index: 25; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 6px; pointer-events: none;
