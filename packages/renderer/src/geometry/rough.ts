@@ -2,7 +2,7 @@ import rough from 'roughjs'
 import type { Options, OpSet } from 'roughjs/bin/core'
 import { handFor, mixColors, themeColor, type ArrowObject, type FillLook, type Arrowhead, type HandProfile, type ShapeObject, type ShapeStyle, type Vec2 } from '@folio/document'
 import { catmullRomSvg, dashPattern, dashPolyline } from './curves'
-import { drawsEdges, handPolygon, markerOutline } from './hand'
+import { drawsEdges, halftone, handPolygon, markerOutline, washLayers } from './hand'
 import { roundedPolygon, roundedShape, shapeVertices } from '../shapes'
 import { counterOutline } from '../callouts'
 import type { VisualTheme } from '../contract'
@@ -21,6 +21,8 @@ export interface PathGeometry {
   hatchWidth: number
   /** Opacity of `fills` and `hatch` (default 1); overlapping hatch strokes build up darker. */
   fillOpacity?: number
+  /** `fills` cover the shape opaquely (a flat fill), so it casts a full shadow. */
+  flat?: boolean
 }
 
 const generator = rough.generator()
@@ -92,9 +94,11 @@ export function labelBackdrop(style: ShapeStyle, theme: VisualTheme, background:
   const roughness = effectiveRoughness(s, theme)
   const look = fillLook(s, theme, roughness)
   const pattern = look?.pattern ?? s.fillStyle ?? (roughness === 0 ? 'solid' : 'hachure')
-  if (pattern !== 'solid') return undefined
+  if (pattern !== 'solid' && pattern !== 'wash') return undefined
   const fill = themeColor(theme, style.fillColor, background)
-  return look?.opacity !== undefined ? mixColors(background, fill, look.opacity) : fill
+  // a wash's layers overlap, so it reads denser than one layer
+  const opacity = pattern === 'wash' ? Math.min(1, (look?.opacity ?? 1) * 2) : look?.opacity
+  return opacity !== undefined ? mixColors(background, fill, opacity) : fill
 }
 
 /** The theme's look for the shape's fill style (as the theme draws it, see themedStyle). */
@@ -107,7 +111,8 @@ function fillOptions(style: ShapeStyle, theme: VisualTheme, roughness: number): 
   const look = fillLook(style, theme, roughness)
   if (!look) return { fillStyle: fs, hachureGap: Math.max(6, style.strokeWidth * 4), fillWeight: Math.max(1, style.strokeWidth * 0.5) }
   return {
-    fillStyle: look.pattern,
+    // halftone and wash start from the plain fill polygon (see paintFill)
+    fillStyle: look.pattern === 'halftone' || look.pattern === 'wash' ? 'solid' : look.pattern,
     hachureGap: Math.max(4, style.strokeWidth * look.gap),
     fillWeight: Math.max(0.5, style.strokeWidth * look.weight),
     hachureAngle: look.angle ?? -41,
@@ -156,7 +161,7 @@ export function buildShapeGeometry(shape: ShapeObject, theme: VisualTheme): Path
   }
   const look = fillLook(style, theme, effectiveRoughness(style, theme))
   if (look) {
-    if (look.pattern !== 'solid') geo.hatchWidth = Math.max(0.5, style.strokeWidth * look.weight)
+    if (look.pattern !== 'solid' && look.pattern !== 'wash') geo.hatchWidth = Math.max(0.5, style.strokeWidth * look.weight)
     if (look.opacity !== undefined) geo.fillOpacity = look.opacity
   }
   // the object's own sloppiness picks the theme's hand level
@@ -198,9 +203,25 @@ export function buildShapeGeometry(shape: ShapeObject, theme: VisualTheme): Path
       return geo
     }
   }
+  if (look) paintFill(geo, look, style)
+  geo.flat = geo.fills.length > 0 && (geo.fillOpacity ?? 1) === 1 && (!look || look.pattern === 'solid')
   applyDashes(geo, style)
   markerStrokes(geo, hand, style.seed)
   return geo
+}
+
+/** Turn the plain fill polygons into the theme's halftone dots or watercolour wash. */
+function paintFill(geo: PathGeometry, look: FillLook, style: ShapeStyle): void {
+  if (!geo.fills.length) return
+  const sw = style.strokeWidth
+  if (look.pattern === 'halftone') {
+    geo.fills = geo.fills.flatMap((p) => halftone(p, Math.max(4, sw * look.gap), (sw * look.weight) / 2, look.angle ?? 45))
+  } else if (look.pattern === 'wash') {
+    const rims = geo.fills.map((p) => [...p, p[0]])
+    geo.fills = geo.fills.flatMap((p, i) => washLayers(p, sw * look.gap, style.seed + i * 31))
+    geo.hatch.push(...rims)
+    geo.hatchWidth = Math.max(1, sw * look.weight)
+  }
 }
 
 /** Polygon drawn edge by edge by the theme's hand: the fill follows its moved corners. */

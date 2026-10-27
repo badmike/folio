@@ -31,7 +31,7 @@ const shift = (pts: Vec2[], o: Vec2): Vec2[] => pts.map((p) => ({ x: p.x + o.x, 
  * shows through its inside.
  */
 export function shapeShadow(shape: ShapeObject, geo: PathGeometry, offset: Vec2): PathGeometry {
-  const filled = geo.fills.length > 0 && (geo.fillOpacity ?? 1) === 1
+  const filled = !!geo.flat
   const outline = shapeOutline(shape.kind, shape.width, shape.height, { roundness: shape.style.roundness, ellipseSteps: 32 })
   const base = { hatch: [], solids: [], strokeWidth: geo.strokeWidth, hatchWidth: 0 }
   // marker hands (strokes drawn as solids) cast a plain silhouette, without their overshooting ends

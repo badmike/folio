@@ -10,7 +10,9 @@
 import { CANVAS_BACKGROUNDS_DARK, CANVAS_BACKGROUNDS_LIGHT, PALETTE, adaptColor, defaultLineColor, isDarkColor, mixColors, parseHex } from './colors'
 import type { FillStyle, FontFamily } from './types'
 
-export const THEME_IDS = ['rough', 'clean', 'sketchnote', 'blueprint', 'chalkboard', 'whiteboard'] as const
+export const THEME_IDS = [
+  'rough', 'clean', 'sketchnote', 'blueprint', 'chalkboard', 'whiteboard', 'fineliner', 'comic', 'watercolour', 'crayon',
+] as const
 export type ThemeId = (typeof THEME_IDS)[number]
 
 export const HAND_LEVELS = ['refined', 'artist', 'sloppy'] as const
@@ -36,7 +38,8 @@ export interface ThemeOptions {
 }
 
 export type ThemeOverrides = Partial<ThemeOptions>
-export type ThemeTexture = 'none' | 'chalk'
+/** Grain on strokes, fills and text: dry chalk, or waxy crayon on paper tooth. */
+export type ThemeTexture = 'none' | 'chalk' | 'crayon'
 
 /**
  * How a theme's pen overdraws, set per theme (Settings > Themes > Overdraw): edges running
@@ -77,11 +80,14 @@ export interface ThemeHands {
  * with the shape's stroke width, so bolder pens shade with broader strokes.
  */
 export interface FillLook {
-  /** roughjs fill pattern. */
-  pattern: 'solid' | 'hachure' | 'cross-hatch' | 'zigzag'
-  /** Distance between fill strokes, in stroke widths (at least 4 world units). */
+  /**
+   * roughjs fill pattern, or: 'halftone' = a rotated grid of dots (comic Ben-Day print),
+   * 'wash' = translucent watercolour layers with uneven, bleeding edges and a darker rim.
+   */
+  pattern: 'solid' | 'hachure' | 'cross-hatch' | 'zigzag' | 'halftone' | 'wash'
+  /** Distance between fill strokes or dots, in stroke widths (at least 4 world units); for washes how far they bleed. */
   gap: number
-  /** Width of fill strokes, in stroke widths. */
+  /** Width of fill strokes or dot diameter, in stroke widths; for washes the width of the pooled rim. */
   weight: number
   /** Stroke angle in degrees (roughjs default -41). */
   angle?: number
@@ -260,6 +266,134 @@ const TABLES: Record<string, PaletteTable> = {
     orange: ['#49341e', '#6c4925', '#905f2c', '#faa142', '#ffb05c'],
     red: ['#491c1e', '#6c2325', '#902b2c', '#fa4242', '#ff5c5c'],
   },
+  finelinerLight: {
+    black: ['#474747', '#474747', '#474747', '#1a1a1a', '#1a1a1a'],
+    gray: ['#eeeeed', '#dadad8', '#b8b8b7', '#8b8b8a', '#474747'],
+    white: ['#ffffff', '#ffffff', '#ffffff', '#ffffff', '#ffffff'],
+    bronze: ['#ece5e1', '#dfd3cd', '#d2c1b9', '#bba196', '#826254'],
+    teal: ['#daf4eb', '#bfeedf', '#a4e7d2', '#74dcbd', '#28a27d'],
+    blue: ['#dae9f3', '#bfd9ed', '#a4c9e7', '#74aedc', '#2972ae'],
+    violet: ['#e1daf3', '#cbbfed', '#b5a4e7', '#8f74dc', '#4b29ae'],
+    grape: ['#efdaf3', '#e5bfed', '#daa4e7', '#c874dc', '#9429ae'],
+    pink: ['#f4dae2', '#eebfce', '#e7a4bb', '#dc7499', '#ae2958'],
+    green: ['#daf4dd', '#bfeec6', '#a4e7af', '#74dc86', '#28a23c'],
+    cyan: ['#daf1f3', '#bfe9ed', '#a4e0e7', '#74d1dc', '#299fae'],
+    yellow: ['#f6f2e1', '#f1eacd', '#ece1b8', '#e4d395', '#ae7629'],
+    orange: ['#f4e8d8', '#eed7be', '#e7c7a3', '#dcaa74', '#ae6d29'],
+    red: ['#f4dad8', '#eebfbe', '#e7a4a3', '#dc7474', '#ae2929'],
+  },
+  finelinerDark: {
+    black: ['#c2c2c3', '#c2c2c3', '#c2c2c3', '#ededed', '#ededed'],
+    gray: ['#232427', '#36373a', '#575759', '#828284', '#c2c2c3'],
+    white: ['#242528', '#242528', '#242528', '#242528', '#242528'],
+    bronze: ['#443b3a', '#5a4d4a', '#71605a', '#ae9084', '#c5aba0'],
+    teal: ['#2b5048', '#356d5e', '#408a75', '#5cd6b2', '#7de8c8'],
+    blue: ['#2b4052', '#35546f', '#40698b', '#5c9fd6', '#7db8e8'],
+    violet: ['#342c52', '#43366f', '#53408b', '#7b5cd6', '#987de8'],
+    grape: ['#482c52', '#62366f', '#7b408b', '#be5cd6', '#d37de8'],
+    pink: ['#502c3b', '#6c364b', '#89405b', '#d65c87', '#e87da3'],
+    green: ['#2b5034', '#356d41', '#408a4e', '#5cd670', '#7de88f'],
+    cyan: ['#2b4c52', '#35676f', '#40818b', '#5cc8d6', '#7ddce8'],
+    yellow: ['#524c37', '#706746', '#8e8255', '#dec97c', '#e8d17d'],
+    orange: ['#503f2e', '#6c5238', '#896642', '#d69b5c', '#e8b47d'],
+    red: ['#502c2e', '#6c3638', '#894042', '#d65c5c', '#e87d7d'],
+  },
+  comicLight: {
+    black: ['#3b3b3b', '#3b3b3b', '#3b3b3b', '#0a0a0a', '#0a0a0a'],
+    gray: ['#f0f0f0', '#dadada', '#b6b6b6', '#848484', '#3b3b3b'],
+    white: ['#ffffff', '#ffffff', '#ffffff', '#ffffff', '#ffffff'],
+    bronze: ['#d6b7aa', '#c79d8b', '#bc8974', '#b47c64', '#8f5d47'],
+    teal: ['#81ffda', '#53ffcc', '#31ffc2', '#1affbb', '#06a173'],
+    blue: ['#81c6ff', '#53b2ff', '#31a2ff', '#1a98ff', '#0576d1'],
+    violet: ['#a181ff', '#7f53ff', '#6531ff', '#541aff', '#3905d1'],
+    grape: ['#e681ff', '#dd53ff', '#d731ff', '#d21aff', '#a905d1'],
+    pink: ['#ff81ae', '#ff5390', '#ff317a', '#ff1a6b', '#d1054d'],
+    green: ['#81ff96', '#53ff70', '#31ff53', '#1aff40', '#06a120'],
+    cyan: ['#81f1ff', '#53ecff', '#31e8ff', '#1ae5ff', '#069eb1'],
+    yellow: ['#ffe773', '#ffdf40', '#ffd81a', '#ffd400', '#d17c05'],
+    orange: ['#ffc281', '#ffac53', '#ff9b31', '#ff901a', '#d16f05'],
+    red: ['#ff8181', '#ff5353', '#ff3131', '#ff1a1a', '#d10505'],
+  },
+  comicDark: {
+    black: ['#c8c8c8', '#c8c8c8', '#c8c8c8', '#f5f5f5', '#f5f5f5'],
+    gray: ['#202020', '#343434', '#565656', '#848484', '#c8c8c8'],
+    white: ['#202020', '#202020', '#202020', '#202020', '#202020'],
+    bronze: ['#6b4c3f', '#8c6250', '#a4715c', '#b47c64', '#c0907c'],
+    teal: ['#16946f', '#18c491', '#19e7aa', '#1affbb', '#3dffc5'],
+    blue: ['#165c94', '#1877c4', '#198be7', '#1a98ff', '#3da8ff'],
+    violet: ['#361694', '#4418c4', '#4d19e7', '#541aff', '#6f3dff'],
+    grape: ['#7c1694', '#a218c4', '#bf19e7', '#d21aff', '#d93dff'],
+    pink: ['#941643', '#c41855', '#e71962', '#ff1a6b', '#ff3d82'],
+    green: ['#16942b', '#18c435', '#19e73b', '#1aff40', '#3dff5e'],
+    cyan: ['#168694', '#18b0c4', '#19d0e7', '#1ae5ff', '#3de9ff'],
+    yellow: ['#947d08', '#c4a405', '#e7c102', '#ffd400', '#ffd43d'],
+    orange: ['#945716', '#c47118', '#e78319', '#ff901a', '#ffa13d'],
+    red: ['#941616', '#c41818', '#e71919', '#ff1a1a', '#ff3d3d'],
+  },
+  watercolourLight: {
+    black: ['#55555b', '#55555b', '#55555b', '#2b2b33', '#2b2b33'],
+    gray: ['#f0efed', '#dedddb', '#bebdbe', '#949496', '#55555b'],
+    white: ['#ffffff', '#ffffff', '#ffffff', '#ffffff', '#ffffff'],
+    bronze: ['#dbcbc3', '#ccb5aa', '#c0a396', '#b28f80', '#7b5d51'],
+    teal: ['#b0efdb', '#8eeacd', '#71e5c2', '#52e0b6', '#29a37f'],
+    blue: ['#b0d3ee', '#8ec1e9', '#71b1e5', '#52a1e0', '#296ca3'],
+    violet: ['#c0b0ee', '#a58ee9', '#8e71e5', '#7652e0', '#4829a3'],
+    grape: ['#e4b0ee', '#d98ee9', '#cf71e5', '#c552e0', '#8b29a3'],
+    pink: ['#f0b0c4', '#ea8ead', '#e57199', '#e05284', '#a32954'],
+    green: ['#b0efb8', '#8eea9b', '#71e583', '#52e069', '#29a33d'],
+    cyan: ['#b0e8ee', '#8edfe9', '#71d8e5', '#52d0e0', '#2995a3'],
+    yellow: ['#f3e7bd', '#efdda3', '#ebd58c', '#e7cd74', '#a37029'],
+    orange: ['#f0d0ae', '#eabd8c', '#e5ac70', '#e09b52', '#a36829'],
+    red: ['#f0b0ae', '#ea8e8c', '#e57170', '#e05252', '#a32929'],
+  },
+  watercolourDark: {
+    black: ['#c0beb9', '#c0beb9', '#c0beb9', '#e9e6df', '#e9e6df'],
+    gray: ['#27292d', '#3a3b3e', '#59595b', '#828281', '#c0beb9'],
+    white: ['#292b2f', '#292b2f', '#292b2f', '#292b2f', '#292b2f'],
+    bronze: ['#605350', '#7e6b64', '#987f76', '#b49588', '#c4aba1'],
+    teal: ['#3a7366', '#479a84', '#53ba9d', '#5fddb8', '#81e4c7'],
+    blue: ['#3a5a76', '#47759c', '#538dbb', '#5fa5dd', '#81b8e4'],
+    violet: ['#483b76', '#5c489c', '#6d53bb', '#7f5fdd', '#9a81e4'],
+    grape: ['#673b76', '#8a489c', '#a653bb', '#c55fdd', '#d181e4'],
+    pink: ['#723b52', '#994867', '#ba5379', '#dd5f8c', '#e481a4'],
+    green: ['#3a7347', '#479a57', '#53ba65', '#5fdd74', '#81e491'],
+    cyan: ['#3a6d76', '#47919c', '#53afbb', '#5fcfdd', '#81d9e4'],
+    yellow: ['#756d4d', '#9e9060', '#c0ae70', '#e4ce81', '#e4ce81'],
+    orange: ['#72583d', '#99724a', '#ba8854', '#dda05f', '#e4b481'],
+    red: ['#723b3d', '#99484a', '#ba5354', '#dd5f5f', '#e48181'],
+  },
+  crayonLight: {
+    black: ['#555555', '#555555', '#555555', '#2a2a2a', '#2a2a2a'],
+    gray: ['#f2f2f2', '#dfdfdf', '#bfbfbf', '#949494', '#555555'],
+    white: ['#ffffff', '#ffffff', '#ffffff', '#ffffff', '#ffffff'],
+    bronze: ['#d5b8ab', '#c59e8c', '#ba8a75', '#b27d66', '#97644f'],
+    teal: ['#84fcd8', '#57fbca', '#35fabf', '#1ff9b8', '#15a278'],
+    blue: ['#84c6fc', '#57b2fb', '#35a2fa', '#1f98f9', '#0b7eda'],
+    violet: ['#a384fc', '#8157fb', '#6835fa', '#571ff9', '#400bda'],
+    grape: ['#e584fc', '#db57fb', '#d435fa', '#cf1ff9', '#b20bda'],
+    pink: ['#fc84ae', '#fb5791', '#fa357b', '#f91f6c', '#da0b54'],
+    green: ['#84fc98', '#57fb73', '#35fa57', '#1ff944', '#15a22d'],
+    cyan: ['#84effc', '#57e9fb', '#35e4fa', '#1fe1f9', '#129eb0'],
+    yellow: ['#fce79a', '#fbde75', '#fbd759', '#fad347', '#cc7d0d'],
+    orange: ['#fcc284', '#fbac57', '#fa9b35', '#f9901f', '#da760b'],
+    red: ['#fc8484', '#fb5757', '#fa3535', '#f91f1f', '#da0b0b'],
+  },
+  crayonDark: {
+    black: ['#c7c5c0', '#c7c5c0', '#c7c5c0', '#f2efe8', '#f2efe8'],
+    gray: ['#2a282e', '#3d3b40', '#5d5b5d', '#888585', '#c7c5c0'],
+    white: ['#2b292f', '#2b292f', '#2b292f', '#2b292f', '#2b292f'],
+    bronze: ['#765c55', '#967467', '#ae8575', '#be917e', '#c59d8b'],
+    teal: ['#31967b', '#39c29b', '#3ee4b3', '#42fac3', '#56fbca'],
+    blue: ['#316999', '#3985c4', '#3e9ae4', '#42a8fa', '#56b1fb'],
+    violet: ['#4b3099', '#5c38c4', '#693ee4', '#7142fa', '#8056fb'],
+    grape: ['#833099', '#a838c4', '#c43ee4', '#d642fa', '#db56fb'],
+    pink: ['#973057', '#c3386b', '#e43e79', '#fa4283', '#fb5690'],
+    green: ['#319645', '#39c251', '#3ee45b', '#42fa61', '#56fb71'],
+    cyan: ['#318a99', '#39b3c4', '#3ed1e4', '#42e5fa', '#56e8fb'],
+    yellow: ['#97854a', '#c3ab58', '#e5c863', '#fbdb6a', '#fbd756'],
+    orange: ['#976534', '#c3803a', '#e4943f', '#faa142', '#fbab56'],
+    red: ['#973034', '#c3383a', '#e43e3f', '#fa4242', '#fb5656'],
+  },
 }
 
 /** Map every stored palette colour to its themed value; the first hue that lists a colour wins. */
@@ -386,6 +520,94 @@ export const THEME_PRESETS: Record<ThemeId, ThemePreset> = {
     multiStroke: false, texture: 'none',
     light: variant('whiteboardLight', '#1f2a44', '#00000030'),
     dark: variant('whiteboardDark', '#e8edf7', '#00000080'),
+  },
+  fineliner: {
+    id: 'fineliner', label: 'Fineliner', description: 'Bullet journal: a thin, even pen, fine hatching and soft tints.',
+    defaults: {
+      font: 'indie', uppercase: false, shadow: false, strokeScale: 0.6, roughness: 0.5, hand: 'artist',
+      paperLight: '#fcfcfa', paperDark: '#16171a',
+    },
+    // a fineliner never changes width; overdraw only lets lines run a little past their corners
+    hands: {
+      overdraw: { refined: pen({}), artist: pen({ overshoot: 2 }), sloppy: pen({ overshoot: 5 }) },
+      wiggle: { refined: wiggle(0.2), artist: wiggle(0.5, 0.004, 0.8), sloppy: wiggle(1.1, 0.01, 2) },
+    },
+    fills: {
+      hachure: { pattern: 'hachure', gap: 4, weight: 0.6, angle: -45 },
+      'cross-hatch': { pattern: 'cross-hatch', gap: 5, weight: 0.55, angle: -45 },
+      solid: { pattern: 'solid', gap: 0, weight: 0, opacity: 0.55 },
+    },
+    multiStroke: false, texture: 'none',
+    light: variant('finelinerLight', '#1a1a1a', '#00000030'),
+    dark: variant('finelinerDark', '#ededed', '#00000080'),
+  },
+  comic: {
+    id: 'comic', label: 'Comic', description: 'Bold brush ink, primary colours, halftone dots and hard shadows.',
+    defaults: {
+      font: 'marker', uppercase: true, shadow: true, strokeScale: 2.2, roughness: 0.5, hand: 'artist',
+      paperLight: '#ffffff', paperDark: '#121212',
+    },
+    // inked with a brush: confident lines whose width swells and thins
+    hands: {
+      overdraw: {
+        refined: pen({ widthJitter: 0.25 }),
+        artist: pen({ overshoot: 2, widthJitter: 0.45 }),
+        sloppy: pen({ overshoot: 6, widthJitter: 0.6, weight: 1.1 }),
+      },
+      wiggle: { refined: wiggle(0.2), artist: wiggle(0.5, 0.006, 1), sloppy: wiggle(1.2, 0.016, 3) },
+    },
+    fills: {
+      hachure: { pattern: 'halftone', gap: 2.4, weight: 1.3, angle: 45 },
+      'cross-hatch': { pattern: 'cross-hatch', gap: 2.5, weight: 0.7, angle: -45 },
+    },
+    multiStroke: false, texture: 'none',
+    light: variant('comicLight', '#0a0a0a', '#0a0a0a'),
+    dark: variant('comicDark', '#f5f5f5', '#3d3d3d'),
+  },
+  watercolour: {
+    id: 'watercolour', label: 'Watercolour', description: 'Thin ink lines over translucent washes that bleed at their edges.',
+    defaults: {
+      font: 'shadows', uppercase: false, shadow: false, strokeScale: 0.7, roughness: 0.8, hand: 'artist',
+      paperLight: '#fdfcf9', paperDark: '#1b1d22',
+    },
+    // a sketchy ink pen; overdraw lets the sketch lines run past their corners
+    hands: {
+      overdraw: { refined: pen({}), artist: pen({ overshoot: 4 }), sloppy: pen({ overshoot: 9, multiStroke: true }) },
+      wiggle: { refined: wiggle(0.4), artist: wiggle(0.8, 0.008, 1.5), sloppy: wiggle(1.5, 0.016, 3.5) },
+    },
+    // paint never fills flat: every fill is a wash; hatching becomes loose brush strokes
+    fills: {
+      solid: { pattern: 'wash', gap: 4, weight: 3, opacity: 0.26 },
+      hachure: { pattern: 'hachure', gap: 4, weight: 2.4, angle: -30, opacity: 0.45 },
+      'cross-hatch': { pattern: 'wash', gap: 6, weight: 4, opacity: 0.3 },
+    },
+    multiStroke: false, texture: 'none',
+    light: variant('watercolourLight', '#2b2b33', '#00000026'),
+    dark: variant('watercolourDark', '#e9e6df', '#00000066'),
+  },
+  crayon: {
+    id: 'crayon', label: 'Crayon', description: 'Thick, waxy and wobbly strokes with paper showing through.',
+    defaults: {
+      font: 'gloria', uppercase: false, shadow: false, strokeScale: 2.2, roughness: 1.8, hand: 'artist',
+      paperLight: '#ffffff', paperDark: '#1d1b22',
+    },
+    // crayons go over a line again; overdraw adds overshoot past the corners
+    hands: {
+      overdraw: {
+        refined: pen({ multiStroke: true }),
+        artist: pen({ multiStroke: true, overshoot: 4, widthJitter: 0.2 }),
+        sloppy: pen({ multiStroke: true, overshoot: 9, widthJitter: 0.35, weight: 1.1 }),
+      },
+      wiggle: { refined: wiggle(1), artist: wiggle(1.8, 0.012, 2.5), sloppy: wiggle(2.8, 0.024, 5) },
+    },
+    fills: {
+      solid: { pattern: 'zigzag', gap: 1.2, weight: 1.2, angle: -20, opacity: 0.9 },
+      hachure: { pattern: 'hachure', gap: 2.6, weight: 0.9, angle: -30 },
+      'cross-hatch': { pattern: 'cross-hatch', gap: 3, weight: 0.8, angle: -30 },
+    },
+    multiStroke: true, texture: 'crayon',
+    light: variant('crayonLight', '#2a2a2a', '#00000030'),
+    dark: variant('crayonDark', '#f2efe8', '#00000066'),
   },
 }
 

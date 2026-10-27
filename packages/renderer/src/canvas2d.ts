@@ -11,7 +11,7 @@ import {
 import { parseColor } from './color'
 import type { Camera, Renderer, Scene, Size, VisualTheme } from './contract'
 import { buildArrowGeometry, buildShapeGeometry, labelBackdrop, type PathGeometry } from './geometry/rough'
-import { chalkPaint } from './grain'
+import { GRAINS, grainPaint } from './grain'
 import { highlighterBlend, strokeFill } from './geometry/ink'
 import { ImageCache, type ImageResolver } from './images'
 import { transformMatrix } from './math'
@@ -421,8 +421,10 @@ function paintObjects(
   // every ink/stroke/fill/text colour goes through the theme (palette remap or adaptColor) for the page background
   const shown = (c: string): string => themeColor(theme, c, bgColor)
   const col = (c: string | undefined, opacity = 1): string => rgba(c ? shown(c) : c, opacity)
-  // chalk grain on shapes, arrows, notes and text (not on ink)
-  const tex = (css: string, strength = 1): Paint => (theme.texture === 'chalk' ? chalkPaint(ctx, css, strength) : css)
+  // chalk or crayon grain on shapes, arrows, notes and text (not on ink)
+  const tex = (css: string, strength = 1): Paint => (theme.texture !== 'none' ? grainPaint(ctx, css, strength, theme.texture) : css)
+  /** Text takes the grain at the texture's text strength. */
+  const ink = (css: string): Paint => (theme.texture !== 'none' ? tex(css, GRAINS[theme.texture].text) : css)
   const shadowCol = (opacity: number): string => rgba(themeVariant(theme, bgColor).shadow, opacity)
   /** Draw an (already offset) shadow in the object's local space; expects the camera transform on ctx. */
   const shadow = (m: number[], g: PathGeometry, opacity: number): void => {
@@ -460,7 +462,7 @@ function paintObjects(
         const my = mid.y - l.height / 2
         ctx.fillStyle = rgba(bgColor, 0.85)
         ctx.fillRect(mx - 3, my - 1, l.width + 6, l.height + 2)
-        drawTextLayout(ctx, l, tex(shown(obj.style.strokeColor)), 'center', mx, my)
+        drawTextLayout(ctx, l, ink(shown(obj.style.strokeColor)), 'center', mx, my)
       }
       ctx.restore()
       return
@@ -518,7 +520,7 @@ function paintObjects(
           const l = labelLayout(obj.label, obj.width, false, obj.labelSize)
           const behind = labelBackdrop(s, theme, bgColor)
           const lc = behind ? legibleOn(shown(s.strokeColor), behind) : shown(s.strokeColor)
-          drawTextLayout(ctx, l, tex(lc), 'center', (obj.width - l.width) / 2, (obj.height - l.height) / 2)
+          drawTextLayout(ctx, l, ink(lc), 'center', (obj.width - l.width) / 2, (obj.height - l.height) / 2)
         }
         break
       }
@@ -536,10 +538,10 @@ function paintObjects(
             ctx.fill()
           }
           // the text sits on the box, so it keeps the picked colour unless that would not read
-          drawTextLayout(ctx, layoutText(obj), tex(legibleOn(obj.color, fill)), obj.align)
+          drawTextLayout(ctx, layoutText(obj), ink(legibleOn(obj.color, fill)), obj.align)
           break
         }
-        drawTextLayout(ctx, layoutText(obj), tex(shown(obj.color)), obj.align)
+        drawTextLayout(ctx, layoutText(obj), ink(shown(obj.color)), obj.align)
         break
       case 'image':
         drawImageObject(ctx, obj, images)

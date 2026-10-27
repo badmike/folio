@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { PALETTE, adaptColor, contrastRatio } from '../src/colors'
-import { THEME_PRESETS, handFor, honoursSloppiness, resolveTheme, sanitizeThemeOverrides, themeColor, themeLineColor, themeVariant } from '../src/themes'
+import { THEME_IDS, THEME_PRESETS, handFor, honoursSloppiness, resolveTheme, sanitizeThemeOverrides, themeColor, themeLineColor, themeVariant } from '../src/themes'
 
 describe('themes', () => {
   it('resolves presets with sanitised overrides; unknown ids fall back to Hand-drawn', () => {
@@ -39,7 +39,7 @@ describe('themes', () => {
   })
 
   it('keeps every themed stroke colour (darkest shade) legible on its paper', () => {
-    for (const id of ['sketchnote', 'blueprint', 'chalkboard', 'whiteboard'] as const) {
+    for (const id of THEME_IDS.filter((t) => t !== 'rough' && t !== 'clean')) {
       const t = resolveTheme(id)
       for (const paper of [t.paperLight, t.paperDark]) {
         for (const hue of PALETTE) {

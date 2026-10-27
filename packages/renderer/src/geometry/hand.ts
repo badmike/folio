@@ -127,3 +127,64 @@ function resample(line: Vec2[], step: number): Vec2[] {
   }
   return out
 }
+
+/** Dots of a halftone print inside `poly`: a grid rotated by `angle` degrees, `spacing` apart, `radius` each. */
+export function halftone(poly: Vec2[], spacing: number, radius: number, angle: number): Vec2[][] {
+  if (poly.length < 3 || radius <= 0) return []
+  const a = (angle * Math.PI) / 180, ca = Math.cos(a), sa = Math.sin(a)
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+  for (const p of poly) { x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y) }
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, reach = Math.hypot(x1 - x0, y1 - y0) / 2
+  const steps = 8
+  const dots: Vec2[][] = []
+  for (let u = -reach; u <= reach; u += spacing) {
+    for (let v = -reach; v <= reach; v += spacing) {
+      const c = { x: cx + u * ca - v * sa, y: cy + u * sa + v * ca }
+      if (!inside(c, poly)) continue
+      const dot: Vec2[] = []
+      for (let k = 0; k < steps; k++) dot.push({ x: c.x + Math.cos((k / steps) * Math.PI * 2) * radius, y: c.y + Math.sin((k / steps) * Math.PI * 2) * radius })
+      dots.push(dot)
+    }
+  }
+  return dots
+}
+
+/**
+ * Watercolour layers over `poly`: a few translucent copies whose edges wander in and out by
+ * up to `bleed`, so the paint pools darker where they overlap and bleeds unevenly at the rim.
+ */
+export function washLayers(poly: Vec2[], bleed: number, seed: number, layers = 3): Vec2[][] {
+  const ring = resample([...poly, poly[0]], Math.max(3, bleed)).slice(0, -1)
+  if (ring.length < 3) return [poly]
+  const out: Vec2[][] = []
+  for (let l = 0; l < layers; l++) {
+    const rnd = seeded(seed + l * 101)
+    const p1 = rnd() * 10, p2 = rnd() * 10
+    // later layers sit a little inside and off-centre, like paint that dried before the next pass
+    const inset = (l / layers) * bleed * 0.8
+    const dx = (rnd() - 0.5) * bleed, dy = (rnd() - 0.5) * bleed
+    const layer: Vec2[] = []
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[(i - 1 + ring.length) % ring.length], b = ring[(i + 1) % ring.length]
+      const l2 = Math.hypot(b.x - a.x, b.y - a.y) || 1
+      // outward normal for either winding: towards the outside of the polygon
+      let nx = (b.y - a.y) / l2, ny = (a.x - b.x) / l2
+      if (inside({ x: ring[i].x + nx, y: ring[i].y + ny }, poly)) { nx = -nx; ny = -ny }
+      const t = i / ring.length
+      const wander = (Math.sin(t * Math.PI * 2 * 3 + p1) * 0.6 + Math.sin(t * Math.PI * 2 * 7 + p2) * 0.4) * bleed
+      const d = wander - inset
+      layer.push({ x: ring[i].x + nx * d + dx, y: ring[i].y + ny * d + dy })
+    }
+    out.push(layer)
+  }
+  return out
+}
+
+function inside(p: Vec2, poly: Vec2[]): boolean {
+  let c = false
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i], b = poly[j]
+    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) c = !c
+  }
+  return c
+}

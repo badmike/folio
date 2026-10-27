@@ -64,6 +64,21 @@ describe('themes in the renderer', () => {
     expect(shapeShadow(hatched, buildShapeGeometry(hatched, sketch), { x: 5, y: 5 }).fills.length).toBeGreaterThan(1)
   })
 
+  it('prints comic hachure as halftone dots and paints watercolour as layered washes', () => {
+    const hatched = shape('h', 'rectangle', 120, 80, {}, { fillColor: '#a5d8ff', fillStyle: 'hachure' })
+    const comic = buildShapeGeometry(hatched, resolveTheme('comic'))
+    expect(comic.fills.length).toBeGreaterThan(40)
+    expect(comic.flat).toBe(false)
+    // dots let the paper show, so the shadow is only the outer band
+    expect(shapeShadow(hatched, comic, { x: 6, y: 6 }).fills.length).toBeLessThan(10)
+    const washed = buildShapeGeometry({ ...hatched, style: { ...hatched.style, fillStyle: 'solid' } }, resolveTheme('watercolour'))
+    expect(washed.fills).toHaveLength(3)
+    expect(washed.hatch.length).toBeGreaterThan(0)
+    expect(washed.fillOpacity).toBeLessThan(0.5)
+    // the wash bleeds past the outline
+    expect(Math.max(...washed.fills.flat().map((p) => p.x))).toBeGreaterThan(120)
+  })
+
   it('casts shadows from closed shapes and notes only, as a silhouette or an outline echo', () => {
     expect(castsShadow(shape('r', 'rectangle', 10, 10), SKETCH)).toBe(true)
     expect(castsShadow(shape('l', 'line', 10, 10), SKETCH)).toBe(false)

@@ -29,7 +29,7 @@ export {
 } from './overlay'
 export { WebGLRenderer, scaleBucket } from './webgl'
 export { castsShadow, shadowOffset, shapeShadow, noteShadow, convexDifference } from './shadow'
-export { chalkPaint, grainAt, GRAIN_CELL, GRAIN_TILE } from './grain'
+export { grainPaint, grainAt, GRAINS, GRAIN_TILE, type Grain, type GrainStyle } from './grain'
 export { Canvas2DRenderer, renderToCanvas, renderPageToImage, paintScene, pathMidpoint, GeometryStore, type PageImageOptions, type PaintOptions } from './canvas2d'
 export { ImageCache, type ImageResolver, type ImageSource } from './images'
 export { createRenderer, type CreateRendererOptions } from './factory'

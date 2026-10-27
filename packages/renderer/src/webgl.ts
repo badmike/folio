@@ -9,7 +9,7 @@ import { FRAME_LABEL_SIZE } from './hit'
 import { parseColor, premultiplied } from './color'
 import type { Camera, Renderer, Scene, Size, VisualTheme } from './contract'
 import { highlighterBlend } from './geometry/ink'
-import { GRAIN_GLSL, chalkPaint } from './grain'
+import { GRAINS, GRAIN_GLSL, grainPaint, type Grain } from './grain'
 import { buildArrowMesh, buildInkMesh, buildInkStencilMesh, buildShapeMesh, addGeometry, addPolygon, addPolyline, MeshBuilder, VERTEX_FLOATS, type StencilFill } from './geometry/mesh'
 import { buildShapeGeometry, labelBackdrop } from './geometry/rough'
 import { ImageCache, type ImageResolver, type ImageSource } from './images'
@@ -302,8 +302,9 @@ export class WebGLRenderer implements Renderer {
   private lost = false
   private viewport: Size = { width: 1, height: 1, dpr: 1 }
   private frame = 0
-  /** Chalk grain strength (0 = none) of the object being drawn (meshes and text textures). */
+  /** Grain strength (0 = none) of the object being drawn (meshes and text textures), and its kind. */
   private grain = 0
+  private grainKind: Grain = 'chalk'
 
   private meshProg!: Prog
   private quadProg!: Prog
@@ -428,7 +429,7 @@ export class WebGLRenderer implements Renderer {
 
   private initGL(): void {
     const gl = this.gl
-    this.meshProg = this.link(VERT_MESH, FRAG_MESH, ['u_model', 'u_cam', 'u_view', 'u_grain'])
+    this.meshProg = this.link(VERT_MESH, FRAG_MESH, ['u_model', 'u_cam', 'u_view', 'u_grain', 'u_grainCell', 'u_grainShape'])
     this.quadProg = this.link(VERT_QUAD, FRAG_QUAD, ['u_model', 'u_cam', 'u_view', 'u_tex', 'u_tint', 'u_useTex', 'u_alpha'])
     this.pixProg = this.link(VERT_QUAD, FRAG_PIXELATE, ['u_model', 'u_cam', 'u_view', 'u_tex', 'u_blocks', 'u_alpha'])
     this.blurProg = this.link(VERT_QUAD, FRAG_BLUR, ['u_model', 'u_cam', 'u_view', 'u_tex', 'u_dir', 'u_alpha'])
@@ -710,6 +711,9 @@ export class WebGLRenderer implements Renderer {
     gl.uniform4f(p.u.u_cam, cam.x, cam.y, cam.zoom, 0)
     gl.uniform2f(p.u.u_view, this.viewport.width, this.viewport.height)
     gl.uniform1f(p.u.u_grain, this.grain)
+    const g = GRAINS[this.grainKind]
+    gl.uniform2f(p.u.u_grainCell, g.cell[0], g.cell[1])
+    gl.uniform3f(p.u.u_grainShape, g.keep, g.coarse, g.low)
   }
 
   private bindMeshBuffer(buf: WebGLBuffer | null): void {
@@ -802,6 +806,7 @@ export class WebGLRenderer implements Renderer {
     const bgc = scene.page.background.color
     const shown = (c: string): string => themeColor(theme, c, bgc)
     this.grain = 0
+    if (theme.texture !== 'none') this.grainKind = theme.texture
     switch (obj.type) {
       case 'ink': {
         const gl = this.gl
@@ -835,7 +840,7 @@ export class WebGLRenderer implements Renderer {
           }
           this.drawCachedMesh(s.id + '#shadow', objectKey(s, theme, bgc), m, camera, build, cache)
         }
-        this.grain = theme.texture === 'chalk' && s.kind !== 'frame' ? 1 : 0
+        this.grain = theme.texture !== 'none' && s.kind !== 'frame' ? 1 : 0
         this.drawCachedMesh(s.id, objectKey(s, theme, bgc), m, camera, (mb) => buildShapeMesh(mb, s, theme, bgc), cache)
         if (s.kind === 'frame') {
           if (s.label) {
@@ -874,7 +879,7 @@ export class WebGLRenderer implements Renderer {
       case 'arrow': {
         const a = obj as ArrowObject
         const path = arrowPath(a, scene.resolve)
-        this.grain = theme.texture === 'chalk' ? 1 : 0
+        this.grain = theme.texture !== 'none' ? 1 : 0
         this.drawCachedMesh(a.id, arrowKey(a, path, theme, bgc), IDENTITY, camera, (mb) => buildArrowMesh(mb, a, path, theme, bgc), cache)
         if (a.label) {
           const l = labelLayout(a.label, ARROW_LABEL_WIDTH, true, a.labelSize)
@@ -909,7 +914,7 @@ export class WebGLRenderer implements Renderer {
             }, cache)
           }
           // softer grain under note text keeps it legible
-          this.grain = theme.texture === 'chalk' ? 0.5 : 0
+          this.grain = theme.texture !== 'none' ? 0.5 : 0
           this.drawCachedMesh(
             t.id, key, m, camera,
             (mb) => {
@@ -920,7 +925,7 @@ export class WebGLRenderer implements Renderer {
             cache,
           )
         }
-        this.grain = theme.texture === 'chalk' ? 1 : 0
+        this.grain = theme.texture !== 'none' ? 1 : 0
         this.drawText(
           cache ? t.id : null, `${t.updatedAt}|${t.text}|${tc}|${theme.key}|${t.fontSize}|${t.fontFamily}|${t.width ?? ''}|${t.align ?? ''}`,
           l, tc, t.align, null, m,
@@ -1029,7 +1034,8 @@ export class WebGLRenderer implements Renderer {
         ctx.fillRect(0, 0, lw, lh)
         ctx.globalAlpha = 1
       }
-      drawTextLayout(ctx, layout, this.grain ? chalkPaint(ctx, color, this.grain) : color, align, pad, pad)
+      const strength = Math.min(this.grain, GRAINS[this.grainKind].text)
+      drawTextLayout(ctx, layout, strength ? grainPaint(ctx, color, strength, this.grainKind) : color, align, pad, pad)
       const tex = this.uploadTexture(surf.canvas as TexImageSource, false, entry?.tex)
       if (!tex) return
       entry = { key: version, tex, scale, width: lw, height: lh, pad, used: this.frame }
