@@ -29,4 +29,17 @@ describe('deriveTimeline', () => {
     expect(tools.tools.map((t) => t.state)).toEqual(['done', 'done'])
     expect(tools.tools[1].target).toEqual({ notebookId: 'nb', pageId: 'p1', ids: ['a', 'b', 'x'] })
   })
+
+  it('names only calls that ran, and offers revert on the first message of a turn only', () => {
+    const items: ThreadItem[] = [
+      { ...base, id: 'm', seq: 1, kind: 'user', payload: { text: 'Add pages', attachments: [], context: [] } },
+      { ...base, id: 'c1', seq: 2, kind: 'tool_call', payload: { toolCallId: 'k1', name: 'add_page', input: {} } },
+      { ...base, id: 'r1', seq: 3, kind: 'tool_result', payload: { toolCallId: 'k1', output: {}, isError: false, effects: [] } },
+      { ...base, id: 's', seq: 4, kind: 'user', payload: { text: 'And one more', attachments: [], context: [] } },
+      { ...base, id: 'c2', seq: 5, kind: 'tool_call', payload: { toolCallId: 'k2', name: 'delete_page', input: {} } },
+    ]
+    const rows = deriveTimeline({ items, turns: [{ ...turn, status: 'cancelled' }], phase: 'idle', activeTurnId: null, startedAt: 0, deviceId: 'dev', failure: null })
+    expect(rows.flatMap((r) => (r.kind === 'user' ? [r.steer] : []))).toEqual([false, true])
+    expect(rows.flatMap((r) => (r.kind === 'tools' ? [r.summary] : []))).toEqual(['Added a page', '1 call not run'])
+  })
 })
