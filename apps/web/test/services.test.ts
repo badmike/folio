@@ -3,7 +3,7 @@ import { MemoryStorage } from '@folio/persistence'
 import { describe, expect, it, vi } from 'vitest'
 import type { Editor } from '@folio/editor'
 import { renderSnippet } from '../src/composables'
-import { contextForPage, placementForAiOutput, aiDisabledReason } from '../src/services/ai'
+import { aiDisabledReason } from '../src/ai/api'
 import { clerkFrontendApi } from '../src/services/auth'
 import { exportBounds, safeFilename } from '../src/services/export'
 import { handwriting, resetHandwriting } from '../src/services/handwriting'
@@ -58,31 +58,6 @@ describe('search snippets', () => {
 })
 
 describe('ai helpers', () => {
-  const full = 'NOTEBOOK "T" (2 pages)\n--- PAGE 1 [infinite]\nfirst\n--- PAGE 2 [infinite]\nsecond\nmore'
-  it('reduces context to one page', () => {
-    expect(contextForPage(full, 1)).toBe('NOTEBOOK "T" (2 pages)\n--- PAGE 2 [infinite]\nsecond\nmore')
-    expect(contextForPage(full, 0)).toBe('NOTEBOOK "T" (2 pages)\n--- PAGE 1 [infinite]\nfirst')
-    expect(contextForPage(full, 7)).toBe(full)
-  })
-
-  it('places output right of content on infinite pages and inside fixed pages', () => {
-    const inf = NotebookDocument.create({ title: 'x' })
-    const pid = inf.pages()[0].id
-    expect(placementForAiOutput(inf, pid)).toEqual({ x: 0, y: 0, width: 480 })
-    inf.apply(welcomeOperations(pid))
-    const p = placementForAiOutput(inf, pid)
-    const right = Math.max(...inf.objects(pid).map((o) => o.transform.x))
-    expect(p.x).toBeGreaterThan(right)
-    expect(p.width).toBe(480)
-
-    const fixed = NotebookDocument.create({ title: 'y' })
-    const fp = fixed.pages()[0]
-    fixed.apply([{ type: 'updatePage', pageId: fp.id, patch: { kind: 'fixed', width: 794, height: 1123 } }])
-    const q = placementForAiOutput(fixed, fp.id)
-    expect(q.x).toBe(40)
-    expect(q.x + q.width).toBeLessThanOrEqual(794)
-  })
-
   it('explains why AI is unavailable', () => {
     const auth = { signedIn: ref(false), online: ref(true) } as never
     // no VITE_API_BASE in tests -> needs a server
