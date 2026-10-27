@@ -1,4 +1,4 @@
-import { DEFAULT_LABEL_SIZE, estimateTextSize, worldBounds, boundsUnion, type Operation, type ShapeKind } from '@folio/document'
+import { DEFAULT_LABEL_SIZE, estimateTextSize, worldBounds, boundsUnion, type ArrowObject, type Operation, type ShapeKind } from '@folio/document'
 import { mutate, notebookOf, pageOf, tool, type Executor } from './kit'
 import { DIRECTIONS, LAYOUTS, layoutGraph } from './layout'
 import { ARROWHEADS, makeArrow, makeShape, resolverWith, shapeStyle, shapeStyleInput, zAbove } from './objects'
@@ -10,6 +10,16 @@ const NODE_SHAPES = ['rectangle', 'ellipse', 'diamond', 'triangle'] as const sat
 /** How much bigger than its label a node must be for the label to sit inside the outline. */
 const INSET: Record<(typeof NODE_SHAPES)[number], number> = { rectangle: 1, ellipse: 1.4, diamond: 1.8, triangle: 1.8 }
 const WRAP = 24
+/** How far each arrow of a two-way pair bows out at least, so the two don't overlap. */
+const PAIR_BEND = 36
+
+/** Curve an arrow through a point beside its midpoint, on its left. Opposite arrows bow apart. */
+export function bend(a: ArrowObject, by: number): ArrowObject {
+  const dx = a.end.x - a.start.x, dy = a.end.y - a.start.y
+  const len = Math.hypot(dx, dy) || 1
+  const mid = { x: (a.start.x + a.end.x) / 2 + (dy / len) * by, y: (a.start.y + a.end.y) / 2 - (dx / len) * by }
+  return { ...a, arrowType: 'curved', waypoints: [mid] }
+}
 
 /** Greedy word wrap, so labels are measured as they render. */
 export function wrapLabel(label: string, max = WRAP): string {
@@ -93,8 +103,14 @@ export const draw_diagram: Executor = tool(
       })
       const byKey = new Map(sized.map((n, i) => [n.key, shapes[i]]))
       const resolve = resolverWith(doc, page.id, shapes)
-      const arrows = input.edges.map((e) =>
-        makeArrow(byKey.get(e.from)!, byKey.get(e.to)!, { label: e.label, endHead: e.endHead, style: shapeStyle(e.style) }, resolve, { z: z(), now }))
+      const pairs = new Set(input.edges.map((e) => `${e.from}\n${e.to}`))
+      const arrows = input.edges.map((e) => {
+        const a = makeArrow(byKey.get(e.from)!, byKey.get(e.to)!, { label: e.label, endHead: e.endHead, style: shapeStyle(e.style) }, resolve, { z: z(), now })
+        if (e.from === e.to || !pairs.has(`${e.to}\n${e.from}`)) return a
+        // side by side (vertical arrows) the labels need half their width each
+        const label = e.label ? estimateTextSize({ text: e.label, fontSize: DEFAULT_LABEL_SIZE }).width / 2 + 12 : 0
+        return bend(a, Math.max(PAIR_BEND, label))
+      })
       const all = [...shapes, ...arrows]
       const ops: Operation[] = [{ type: 'addObjects', pageId: page.id, objects: all }]
       const bounds = boundsUnion(all.map((o) => worldBounds(o, resolve)))

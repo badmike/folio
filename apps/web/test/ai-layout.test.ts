@@ -31,4 +31,15 @@ describe('draw_diagram', () => {
     expect(arrows.map((a) => [a.startBinding?.objectId, a.endBinding?.objectId]))
       .toEqual(edges.map((e) => [ids[e.from], ids[e.to]]))
   })
+
+  it('bows the two arrows of a two-way edge apart, so they and their labels do not overlap', async () => {
+    const doc = notebook('Diagrams')
+    const pageId = doc.pages()[0].id
+    const pair = [{ from: 'a', to: 'b', label: 'ask' }, { from: 'b', to: 'a', label: 'answer' }]
+    await createToolRunner(fakeHost([doc]).host).run(call('draw_diagram', { nodes: [{ key: 'a', label: 'A' }, { key: 'b', label: 'B' }], edges: pair, layout: 'layered' }), 't1')
+    const [there, back] = doc.objects(pageId).filter((o): o is ArrowObject => o.type === 'arrow')
+    expect([there.arrowType, back.arrowType]).toEqual(['curved', 'curved'])
+    const [p, q] = [there.waypoints![0], back.waypoints![0]]
+    expect(Math.hypot(p.x - q.x, p.y - q.y)).toBeGreaterThan(50)
+  })
 })
