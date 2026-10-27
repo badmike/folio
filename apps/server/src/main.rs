@@ -53,13 +53,12 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let pool = db::connect(&config.database_url).await?;
+    folio_server::agent::store::fail_interrupted(&pool).await?;
     let store = storage::build(&config.storage)?;
     let ai: Arc<dyn AiProvider> = match &config.openrouter_api_key {
         Some(key) => Arc::new(OpenRouterProvider::new(
             key.clone(),
             config.openrouter_base_url.clone(),
-            config.ai_model.clone(),
-            config.ai_vision_model.clone(),
         )),
         None => {
             tracing::warn!("OPENROUTER_API_KEY not set: /api/ai/* endpoints will answer 503");

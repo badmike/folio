@@ -4,6 +4,75 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
+use serde::Deserialize;
+
+use crate::ai::Usage;
+
+/// A model choice offered in the composer. Prices are USD per million tokens.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AiPreset {
+    pub id: String,
+    pub label: String,
+    pub hint: String,
+    /// OpenRouter slug.
+    pub model: String,
+    pub vision: bool,
+    pub input_price: f64,
+    pub output_price: f64,
+    pub cached_input_price: f64,
+}
+
+impl AiPreset {
+    /// USD cost of one call. `prompt_tokens` includes the cached tokens.
+    pub fn cost(&self, u: &Usage) -> f64 {
+        let fresh = (u.prompt_tokens - u.cached_tokens).max(0) as f64;
+        (fresh * self.input_price
+            + u.cached_tokens as f64 * self.cached_input_price
+            + u.completion_tokens as f64 * self.output_price)
+            / 1_000_000.0
+    }
+}
+
+/// OpenRouter prices as of 2026-10-27.
+fn default_presets() -> Vec<AiPreset> {
+    let preset = |id: &str, label: &str, hint: &str, model: &str, prices: [f64; 3]| AiPreset {
+        id: id.into(),
+        label: label.into(),
+        hint: hint.into(),
+        model: model.into(),
+        vision: true,
+        input_price: prices[0],
+        output_price: prices[1],
+        cached_input_price: prices[2],
+    };
+    vec![
+        preset(
+            "fast",
+            "Fast",
+            "Quick edits and answers",
+            HAIKU,
+            [0.1, 0.5, 0.01],
+        ),
+        preset(
+            "smart",
+            "Smart",
+            "Balanced for most work",
+            "anthropic/claude-sonnet-5.5",
+            [2.0, 10.0, 0.1],
+        ),
+        preset(
+            "deep",
+            "Deep",
+            "Hard problems and big diagrams",
+            "anthropic/claude-opus-5.5",
+            [4.0, 20.0, 0.2],
+        ),
+    ]
+}
+
+const HAIKU: &str = "anthropic/claude-haiku-5.5";
+
 #[derive(Debug, Clone)]
 pub struct S3Config {
     pub bucket: String,
@@ -36,9 +105,16 @@ pub struct Config {
     pub storage: StorageConfig,
     pub openrouter_api_key: Option<String>,
     pub openrouter_base_url: String,
-    pub ai_model: String,
-    pub ai_vision_model: String,
-    pub ai_daily_quota: i64,
+    pub ai_presets: Vec<AiPreset>,
+    pub ai_default_preset: String,
+    /// Writes thread titles. Not charged against the user's credit.
+    pub ai_title_model: String,
+    /// Per user and UTC day.
+    pub ai_daily_credit_usd: f64,
+    /// Model calls per turn (answers to `ask_user` don't count).
+    pub ai_max_steps: i64,
+    /// Input plus output tokens per turn.
+    pub ai_max_turn_tokens: i64,
     pub max_update_bytes: usize,
     pub max_asset_bytes: usize,
     /// Sync pushes allowed per user per minute.
@@ -96,8 +172,23 @@ impl Config {
             )),
         };
 
-        let ai_model =
-            get("FOLIO_AI_MODEL").unwrap_or_else(|| "anthropic/claude-sonnet-5.5".into());
+        let ai_presets: Vec<AiPreset> = match get("FOLIO_AI_PRESETS") {
+            Some(s) => serde_json::from_str(&s)
+                .map_err(|e| anyhow::anyhow!("invalid FOLIO_AI_PRESETS: {e}"))?,
+            None => default_presets(),
+        };
+        let ai_default_preset = get("FOLIO_AI_DEFAULT_PRESET").unwrap_or_else(|| "smart".into());
+        validate_presets(&ai_presets, &ai_default_preset)?;
+        let ai_daily_credit_usd = match get("FOLIO_AI_DAILY_CREDIT_USD") {
+            Some(s) => s
+                .parse::<f64>()
+                .ok()
+                .filter(|c| c.is_finite() && *c >= 0.0)
+                .ok_or_else(|| {
+                    anyhow::anyhow!("FOLIO_AI_DAILY_CREDIT_USD must be a number >= 0")
+                })?,
+            None => 1.0,
+        };
         let clerk_issuer = get("CLERK_ISSUER").or_else(|| get("FOLIO_CLERK_ISSUER"));
         let clerk_jwks_url = get("CLERK_JWKS_URL")
             .or_else(|| get("FOLIO_CLERK_JWKS_URL"))
@@ -125,14 +216,53 @@ impl Config {
             openrouter_api_key: get("OPENROUTER_API_KEY"),
             openrouter_base_url: get("OPENROUTER_BASE_URL")
                 .unwrap_or_else(|| "https://openrouter.ai/api/v1".into()),
-            ai_vision_model: get("FOLIO_AI_VISION_MODEL").unwrap_or_else(|| ai_model.clone()),
-            ai_model,
-            ai_daily_quota: parse_num("FOLIO_AI_DAILY_QUOTA", 200)?,
+            ai_presets,
+            ai_default_preset,
+            ai_title_model: get("FOLIO_AI_TITLE_MODEL").unwrap_or_else(|| HAIKU.into()),
+            ai_daily_credit_usd,
+            ai_max_steps: parse_num("FOLIO_AI_MAX_STEPS", 25)?,
+            ai_max_turn_tokens: parse_num("FOLIO_AI_MAX_TURN_TOKENS", 2_000_000)?,
             max_update_bytes: parse_num("FOLIO_MAX_UPDATE_BYTES", 8 * 1024 * 1024)? as usize,
             max_asset_bytes: parse_num("FOLIO_MAX_ASSET_BYTES", 25 * 1024 * 1024)? as usize,
             push_rate_per_min: parse_num("FOLIO_PUSH_RATE_PER_MIN", 600)? as u32,
         })
     }
+
+    pub fn preset(&self, id: &str) -> Option<&AiPreset> {
+        self.ai_presets.iter().find(|p| p.id == id)
+    }
+
+    pub fn default_preset(&self) -> &AiPreset {
+        self.preset(&self.ai_default_preset)
+            .expect("default preset is validated at startup")
+    }
+}
+
+fn validate_presets(presets: &[AiPreset], default: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(!presets.is_empty(), "FOLIO_AI_PRESETS must not be empty");
+    for (i, p) in presets.iter().enumerate() {
+        anyhow::ensure!(
+            !p.id.is_empty() && !p.model.is_empty(),
+            "AI preset #{i} needs an id and a model"
+        );
+        anyhow::ensure!(
+            presets[..i].iter().all(|q| q.id != p.id),
+            "duplicate AI preset id {}",
+            p.id
+        );
+        anyhow::ensure!(
+            [p.input_price, p.output_price, p.cached_input_price]
+                .iter()
+                .all(|v| v.is_finite() && *v >= 0.0),
+            "AI preset {} has an invalid price",
+            p.id
+        );
+    }
+    anyhow::ensure!(
+        presets.iter().any(|p| p.id == default),
+        "FOLIO_AI_DEFAULT_PRESET {default} is not a preset"
+    );
+    Ok(())
 }
 
 #[cfg(test)]
@@ -143,11 +273,36 @@ mod tests {
     fn defaults() {
         let c = Config::from_map(&HashMap::new()).unwrap();
         assert_eq!(c.bind.port(), 8989);
-        assert_eq!(c.ai_model, "anthropic/claude-sonnet-5.5");
-        assert_eq!(c.ai_vision_model, "anthropic/claude-sonnet-5.5");
+        assert_eq!(c.default_preset().model, "anthropic/claude-sonnet-5.5");
+        assert_eq!(c.ai_title_model, "anthropic/claude-haiku-5.5");
+        assert_eq!(c.ai_daily_credit_usd, 1.0);
         assert!(matches!(c.storage, StorageConfig::Local(_)));
         assert!(!c.auth_dev);
-        assert_eq!(c.ai_daily_quota, 200);
+    }
+
+    #[test]
+    fn preset_override_and_cost() {
+        let m: HashMap<String, String> = [
+            (
+                "FOLIO_AI_PRESETS",
+                r#"[{"id":"x","label":"X","hint":"h","model":"m/x","vision":false,"inputPrice":1,"outputPrice":4,"cachedInputPrice":0.1}]"#,
+            ),
+            ("FOLIO_AI_DEFAULT_PRESET", "x"),
+        ]
+        .into_iter()
+        .map(|(a, b)| (a.to_string(), b.to_string()))
+        .collect();
+        let c = Config::from_map(&m).unwrap();
+        let usage = Usage {
+            prompt_tokens: 1_000_000,
+            completion_tokens: 500_000,
+            cached_tokens: 400_000,
+        };
+        assert!((c.default_preset().cost(&usage) - (0.6 + 0.04 + 2.0)).abs() < 1e-9);
+
+        let mut bad = m.clone();
+        bad.insert("FOLIO_AI_DEFAULT_PRESET".into(), "smart".into());
+        assert!(Config::from_map(&bad).is_err());
     }
 
     #[test]

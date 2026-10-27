@@ -21,8 +21,14 @@ pub enum AppError {
     PayloadTooLarge(String),
     #[error("{0}")]
     RateLimited(String),
-    #[error("daily AI quota exhausted")]
-    QuotaExceeded,
+    #[error("daily AI credit exhausted")]
+    CreditExhausted,
+    #[error("this preset can't read images")]
+    NoVision,
+    #[error("only the device that started this turn can run its tools")]
+    NotTurnDevice,
+    #[error("the turn is not waiting for tool results")]
+    TurnNotAwaiting,
     #[error("AI not configured")]
     AiNotConfigured,
     #[error("upstream error: {0}")]
@@ -35,11 +41,12 @@ impl AppError {
     pub fn status(&self) -> StatusCode {
         match self {
             Self::Unauthorized(_) => StatusCode::UNAUTHORIZED,
-            Self::BadRequest(_) => StatusCode::BAD_REQUEST,
+            Self::BadRequest(_) | Self::NoVision => StatusCode::BAD_REQUEST,
+            Self::NotTurnDevice => StatusCode::FORBIDDEN,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
-            Self::Conflict(_) => StatusCode::CONFLICT,
+            Self::Conflict(_) | Self::TurnNotAwaiting => StatusCode::CONFLICT,
             Self::PayloadTooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
-            Self::RateLimited(_) | Self::QuotaExceeded => StatusCode::TOO_MANY_REQUESTS,
+            Self::RateLimited(_) | Self::CreditExhausted => StatusCode::TOO_MANY_REQUESTS,
             Self::AiNotConfigured => StatusCode::SERVICE_UNAVAILABLE,
             Self::Upstream(_) => StatusCode::BAD_GATEWAY,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -54,7 +61,10 @@ impl AppError {
             Self::Conflict(_) => "conflict",
             Self::PayloadTooLarge(_) => "payload_too_large",
             Self::RateLimited(_) => "rate_limited",
-            Self::QuotaExceeded => "quota_exceeded",
+            Self::CreditExhausted => "credit_exhausted",
+            Self::NoVision => "no_vision",
+            Self::NotTurnDevice => "not_turn_device",
+            Self::TurnNotAwaiting => "turn_not_awaiting",
             Self::AiNotConfigured => "ai_not_configured",
             Self::Upstream(_) => "upstream_error",
             Self::Internal(_) => "internal",
