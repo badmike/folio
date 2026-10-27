@@ -1,13 +1,4 @@
-/** Placeholder until the tools stream lands. The exported names and types are the contract. */
-import type { ContextBuilder, CreateToolRunner, RevertEffects } from '../host'
-
-const missing = (): never => { throw new Error('AI tools are not implemented yet') }
-
-export const createToolRunner: CreateToolRunner = () => ({ run: async () => missing() })
-export const revertEffects: RevertEffects = async () => missing()
-export const contextBuilder: ContextBuilder = {
-  environment: async () => missing(),
-  selectionChip: async () => missing(),
-  pageChip: async () => missing(),
-  mentionChip: async () => missing(),
-}
+/** AI V2 tool executors, revert and context. The exported names and types are the contract (see ../host.ts). */
+export { createToolRunner } from './runner'
+export { revertEffects } from './revert'
+export { contextBuilder } from './context'
