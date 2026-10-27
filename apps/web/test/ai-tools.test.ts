@@ -18,6 +18,15 @@ describe('AI tools', () => {
     expect(doc.objects(doc.pages()[0].id)).toHaveLength(0)
   })
 
+  it('brings content that lands outside the viewport into view', async () => {
+    const doc = notebook('Notes')
+    const { host, zooms } = fakeHost([doc])
+    const runner = createToolRunner(host)
+    await runner.run(call('create_shapes', { shapes: [{ kind: 'rectangle', x: 100, y: 100, width: 200, height: 100 }] }), 't1')
+    await runner.run(call('create_shapes', { shapes: [{ kind: 'rectangle', x: VIEWPORT.width - 100, y: 100, width: 200, height: 100 }] }), 't1')
+    expect(zooms).toEqual([false, true])
+  })
+
   it('creates Markdown text in the theme font in the viewport, with effects that undo it', async () => {
     const doc = notebook('Notes')
     const pageId = doc.pages()[0].id

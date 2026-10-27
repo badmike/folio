@@ -3,7 +3,8 @@ import {
   type NotebookDocumentApi, type Page, type Rect, type Vec2,
 } from '@folio/document'
 
-const MARGIN = 32
+/** Room inside the viewport's edges, clear of the floating menu button and toolbar. */
+const MARGIN = 64
 const CLEARANCE = 24
 
 /**
