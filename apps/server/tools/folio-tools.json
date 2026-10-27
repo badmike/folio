@@ -1,181 +1,1257 @@
 [
   {
     "name": "list_pages",
-    "description": "TODO",
+    "description": "List the pages of a notebook with ids, titles, kinds and object counts.",
     "input_schema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "notebookId": {
+          "type": "string",
+          "description": "Notebook id. Default: the open notebook."
+        }
+      },
+      "required": [],
       "additionalProperties": false
     }
   },
   {
     "name": "get_page",
-    "description": "TODO",
+    "description": "Outline of a page: one line per object with id, type, short text and world bounds [x,y wxh]. Handwriting shows as recognized text with its id. Nearest to the viewport first.",
     "input_schema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "notebookId": {
+          "type": "string",
+          "description": "Notebook id. Default: the open notebook."
+        },
+        "pageId": {
+          "type": "string",
+          "description": "Page id. Default: the page the user is looking at, or the notebook's first page."
+        }
+      },
+      "required": [],
       "additionalProperties": false
     }
   },
   {
     "name": "read_objects",
-    "description": "TODO",
+    "description": "Full detail of objects: text, labels, style, bindings, bounds. Ink is summarised as bounds and recognized text.",
     "input_schema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "notebookId": {
+          "type": "string",
+          "description": "Notebook id. Default: the open notebook."
+        },
+        "pageId": {
+          "type": "string",
+          "description": "Page id. Default: the page the user is looking at, or the notebook's first page."
+        },
+        "ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "1 to 50 ids. Object ids from the outline. A handwriting id stands for its strokes."
+        }
+      },
+      "required": [
+        "ids"
+      ],
       "additionalProperties": false
     }
   },
   {
     "name": "look",
-    "description": "TODO",
+    "description": "Render a page region to an image you can see. Use only for drawings the outline cannot describe (unrecognized ink, images).",
     "input_schema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "notebookId": {
+          "type": "string",
+          "description": "Notebook id. Default: the open notebook."
+        },
+        "pageId": {
+          "type": "string",
+          "description": "Page id. Default: the page the user is looking at, or the notebook's first page."
+        },
+        "region": {
+          "type": "object",
+          "properties": {
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            },
+            "width": {
+              "type": "number"
+            },
+            "height": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height"
+          ],
+          "additionalProperties": false,
+          "description": "World rect. Default: all content of the page."
+        }
+      },
+      "required": [],
       "additionalProperties": false
     }
   },
   {
     "name": "search_notebooks",
-    "description": "TODO",
+    "description": "Full-text search over all notebooks: titles, tags, text, labels and handwriting. Returns notebook, page and object ids with snippets.",
     "input_schema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Words to find."
+        },
+        "limit": {
+          "type": "integer",
+          "description": "1 to 50. Default 20."
+        }
+      },
+      "required": [
+        "query"
+      ],
       "additionalProperties": false
     }
   },
   {
     "name": "read_notebook",
-    "description": "TODO",
+    "description": "Outline of a whole notebook (every page), e.g. one found with search_notebooks.",
     "input_schema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "notebookId": {
+          "type": "string",
+          "description": "Notebook id."
+        }
+      },
+      "required": [
+        "notebookId"
+      ],
       "additionalProperties": false
     }
   },
   {
     "name": "create_shapes",
-    "description": "TODO",
+    "description": "Create shapes. Shapes without x and y are placed in a row in free space in the viewport. For connected boxes use draw_diagram.",
     "input_schema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "notebookId": {
+          "type": "string",
+          "description": "Notebook id. Default: the open notebook."
+        },
+        "pageId": {
+          "type": "string",
+          "description": "Page id. Default: the page the user is looking at, or the notebook's first page."
+        },
+        "shapes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "rectangle",
+                  "ellipse",
+                  "diamond",
+                  "triangle",
+                  "line"
+                ]
+              },
+              "x": {
+                "type": "number",
+                "description": "World x of the top-left corner. Give x and y together, or neither for automatic placement in free space in the viewport."
+              },
+              "y": {
+                "type": "number",
+                "description": "World y of the top-left corner."
+              },
+              "width": {
+                "type": "number",
+                "description": "World units. Lines go from the top-left to the bottom-right corner."
+              },
+              "height": {
+                "type": "number"
+              },
+              "label": {
+                "type": "string",
+                "description": "Text centred inside the shape."
+              },
+              "labelSize": {
+                "type": "number",
+                "description": "Label font size. Default 20."
+              },
+              "style": {
+                "type": "object",
+                "properties": {
+                  "strokeColor": {
+                    "type": "string",
+                    "description": "Hex colour like #1e1e1e. Stock colours follow the theme: #1e1e1e, #e03131, #2f9e44, #1971c2, #f08c00, #6741d9, #0c8599, #868e96."
+                  },
+                  "fillColor": {
+                    "type": "string",
+                    "description": "Hex fill like #ffec99, or \"transparent\". Light fills: #ffc9c9, #b2f2bb, #a5d8ff, #ffec99, #d0bfff, #ffd8a8."
+                  },
+                  "fillStyle": {
+                    "type": "string",
+                    "enum": [
+                      "hachure",
+                      "cross-hatch",
+                      "solid"
+                    ],
+                    "description": "How the fill is painted. Default follows the theme."
+                  },
+                  "strokeStyle": {
+                    "type": "string",
+                    "enum": [
+                      "solid",
+                      "dashed",
+                      "dotted"
+                    ]
+                  },
+                  "strokeWidth": {
+                    "type": "number",
+                    "description": "0.5 to 16. Default 2."
+                  },
+                  "roughness": {
+                    "type": "number",
+                    "description": "0 clean to 3 sketchy. Default 1."
+                  },
+                  "opacity": {
+                    "type": "number",
+                    "description": "0.05 to 1. Default 1."
+                  },
+                  "roundness": {
+                    "type": "string",
+                    "enum": [
+                      "sharp",
+                      "round"
+                    ],
+                    "description": "Corners of rectangles, diamonds and triangles."
+                  }
+                },
+                "required": [],
+                "additionalProperties": false,
+                "description": "Optional look. Omit fields to keep the defaults."
+              }
+            },
+            "required": [
+              "kind",
+              "width",
+              "height"
+            ],
+            "additionalProperties": false
+          },
+          "description": "1 to 100 shapes."
+        }
+      },
+      "required": [
+        "shapes"
+      ],
       "additionalProperties": false
     }
   },
   {
     "name": "create_text",
-    "description": "TODO",
+    "description": "Write Markdown as text in the theme's handwritten font. Headings, paragraphs, lists, $$equations$$ and code blocks become separate text objects stacked top to bottom. Inline formatting is dropped.",
     "input_schema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "notebookId": {
+          "type": "string",
+          "description": "Notebook id. Default: the open notebook."
+        },
+        "pageId": {
+          "type": "string",
+          "description": "Page id. Default: the page the user is looking at, or the notebook's first page."
+        },
+        "markdown": {
+          "type": "string",
+          "description": "The text. Keep it short and note-like."
+        },
+        "x": {
+          "type": "number",
+          "description": "World x of the top-left corner. Give x and y together, or neither for automatic placement in free space in the viewport."
+        },
+        "y": {
+          "type": "number",
+          "description": "World y of the top-left corner."
+        },
+        "width": {
+          "type": "number",
+          "description": "Wrap width. Default 480."
+        },
+        "fontSize": {
+          "type": "number",
+          "description": "Body size. Default 20; headings scale from it."
+        },
+        "color": {
+          "type": "string",
+          "description": "Hex colour like #1e1e1e. Stock colours follow the theme: #1e1e1e, #e03131, #2f9e44, #1971c2, #f08c00, #6741d9, #0c8599, #868e96."
+        },
+        "note": {
+          "type": "string",
+          "description": "Background colour: makes one sticky note with all the text, e.g. #ffec99."
+        }
+      },
+      "required": [
+        "markdown"
+      ],
       "additionalProperties": false
     }
   },
   {
     "name": "connect",
-    "description": "TODO",
+    "description": "Draw arrows between existing objects. Arrows are bound, so they follow when the objects move.",
     "input_schema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "notebookId": {
+          "type": "string",
+          "description": "Notebook id. Default: the open notebook."
+        },
+        "pageId": {
+          "type": "string",
+          "description": "Page id. Default: the page the user is looking at, or the notebook's first page."
+        },
+        "connections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "from": {
+                "type": "string",
+                "description": "Start object id."
+              },
+              "to": {
+                "type": "string",
+                "description": "End object id."
+              },
+              "label": {
+                "type": "string",
+                "description": "Text on the arrow."
+              },
+              "arrowType": {
+                "type": "string",
+                "enum": [
+                  "straight",
+                  "curved",
+                  "elbow"
+                ],
+                "description": "Default straight."
+              },
+              "startHead": {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "arrow",
+                  "triangle",
+                  "triangle-outline",
+                  "dot",
+                  "dot-outline",
+                  "bar",
+                  "diamond",
+                  "diamond-outline",
+                  "crowfoot-one",
+                  "crowfoot-many",
+                  "crowfoot-one-or-many"
+                ],
+                "description": "Default none."
+              },
+              "endHead": {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "arrow",
+                  "triangle",
+                  "triangle-outline",
+                  "dot",
+                  "dot-outline",
+                  "bar",
+                  "diamond",
+                  "diamond-outline",
+                  "crowfoot-one",
+                  "crowfoot-many",
+                  "crowfoot-one-or-many"
+                ],
+                "description": "Default arrow."
+              },
+              "style": {
+                "type": "object",
+                "properties": {
+                  "strokeColor": {
+                    "type": "string",
+                    "description": "Hex colour like #1e1e1e. Stock colours follow the theme: #1e1e1e, #e03131, #2f9e44, #1971c2, #f08c00, #6741d9, #0c8599, #868e96."
+                  },
+                  "fillColor": {
+                    "type": "string",
+                    "description": "Hex fill like #ffec99, or \"transparent\". Light fills: #ffc9c9, #b2f2bb, #a5d8ff, #ffec99, #d0bfff, #ffd8a8."
+                  },
+                  "fillStyle": {
+                    "type": "string",
+                    "enum": [
+                      "hachure",
+                      "cross-hatch",
+                      "solid"
+                    ],
+                    "description": "How the fill is painted. Default follows the theme."
+                  },
+                  "strokeStyle": {
+                    "type": "string",
+                    "enum": [
+                      "solid",
+                      "dashed",
+                      "dotted"
+                    ]
+                  },
+                  "strokeWidth": {
+                    "type": "number",
+                    "description": "0.5 to 16. Default 2."
+                  },
+                  "roughness": {
+                    "type": "number",
+                    "description": "0 clean to 3 sketchy. Default 1."
+                  },
+                  "opacity": {
+                    "type": "number",
+                    "description": "0.05 to 1. Default 1."
+                  },
+                  "roundness": {
+                    "type": "string",
+                    "enum": [
+                      "sharp",
+                      "round"
+                    ],
+                    "description": "Corners of rectangles, diamonds and triangles."
+                  }
+                },
+                "required": [],
+                "additionalProperties": false,
+                "description": "Optional look. Omit fields to keep the defaults."
+              }
+            },
+            "required": [
+              "from",
+              "to"
+            ],
+            "additionalProperties": false
+          },
+          "description": "1 to 100 arrows."
+        }
+      },
+      "required": [
+        "connections"
+      ],
       "additionalProperties": false
     }
   },
   {
     "name": "update_objects",
-    "description": "TODO",
+    "description": "Change objects: text (or the label of shapes and arrows), semantic type, size and style. Ink takes style only. Positions change with move_objects.",
     "input_schema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "notebookId": {
+          "type": "string",
+          "description": "Notebook id. Default: the open notebook."
+        },
+        "pageId": {
+          "type": "string",
+          "description": "Page id. Default: the page the user is looking at, or the notebook's first page."
+        },
+        "updates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Object ids from the outline. A handwriting id stands for its strokes."
+              },
+              "text": {
+                "type": "string",
+                "description": "New text. For shapes and arrows the label; empty removes the label."
+              },
+              "semanticType": {
+                "type": "string",
+                "enum": [
+                  "heading",
+                  "paragraph",
+                  "list-item",
+                  "label",
+                  "equation"
+                ],
+                "description": "Text only."
+              },
+              "width": {
+                "type": "number",
+                "description": "Shapes and images: new width. Text: wrap width."
+              },
+              "height": {
+                "type": "number",
+                "description": "Shapes and images only."
+              },
+              "style": {
+                "type": "object",
+                "properties": {
+                  "strokeColor": {
+                    "type": "string",
+                    "description": "Hex colour like #1e1e1e. Stock colours follow the theme: #1e1e1e, #e03131, #2f9e44, #1971c2, #f08c00, #6741d9, #0c8599, #868e96."
+                  },
+                  "fillColor": {
+                    "type": "string",
+                    "description": "Hex fill like #ffec99, or \"transparent\". Light fills: #ffc9c9, #b2f2bb, #a5d8ff, #ffec99, #d0bfff, #ffd8a8."
+                  },
+                  "fillStyle": {
+                    "type": "string",
+                    "enum": [
+                      "hachure",
+                      "cross-hatch",
+                      "solid"
+                    ],
+                    "description": "How the fill is painted. Default follows the theme."
+                  },
+                  "strokeStyle": {
+                    "type": "string",
+                    "enum": [
+                      "solid",
+                      "dashed",
+                      "dotted"
+                    ]
+                  },
+                  "strokeWidth": {
+                    "type": "number",
+                    "description": "0.5 to 16. Default 2."
+                  },
+                  "roughness": {
+                    "type": "number",
+                    "description": "0 clean to 3 sketchy. Default 1."
+                  },
+                  "opacity": {
+                    "type": "number",
+                    "description": "0.05 to 1. Default 1."
+                  },
+                  "roundness": {
+                    "type": "string",
+                    "enum": [
+                      "sharp",
+                      "round"
+                    ],
+                    "description": "Corners of rectangles, diamonds and triangles."
+                  },
+                  "fontSize": {
+                    "type": "number",
+                    "description": "Text size, or the label size of shapes and arrows."
+                  },
+                  "fontFamily": {
+                    "type": "string",
+                    "enum": [
+                      "hand",
+                      "sans",
+                      "mono",
+                      "caveat",
+                      "kalam",
+                      "patrick",
+                      "indie",
+                      "architect",
+                      "shadows",
+                      "gloria",
+                      "marker",
+                      "playpen",
+                      "gochi"
+                    ],
+                    "description": "\"hand\" follows the theme's handwritten font; prefer it."
+                  },
+                  "align": {
+                    "type": "string",
+                    "enum": [
+                      "left",
+                      "center",
+                      "right"
+                    ],
+                    "description": "Text only."
+                  },
+                  "arrowType": {
+                    "type": "string",
+                    "enum": [
+                      "straight",
+                      "curved",
+                      "elbow"
+                    ]
+                  },
+                  "startHead": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "arrow",
+                      "triangle",
+                      "triangle-outline",
+                      "dot",
+                      "dot-outline",
+                      "bar",
+                      "diamond",
+                      "diamond-outline",
+                      "crowfoot-one",
+                      "crowfoot-many",
+                      "crowfoot-one-or-many"
+                    ]
+                  },
+                  "endHead": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "arrow",
+                      "triangle",
+                      "triangle-outline",
+                      "dot",
+                      "dot-outline",
+                      "bar",
+                      "diamond",
+                      "diamond-outline",
+                      "crowfoot-one",
+                      "crowfoot-many",
+                      "crowfoot-one-or-many"
+                    ]
+                  }
+                },
+                "required": [],
+                "additionalProperties": false,
+                "description": "Only the fields to change. strokeColor is the text colour for text; fillColor is the box of notes."
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "description": "1 to 200 updates."
+        }
+      },
+      "required": [
+        "updates"
+      ],
       "additionalProperties": false
     }
   },
   {
     "name": "move_objects",
-    "description": "TODO",
+    "description": "Move objects. Groups move with their members and frames with their content.",
     "input_schema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "notebookId": {
+          "type": "string",
+          "description": "Notebook id. Default: the open notebook."
+        },
+        "pageId": {
+          "type": "string",
+          "description": "Page id. Default: the page the user is looking at, or the notebook's first page."
+        },
+        "moves": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Object ids from the outline. A handwriting id stands for its strokes."
+              },
+              "x": {
+                "type": "number",
+                "description": "New world x of the top-left of the object's bounds. Give with y."
+              },
+              "y": {
+                "type": "number",
+                "description": "New world y of the top-left."
+              },
+              "dx": {
+                "type": "number",
+                "description": "Or move by this offset."
+              },
+              "dy": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "description": "1 to 200 moves."
+        }
+      },
+      "required": [
+        "moves"
+      ],
       "additionalProperties": false
     }
   },
   {
     "name": "delete_objects",
-    "description": "TODO",
+    "description": "Delete objects (groups with their members). Handwriting ids delete their strokes.",
     "input_schema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "notebookId": {
+          "type": "string",
+          "description": "Notebook id. Default: the open notebook."
+        },
+        "pageId": {
+          "type": "string",
+          "description": "Page id. Default: the page the user is looking at, or the notebook's first page."
+        },
+        "ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "1 to 500 ids. Object ids from the outline. A handwriting id stands for its strokes."
+        }
+      },
+      "required": [
+        "ids"
+      ],
       "additionalProperties": false
     }
   },
   {
     "name": "group_objects",
-    "description": "TODO",
+    "description": "Group objects so they move together, or put them in a titled frame drawn around them.",
     "input_schema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "notebookId": {
+          "type": "string",
+          "description": "Notebook id. Default: the open notebook."
+        },
+        "pageId": {
+          "type": "string",
+          "description": "Page id. Default: the page the user is looking at, or the notebook's first page."
+        },
+        "ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Object ids from the outline. A handwriting id stands for its strokes."
+        },
+        "as": {
+          "type": "string",
+          "enum": [
+            "group",
+            "frame"
+          ],
+          "description": "A group needs at least two objects."
+        },
+        "title": {
+          "type": "string",
+          "description": "Frame name. Ignored for groups."
+        },
+        "padding": {
+          "type": "number",
+          "description": "Space between the content and the frame. Default 32."
+        }
+      },
+      "required": [
+        "ids",
+        "as"
+      ],
       "additionalProperties": false
     }
   },
   {
     "name": "draw_diagram",
-    "description": "TODO",
+    "description": "Draw a graph: nodes become labelled shapes sized to their text, edges become bound arrows, positions are computed by the layout. Returns node keys mapped to object ids. Prefer this over create_shapes plus connect for any graph.",
     "input_schema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "notebookId": {
+          "type": "string",
+          "description": "Notebook id. Default: the open notebook."
+        },
+        "pageId": {
+          "type": "string",
+          "description": "Page id. Default: the page the user is looking at, or the notebook's first page."
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string",
+                "description": "Your key for the node, used by edges."
+              },
+              "label": {
+                "type": "string",
+                "description": "Short text inside the node. Long labels wrap."
+              },
+              "shape": {
+                "type": "string",
+                "enum": [
+                  "rectangle",
+                  "ellipse",
+                  "diamond",
+                  "triangle"
+                ],
+                "description": "Default rectangle. Use diamond for decisions."
+              },
+              "style": {
+                "type": "object",
+                "properties": {
+                  "strokeColor": {
+                    "type": "string",
+                    "description": "Hex colour like #1e1e1e. Stock colours follow the theme: #1e1e1e, #e03131, #2f9e44, #1971c2, #f08c00, #6741d9, #0c8599, #868e96."
+                  },
+                  "fillColor": {
+                    "type": "string",
+                    "description": "Hex fill like #ffec99, or \"transparent\". Light fills: #ffc9c9, #b2f2bb, #a5d8ff, #ffec99, #d0bfff, #ffd8a8."
+                  },
+                  "fillStyle": {
+                    "type": "string",
+                    "enum": [
+                      "hachure",
+                      "cross-hatch",
+                      "solid"
+                    ],
+                    "description": "How the fill is painted. Default follows the theme."
+                  },
+                  "strokeStyle": {
+                    "type": "string",
+                    "enum": [
+                      "solid",
+                      "dashed",
+                      "dotted"
+                    ]
+                  },
+                  "strokeWidth": {
+                    "type": "number",
+                    "description": "0.5 to 16. Default 2."
+                  },
+                  "roughness": {
+                    "type": "number",
+                    "description": "0 clean to 3 sketchy. Default 1."
+                  },
+                  "opacity": {
+                    "type": "number",
+                    "description": "0.05 to 1. Default 1."
+                  },
+                  "roundness": {
+                    "type": "string",
+                    "enum": [
+                      "sharp",
+                      "round"
+                    ],
+                    "description": "Corners of rectangles, diamonds and triangles."
+                  }
+                },
+                "required": [],
+                "additionalProperties": false,
+                "description": "Optional look. Omit fields to keep the defaults."
+              }
+            },
+            "required": [
+              "key",
+              "label"
+            ],
+            "additionalProperties": false
+          },
+          "description": "1 to 200 nodes."
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "from": {
+                "type": "string",
+                "description": "Node key."
+              },
+              "to": {
+                "type": "string",
+                "description": "Node key."
+              },
+              "label": {
+                "type": "string",
+                "description": "Short text on the arrow."
+              },
+              "endHead": {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "arrow",
+                  "triangle",
+                  "triangle-outline",
+                  "dot",
+                  "dot-outline",
+                  "bar",
+                  "diamond",
+                  "diamond-outline",
+                  "crowfoot-one",
+                  "crowfoot-many",
+                  "crowfoot-one-or-many"
+                ],
+                "description": "Default arrow; none for undirected links."
+              },
+              "style": {
+                "type": "object",
+                "properties": {
+                  "strokeColor": {
+                    "type": "string",
+                    "description": "Hex colour like #1e1e1e. Stock colours follow the theme: #1e1e1e, #e03131, #2f9e44, #1971c2, #f08c00, #6741d9, #0c8599, #868e96."
+                  },
+                  "fillColor": {
+                    "type": "string",
+                    "description": "Hex fill like #ffec99, or \"transparent\". Light fills: #ffc9c9, #b2f2bb, #a5d8ff, #ffec99, #d0bfff, #ffd8a8."
+                  },
+                  "fillStyle": {
+                    "type": "string",
+                    "enum": [
+                      "hachure",
+                      "cross-hatch",
+                      "solid"
+                    ],
+                    "description": "How the fill is painted. Default follows the theme."
+                  },
+                  "strokeStyle": {
+                    "type": "string",
+                    "enum": [
+                      "solid",
+                      "dashed",
+                      "dotted"
+                    ]
+                  },
+                  "strokeWidth": {
+                    "type": "number",
+                    "description": "0.5 to 16. Default 2."
+                  },
+                  "roughness": {
+                    "type": "number",
+                    "description": "0 clean to 3 sketchy. Default 1."
+                  },
+                  "opacity": {
+                    "type": "number",
+                    "description": "0.05 to 1. Default 1."
+                  },
+                  "roundness": {
+                    "type": "string",
+                    "enum": [
+                      "sharp",
+                      "round"
+                    ],
+                    "description": "Corners of rectangles, diamonds and triangles."
+                  }
+                },
+                "required": [],
+                "additionalProperties": false,
+                "description": "Optional look. Omit fields to keep the defaults."
+              }
+            },
+            "required": [
+              "from",
+              "to"
+            ],
+            "additionalProperties": false
+          },
+          "description": "Up to 400 edges."
+        },
+        "layout": {
+          "type": "string",
+          "enum": [
+            "layered",
+            "tree",
+            "grid",
+            "radial"
+          ],
+          "description": "layered: flowcharts and processes. tree: hierarchies. grid: unconnected items. radial: mind maps around a central idea."
+        },
+        "direction": {
+          "type": "string",
+          "enum": [
+            "down",
+            "right"
+          ],
+          "description": "Flow direction of layered and tree layouts. Default down."
+        },
+        "origin": {
+          "type": "object",
+          "properties": {
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "x",
+            "y"
+          ],
+          "additionalProperties": false,
+          "description": "Top-left of the diagram. Default: free space in the viewport."
+        }
+      },
+      "required": [
+        "nodes",
+        "edges",
+        "layout"
+      ],
       "additionalProperties": false
     }
   },
   {
     "name": "insert_image",
-    "description": "TODO",
+    "description": "Place an uploaded image (an asset id from the user's attachments) on the page.",
     "input_schema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "notebookId": {
+          "type": "string",
+          "description": "Notebook id. Default: the open notebook."
+        },
+        "pageId": {
+          "type": "string",
+          "description": "Page id. Default: the page the user is looking at, or the notebook's first page."
+        },
+        "assetId": {
+          "type": "string",
+          "description": "Asset id."
+        },
+        "x": {
+          "type": "number",
+          "description": "World x of the top-left corner. Give x and y together, or neither for automatic placement in free space in the viewport."
+        },
+        "y": {
+          "type": "number",
+          "description": "World y of the top-left corner."
+        },
+        "width": {
+          "type": "number",
+          "description": "Display width; height keeps the aspect ratio. Default: the image width, at most 480."
+        }
+      },
+      "required": [
+        "assetId"
+      ],
       "additionalProperties": false
     }
   },
   {
     "name": "add_page",
-    "description": "TODO",
+    "description": "Add a page. By default after the current page, with the same paper.",
     "input_schema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "notebookId": {
+          "type": "string",
+          "description": "Notebook id. Default: the open notebook."
+        },
+        "title": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "infinite",
+            "fixed"
+          ],
+          "description": "Default infinite, or fixed when a format is given."
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "A4",
+            "Letter",
+            "iPad"
+          ],
+          "description": "Paper size of fixed pages."
+        },
+        "background": {
+          "type": "string",
+          "enum": [
+            "blank",
+            "ruled",
+            "grid",
+            "dot",
+            "music",
+            "isometric",
+            "hex",
+            "cornell",
+            "handwriting",
+            "engineering",
+            "isodot",
+            "tablature",
+            "polar"
+          ],
+          "description": "Paper pattern."
+        },
+        "after": {
+          "type": "string",
+          "description": "Insert after this page id."
+        }
+      },
+      "required": [],
       "additionalProperties": false
     }
   },
   {
     "name": "update_page",
-    "description": "TODO",
+    "description": "Rename a page, change its paper pattern or move it to another position.",
     "input_schema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "notebookId": {
+          "type": "string",
+          "description": "Notebook id. Default: the open notebook."
+        },
+        "pageId": {
+          "type": "string",
+          "description": "Page id. Default: the page the user is looking at, or the notebook's first page."
+        },
+        "title": {
+          "type": "string"
+        },
+        "background": {
+          "type": "string",
+          "enum": [
+            "blank",
+            "ruled",
+            "grid",
+            "dot",
+            "music",
+            "isometric",
+            "hex",
+            "cornell",
+            "handwriting",
+            "engineering",
+            "isodot",
+            "tablature",
+            "polar"
+          ]
+        },
+        "position": {
+          "type": "integer",
+          "description": "New 1-based position among the pages."
+        }
+      },
+      "required": [],
       "additionalProperties": false
     }
   },
   {
     "name": "delete_page",
-    "description": "TODO",
+    "description": "Delete a page and everything on it. The user must approve.",
     "input_schema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "notebookId": {
+          "type": "string",
+          "description": "Notebook id. Default: the open notebook."
+        },
+        "pageId": {
+          "type": "string",
+          "description": "Page id."
+        }
+      },
+      "required": [
+        "pageId"
+      ],
       "additionalProperties": false
     }
   },
   {
     "name": "update_notebook",
-    "description": "TODO",
+    "description": "Change the notebook's title, tags or visual theme.",
     "input_schema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "notebookId": {
+          "type": "string",
+          "description": "Notebook id. Default: the open notebook."
+        },
+        "title": {
+          "type": "string"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The complete new tag list (replaces the old one)."
+        },
+        "theme": {
+          "type": "string",
+          "enum": [
+            "rough",
+            "clean",
+            "sketchnote",
+            "blueprint",
+            "chalkboard",
+            "whiteboard",
+            "fineliner",
+            "comic",
+            "watercolour",
+            "crayon"
+          ]
+        }
+      },
+      "required": [],
       "additionalProperties": false
     }
   },
   {
     "name": "ask_user",
-    "description": "TODO",
+    "description": "Ask the user a question with 2 to 4 options and wait for the answer. Only when you cannot continue without a decision.",
     "input_schema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "question": {
+          "type": "string"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "type": "string",
+                "description": "Short answer."
+              },
+              "description": {
+                "type": "string",
+                "description": "One line of detail."
+              }
+            },
+            "required": [
+              "label"
+            ],
+            "additionalProperties": false
+          },
+          "description": "2 to 4 options."
+        },
+        "allowFreeText": {
+          "type": "boolean",
+          "description": "Let the user type their own answer. Default true."
+        }
+      },
+      "required": [
+        "question",
+        "options"
+      ],
       "additionalProperties": false
     }
   }
