@@ -40,7 +40,7 @@ pnpm --filter @folio/web test         # unit + component tests
 pnpm --filter @folio/web exec playwright test   # e2e against the preview build (needs `build` first)
 ```
 
-**Features:** infinite/A4/Letter/iPad pages with blank/ruled/grid/dot backgrounds (toggle with `⌘'`); pen, highlighter (flat, round, slanted or curvy edges), eraser, shapes (sharp or round corners), lines with extra points, straight/curved/elbow arrows, text, frames (content moves and clips with the frame, can be removed while keeping the content) and blur masks (pixelate or Gaussian) for reveal effects; hand tool and flick panning with inertia; tool lock (`Q`); align and distribute; per-notebook quick colour swatches (hold a swatch to change it), each drawing tool remembers its own colours, a stylus eraser end or barrel button erases; a compact quick bar for switching colours while writing; hand-drawn (Excalifont), normal and code (Fira Code) fonts, plus more bundled fonts in a popover (Caveat, Kalam, Patrick Hand, Indie Flower, Architects Daughter, Shadows Into Light, Gloria Hallelujah, Permanent Marker, Playpen Sans); selection with Clean Up (handwriting -> text, rough shapes -> shapes, non-destructive, "Restore ink"); automatic cleanup modes (keep / ask / auto); temporary read-only lock per notebook (`Alt+R`); zen mode (`Alt+Z`); folders, tags, search across typed text, handwriting and labels; export Markdown, PNG, PDF and `.folio`; import `.folio` and `.excalidraw` files, paste Excalidraw content straight onto a page; optional sync and AI (summaries, outline, flashcards, ask my notes) when signed in to a folio server.
+**Features:** infinite/A4/Letter/iPad pages with blank/ruled/grid/dot backgrounds (toggle with `⌘'`); pen, highlighter (flat, round, slanted or curvy edges), eraser, shapes (sharp or round corners), lines with extra points, straight/curved/elbow arrows, text, frames (content moves and clips with the frame, can be removed while keeping the content) and blur masks (pixelate or Gaussian) for reveal effects; hand tool and flick panning with inertia; tool lock (`Q`); align and distribute; per-notebook quick colour swatches (hold a swatch to change it), each drawing tool remembers its own colours, a stylus eraser end or barrel button erases; a compact quick bar for switching colours while writing; hand-drawn (Excalifont), normal and code (Fira Code) fonts, plus more bundled fonts in a popover (Caveat, Kalam, Patrick Hand, Indie Flower, Architects Daughter, Shadows Into Light, Gloria Hallelujah, Permanent Marker, Playpen Sans); selection with Clean Up (handwriting -> text, rough shapes -> shapes, non-destructive, "Restore ink"); automatic cleanup modes (keep / ask / auto); temporary read-only lock per notebook (`Alt+R`); zen mode (`Alt+Z`); folders, tags, search across typed text, handwriting and labels; export Markdown, PNG, PDF and `.folio`; import `.folio` and `.excalidraw` files, paste Excalidraw content straight onto a page; optional sync and an AI assistant (see below) when signed in to a folio server.
 
 **Keyboard shortcuts** follow Excalidraw (press `?` in a notebook for the full list): `V` select, `H` hand, `R` rectangle, `D` diamond, `O` ellipse, `A` arrow, `L` line, `P` pen, `T` text, `E` eraser, `F` frame, `M` highlighter, `X` blur, `Q` tool lock, `⌘Z`/`⌘⇧Z` undo/redo, `⌘D` or `Alt`+drag duplicate, `⌘G` group, `⌘[`/`⌘]` layer order, `⌘⇧arrows` align, `⌘+`/`⌘-`/`⌘0` zoom, `Shift+1` fit.
 
@@ -48,13 +48,27 @@ pnpm --filter @folio/web exec playwright test   # e2e against the preview build 
 
 **Icons and share card:** `node apps/web/scripts/gen-brand-assets.mjs` renders the favicon, app icons and the 1200x630 Open Graph image from `public/icons/icon.svg`. The share card URL is absolute: set `VITE_SITE_URL` (default `https://folio.coderscantina.com`) when building for another domain.
 
-**With a server:** `FOLIO_AUTH_DEV=true pnpm server` (port 8989), start the web app with `VITE_API_BASE=/api`, then in the browser console run `localStorage['folio.devToken']='dev:alice'` and reload to sync without Clerk. Set `OPENROUTER_API_KEY` on the server for AI features (all AI requests go through OpenRouter). `localStorage['folio.debug']='1'` exposes `window.__folio` (used by the e2e tests).
+**With a server:** `FOLIO_AUTH_DEV=true pnpm server` (port 8989), start the web app with `VITE_API_BASE=/api`, then in the browser console run `localStorage['folio.devToken']='dev:alice'` and reload to sync without Clerk. Set `OPENROUTER_API_KEY` on the server for the AI assistant (all AI requests go through OpenRouter). `localStorage['folio.debug']='1'` exposes `window.__folio` (used by the e2e tests).
 
 ### Live sync across devices
 
 Sign in to the same folio account on both devices and open the same notebook. Completed strokes and other edits sync automatically while you write, with local updates batched every 150 ms. Devices receive server notifications immediately and catch up after reconnecting. Writing and autosave still work offline.
 
 For presenting, lock the notebook on the display device (`Alt+R`, or the notebook menu) and write on the iPad. The lock is local to that device and incoming edits still appear. Each device keeps its own camera and page selection. Unfinished strokes appear on the other device when you lift the Pencil.
+
+### AI assistant
+
+Open the AI dock with `⌘J` or the sparkle button. It keeps threads per notebook and streams its answers. It reads the open page and can draw, write and change the notebook through tools: shapes, text, arrows, diagrams with automatic layout, frames, images, pages and the notebook's title, tags and theme. It looks at drawings only when it needs to, and you can attach images.
+
+- Edits apply live and glow briefly. Each turn is one undo step, and "Revert to this message" undoes the AI's edits from there on, skipping objects you changed since.
+- Deleting a page and writing to another notebook ask for approval first. The AI can also ask you a question with a few options.
+- A message sent while the AI works steers the running turn. Stop ends it and keeps the edits so far.
+- If the tab closes mid-turn, the same device offers Continue.
+- Threads get an automatic title and can be pinned, settled, searched and deleted. Deleting a thread never reverts edits.
+- `/summarize`, `/lecture`, `/outline`, `/flashcards` and `/questions` are slash commands and starter chips.
+- The composer picks a preset (Fast, Smart, Deep) and shows the credit left for the day.
+
+The server owns the prompts, tool schemas, API key, budget and history. The browser runs every tool, because only it holds the notebook. Presets, the daily credit and the per-turn caps are server settings, listed in [`apps/server/README.md`](apps/server/README.md).
 
 ## Self-hosting
 
@@ -70,7 +84,7 @@ Or use [`docker-compose.yml`](docker-compose.yml) with a `.env` file next to it.
 | -------------------------------------------- | --------------------------------------------------------------------------- |
 | `CLERK_ISSUER`                               | Clerk instance URL; enables sign-in and sync (tokens are verified via JWKS) |
 | `FOLIO_CLERK_PUBLISHABLE_KEY`                | Clerk publishable key, handed to the app through `/config.json`             |
-| `OPENROUTER_API_KEY`                         | enables AI features                                                         |
+| `OPENROUTER_API_KEY`                         | enables the AI assistant; presets, credit and caps have their own variables |
 | `FOLIO_S3_BUCKET` and the other `FOLIO_S3_*` | S3-compatible storage for snapshots and assets instead of the data volume   |
 
 All server settings are listed in [`apps/server/README.md`](apps/server/README.md). Data lives in the `/app/data` volume (SQLite plus local assets): back it up, run a single replica.

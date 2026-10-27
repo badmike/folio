@@ -86,3 +86,7 @@ The work is built in parallel by area, not by milestone. Each agent owns its fil
 | --- | --- |
 | Entry points | Selection "Ask AI", Cmd+K palette, `@ai` prompt note pill, instructions in Settings, library dock |
 | Integration | Run end to end against the server with a real model, fix seams, add the Playwright dock test, update the docs |
+
+## Status
+
+- 2026-10-27, wave 2 integration (`ai-v2/e2e`): ran end to end against OpenRouter, mostly on Fast with two Smart turns. Every M1 to M3 flow works: questions, shapes and text, `draw_diagram`, edits and moves, `look`, image attachments, `ask_user`, the `delete_page` approval, steering, stop, revert with skipped user edits, Continue after a reload, the thread list, slash commands and the credit display. The prompt cache hits from the second step on. `apps/web/e2e/ai-dock.spec.ts` covers the dock against a scripted server.
