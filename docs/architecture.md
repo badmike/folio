@@ -1365,6 +1365,16 @@ Vector databases and embedding infrastructure are intentionally deferred.
 
 Stable semantic object IDs provide sufficient groundwork for later semantic indexing.
 
+## AI V2: agent with notebook tools
+
+Decided on 2026-10-27. The full decision list and the milestones are in `docs/milestones/ai-v2.md`.
+
+- The gateway runs the agent one model step at a time and streams each step over SSE. The browser executes every tool, because only the browser holds the Loro document. The server never parses notebooks.
+- Threads, transcripts, budgets and custom instructions live in server SQLite. Chat is online-only, and note-taking never waits for it.
+- AI edits are normal operations, applied live. Each tool result stores its inverse ops, so a turn can be reverted. Objects the user changed since are skipped.
+- Tool schemas are server-owned (`apps/server/tools/`). The client contract is `apps/web/src/ai/protocol.ts` and `host.ts`.
+- Context stays semantic: an outline with object ids and bounds on every step. Vision only through an explicit `look` tool and user attachments.
+
 ---
 
 # 46. Privacy Model
