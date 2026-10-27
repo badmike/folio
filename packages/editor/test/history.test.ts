@@ -1,5 +1,5 @@
 import { NotebookDocument } from '@folio/document'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { addRaw, arrow, ink, objs, setup, shape, text } from './helpers'
 
 describe('execute / undo / redo', () => {
@@ -47,6 +47,18 @@ describe('execute / undo / redo', () => {
     }
     h.editor.undo()
     expect((h.doc.object(h.pageId, 'a') as { width: number }).width).toBe(100)
+  })
+
+  it('group merges consecutive commits into one step regardless of time', () => {
+    const h = setup()
+    vi.useFakeTimers()
+    try {
+      h.editor.execute([{ type: 'addObjects', pageId: h.pageId, objects: [shape('a', 0, 0)] }], { group: 'turn' })
+      vi.advanceTimersByTime(60_000)
+      h.editor.execute([{ type: 'addObjects', pageId: h.pageId, objects: [shape('b', 0, 0)] }], { group: 'turn' })
+      h.editor.undo()
+      expect(objs(h)).toHaveLength(0)
+    } finally { vi.useRealTimers() }
   })
 
   it('limits history to 500', () => {

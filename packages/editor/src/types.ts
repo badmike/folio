@@ -133,6 +133,8 @@ export interface ExecuteOptions {
   undoable?: boolean
   /** Consecutive commits with the same key (within ~1s) form one undo step. */
   coalesceKey?: string
+  /** Consecutive commits with the same group form one undo step regardless of time (an AI turn). */
+  group?: string
 }
 
 /**

@@ -38,6 +38,7 @@ interface HistoryEntry {
   ops: Operation[]
   inverse: Operation[]
   key?: string
+  group?: string
   time: number
 }
 interface PageHistory {
@@ -1027,12 +1028,13 @@ export class Editor {
       const h = this.history()
       const last = h.undo[h.undo.length - 1]
       const now = Date.now()
-      if (o.coalesceKey && last && last.key === o.coalesceKey && now - last.time < COALESCE_WINDOW_MS) {
+      const sameGroup = !!o.group && last?.group === o.group
+      if (sameGroup || (o.coalesceKey && last && last.key === o.coalesceKey && now - last.time < COALESCE_WINDOW_MS)) {
         last.ops = [...last.ops, ...ops]
         last.inverse = [...inverse, ...last.inverse]
         last.time = now
       } else {
-        h.undo.push({ ops, inverse, key: o.coalesceKey, time: now })
+        h.undo.push({ ops, inverse, key: o.coalesceKey, group: o.group, time: now })
         if (h.undo.length > HISTORY_LIMIT) h.undo.shift()
       }
       h.redo.length = 0
