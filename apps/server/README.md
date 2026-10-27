@@ -25,8 +25,11 @@ cargo test && cargo clippy --all-targets
 | `FOLIO_AUTH_DEV`                                                                                                  | `false`                  | accepts `Bearer dev:<user-id>`; logs a warning. Never in production                                                                            |
 | `FOLIO_S3_BUCKET`, `FOLIO_S3_ENDPOINT`, `FOLIO_S3_REGION`, `FOLIO_S3_ACCESS_KEY_ID`, `FOLIO_S3_SECRET_ACCESS_KEY` | unset                    | any S3-compatible store (AWS, R2, B2, MinIO). Without a bucket, files go to `FOLIO_ASSETS_DIR` (`data/assets`). `AWS_*` key vars are also read |
 | `OPENROUTER_API_KEY`                                                                                              | unset                    | all AI goes through OpenRouter. Unset => `/api/ai/*` answers `503 AI not configured`                                                               |
-| `FOLIO_AI_MODEL`, `FOLIO_AI_VISION_MODEL`                                                                         | see notes                | OpenRouter slugs, default `anthropic/claude-sonnet-5.5`; vision defaults to the text model and needs image input                               |
-| `FOLIO_AI_DAILY_QUOTA`                                                                                            | `200`                    | AI requests per user per UTC day, then `429`. Failed provider calls are refunded                                                               |
+| `FOLIO_AI_PRESETS`                                                                                                | Fast, Smart, Deep        | JSON array of `{id, label, hint, model, vision, inputPrice, outputPrice, cachedInputPrice}` (OpenRouter slug, USD per million tokens). Defaults: Haiku 5.5, Sonnet 5.5, Opus 5.5 |
+| `FOLIO_AI_DEFAULT_PRESET`                                                                                         | `smart`                  | preset for new turns; `/ai/recognize` also uses its model                                                                                      |
+| `FOLIO_AI_TITLE_MODEL`                                                                                            | `anthropic/claude-haiku-5.5` | writes thread titles; not charged to the user                                                                                              |
+| `FOLIO_AI_DAILY_CREDIT_USD`                                                                                       | `1.0`                    | AI spend per user per UTC day (tokens x preset price, cache reads included), then `credit_exhausted`. Failed calls cost nothing             |
+| `FOLIO_AI_MAX_STEPS`, `FOLIO_AI_MAX_TURN_TOKENS`                                                                  | `25`, `2000000`          | per-turn caps; hitting one ends the turn `partial`. Answers to `ask_user` don't count as a step                                               |
 | `FOLIO_MAX_UPDATE_BYTES`                                                                                          | 8 MiB                    | per sync update / `FOLIO_MAX_ASSET_BYTES` (25 MiB) per asset and snapshot                                                                      |
 | `FOLIO_PUSH_RATE_PER_MIN`                                                                                         | `600`                    | per-user sync pushes per minute                                                                                                                |
 | `FOLIO_LOG`, `FOLIO_LOG_FORMAT`                                                                                   | `info`, json             | `RUST_LOG` syntax; `pretty` for human output                                                                                                   |
@@ -46,8 +49,14 @@ Binary values are base64 (standard alphabet) strings. Ids (`docId`, `deviceId`, 
 - `POST /devices` `{deviceId, name}` register / heartbeat
 - `POST /assets?id=<optional client id>` raw body + `Content-Type` -> `{id}`; `GET /assets/{id}` -> bytes (owner only; served `nosniff` + CSP sandbox)
 - `POST /ai/recognize` `{image: base64 png, languages?: ["de","en"], hint?}` -> `{text, confidence}`
-- `POST /ai/summarize` `{context, kind: page|lecture|outline|flashcards|questions}` -> `{markdown}`
-- `POST /ai/ask` `{question, context}` -> `{markdown}`
+- AI agent (shapes in `apps/web/src/ai/protocol.ts`, `/turns`, `/step` and `/continue` answer `text/event-stream`):
+  - `GET /ai/config` -> presets, default preset, credit and caps
+  - `GET /ai/threads?notebookId=<id>|library&search=&settled=0|1`, `POST /ai/threads` `{notebookId}`, `GET|PATCH|DELETE /ai/threads/{id}`
+  - `POST /ai/threads/{id}/turns` `{message, presetId, deviceId, environment}` starts a turn and streams its first model step
+  - `POST /ai/turns/{id}/step` `{deviceId, results, environment, steer?}` posts the tool results and streams the next step (only the turn's device)
+  - `POST /ai/turns/{id}/continue` `{deviceId, environment}` answers lost tool calls with an error and streams the next step
+  - `POST /ai/turns/{id}/cancel` -> turn, `POST /ai/turns/{id}/revert` -> thread detail
+  - `GET /ai/instructions?notebookId=`, `PUT /ai/instructions` `{notebookId, text}` (max 4000 characters, empty deletes)
 
 ## Deploy notes
 

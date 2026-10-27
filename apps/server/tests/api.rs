@@ -452,8 +452,15 @@ fn png_b64() -> String {
     B64.encode([0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0])
 }
 
+async fn used_today(app: &TestApp, user: &str) -> f64 {
+    folio_server::agent::store::credit(&app.state.db, &app.state.config, user)
+        .await
+        .unwrap()
+        .used_usd
+}
+
 #[tokio::test]
-async fn ai_endpoints_with_mock() {
+async fn recognize_charges_the_credit() {
     let app = TestApp::new().await;
     let t = dev("alice");
 
@@ -473,45 +480,11 @@ async fn ai_endpoints_with_mock() {
         assert!(reqs[0].image_png_b64.is_some());
         assert!(reqs[0].user_text.contains("de, en"));
         assert!(reqs[0].system.contains("ONLY"));
+        assert_eq!(reqs[0].model, "anthropic/claude-sonnet-5.5");
     }
+    // 10 input and 5 output tokens at the Smart prices.
+    assert!((used_today(&app, "alice").await - 0.00007).abs() < 1e-12);
 
-    app.mock.push_response(Ok("  # Summary\n- a  ".into()));
-    let (s, v) = app
-        .json(
-            "POST",
-            "/api/ai/summarize",
-            Some(&t),
-            Some(json!({"context":"Heading: X\nText: y","kind":"flashcards"})),
-        )
-        .await;
-    assert_eq!(s, StatusCode::OK, "{v}");
-    assert_eq!(v["markdown"], "# Summary\n- a");
-    assert!(app.mock.requests.lock().unwrap()[1]
-        .user_text
-        .contains("Q:"));
-
-    app.mock.push_response(Ok("42".into()));
-    let (s, v) = app
-        .json(
-            "POST",
-            "/api/ai/ask",
-            Some(&t),
-            Some(json!({"question":"What?","context":"ctx"})),
-        )
-        .await;
-    assert_eq!(s, StatusCode::OK);
-    assert_eq!(v["markdown"], "42");
-
-    // Validation
-    let (s, _) = app
-        .json(
-            "POST",
-            "/api/ai/summarize",
-            Some(&t),
-            Some(json!({"context":"x","kind":"poem"})),
-        )
-        .await;
-    assert_eq!(s, StatusCode::BAD_REQUEST);
     let (s, _) = app
         .json(
             "POST",
@@ -524,83 +497,51 @@ async fn ai_endpoints_with_mock() {
     let (s, _) = app
         .json(
             "POST",
-            "/api/ai/ask",
+            "/api/ai/recognize",
             None,
-            Some(json!({"question":"What?"})),
+            Some(json!({"image": png_b64()})),
         )
         .await;
     assert_eq!(s, StatusCode::UNAUTHORIZED);
-
-    // Jobs recorded
-    let n: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM ai_jobs WHERE status = 'ok' AND user_id = 'alice'",
-    )
-    .fetch_one(&app.state.db)
-    .await
-    .unwrap();
-    assert_eq!(n, 3);
 }
 
 #[tokio::test]
-async fn ai_failure_does_not_consume_quota() {
+async fn recognize_failure_costs_nothing() {
     let app = TestApp::new().await;
     app.mock.push_response(Err("boom".into()));
     let (s, v) = app
         .json(
             "POST",
-            "/api/ai/ask",
+            "/api/ai/recognize",
             Some(&dev("alice")),
-            Some(json!({"question":"q"})),
+            Some(json!({"image": png_b64()})),
         )
         .await;
     assert_eq!(s, StatusCode::BAD_GATEWAY, "{v}");
-    assert_eq!(
-        folio_server::routes::ai::used_today(&app.state, "alice")
-            .await
-            .unwrap(),
-        0
-    );
-    let st: String = sqlx::query_scalar("SELECT status FROM ai_jobs")
-        .fetch_one(&app.state.db)
-        .await
-        .unwrap();
-    assert_eq!(st, "error");
+    assert_eq!(used_today(&app, "alice").await, 0.0);
 }
 
 #[tokio::test]
-async fn ai_quota_exhaustion() {
-    let app = TestApp::with(|c| c.ai_daily_quota = 2).await;
-    for _ in 0..2 {
-        let (s, _) = app
-            .json(
-                "POST",
-                "/api/ai/ask",
-                Some(&dev("alice")),
-                Some(json!({"question":"q"})),
-            )
-            .await;
-        assert_eq!(s, StatusCode::OK);
-    }
-    let (s, v) = app
-        .json(
+async fn recognize_stops_when_the_credit_is_exhausted() {
+    let app = TestApp::with(|c| c.ai_daily_credit_usd = 0.0001).await;
+    // Each call costs $0.00007, so the third one starts over the limit.
+    let app = &app;
+    let call = |token: String| async move {
+        app.json(
             "POST",
-            "/api/ai/ask",
-            Some(&dev("alice")),
-            Some(json!({"question":"q"})),
+            "/api/ai/recognize",
+            Some(&token),
+            Some(json!({"image": png_b64()})),
         )
-        .await;
+        .await
+    };
+    assert_eq!(call(dev("alice")).await.0, StatusCode::OK);
+    assert_eq!(call(dev("alice")).await.0, StatusCode::OK);
+    let (s, v) = call(dev("alice")).await;
     assert_eq!(s, StatusCode::TOO_MANY_REQUESTS);
-    assert_eq!(v["error"], "quota_exceeded");
-    // Per-user
-    let (s, _) = app
-        .json(
-            "POST",
-            "/api/ai/ask",
-            Some(&dev("bob")),
-            Some(json!({"question":"q"})),
-        )
-        .await;
-    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["error"], "credit_exhausted");
+    // Per user
+    assert_eq!(call(dev("bob")).await.0, StatusCode::OK);
 }
 
 #[tokio::test]
@@ -614,19 +555,18 @@ async fn ai_disabled_returns_503() {
     let (s, v) = app
         .json(
             "POST",
-            "/api/ai/ask",
+            "/api/ai/recognize",
             Some(&dev("alice")),
-            Some(json!({"question":"q"})),
+            Some(json!({"image": png_b64()})),
         )
         .await;
     assert_eq!(s, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(v["message"], "AI not configured");
-    assert_eq!(
-        folio_server::routes::ai::used_today(&app.state, "alice")
-            .await
-            .unwrap(),
-        0
-    );
+    let (s, v) = app
+        .json("GET", "/api/ai/config", Some(&dev("alice")), None)
+        .await;
+    assert_eq!(s, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(v["error"], "ai_not_configured");
 }
 
 #[tokio::test]

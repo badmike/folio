@@ -1,5 +1,6 @@
 //! folio-server: thin replication, asset and AI endpoint for the folio notebook.
 
+pub mod agent;
 pub mod ai;
 pub mod auth;
 pub mod config;
@@ -43,12 +44,16 @@ async fn fallback() -> error::AppError {
     error::AppError::NotFound("no such route".into())
 }
 
+/// Turn and step bodies carry context and tool results, including `look` images.
+const AGENT_BODY_LIMIT: usize = 24 * 1024 * 1024;
+
 /// API under `/api`, `/health` at the root, and the web app (if configured) everywhere else.
 pub fn build_router(state: AppState) -> Router {
     let cfg = state.config.clone();
     // Base64 inflates by 4/3; leave room for JSON framing.
     let sync_limit = cfg.max_update_bytes.max(cfg.max_asset_bytes) / 3 * 4 + 64 * 1024;
     let x_request_id = HeaderName::from_static("x-request-id");
+    use routes::agent;
 
     let api = Router::new()
         .route("/health", get(health))
@@ -75,13 +80,34 @@ pub fn build_router(state: AppState) -> Router {
             "/ai/recognize",
             post(routes::ai::recognize).layer(DefaultBodyLimit::max(16 * 1024 * 1024)),
         )
+        .route("/ai/config", get(agent::config))
         .route(
-            "/ai/summarize",
-            post(routes::ai::summarize).layer(DefaultBodyLimit::max(2 * 1024 * 1024)),
+            "/ai/threads",
+            get(agent::list_threads).post(agent::create_thread),
         )
         .route(
-            "/ai/ask",
-            post(routes::ai::ask).layer(DefaultBodyLimit::max(2 * 1024 * 1024)),
+            "/ai/threads/{id}",
+            get(agent::thread_detail)
+                .patch(agent::update_thread)
+                .delete(agent::delete_thread),
+        )
+        .route(
+            "/ai/threads/{id}/turns",
+            post(agent::start_turn).layer(DefaultBodyLimit::max(AGENT_BODY_LIMIT)),
+        )
+        .route(
+            "/ai/turns/{id}/step",
+            post(agent::step).layer(DefaultBodyLimit::max(AGENT_BODY_LIMIT)),
+        )
+        .route("/ai/turns/{id}/cancel", post(agent::cancel))
+        .route("/ai/turns/{id}/revert", post(agent::revert))
+        .route(
+            "/ai/turns/{id}/continue",
+            post(agent::continue_turn).layer(DefaultBodyLimit::max(AGENT_BODY_LIMIT)),
+        )
+        .route(
+            "/ai/instructions",
+            get(agent::get_instructions).put(agent::put_instructions),
         )
         .fallback(fallback)
         .with_state(state.clone());
@@ -103,7 +129,14 @@ pub fn build_router(state: AppState) -> Router {
         app = app.layer(
             CorsLayer::new()
                 .allow_origin(origin)
-                .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+                .allow_methods([
+                    Method::GET,
+                    Method::POST,
+                    Method::PUT,
+                    Method::PATCH,
+                    Method::DELETE,
+                    Method::OPTIONS,
+                ])
                 .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
                 .max_age(Duration::from_secs(600)),
         );

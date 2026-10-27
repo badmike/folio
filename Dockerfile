@@ -30,6 +30,7 @@ WORKDIR /src
 COPY apps/server/Cargo.toml apps/server/Cargo.lock ./
 COPY apps/server/migrations ./migrations
 COPY apps/server/src ./src
+COPY apps/server/tools ./tools
 RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry \
   --mount=type=cache,id=cargo-target,target=/src/target \
   FOLIO_VERSION=${FOLIO_VERSION} cargo build --release --locked \
