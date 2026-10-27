@@ -6,6 +6,7 @@ import {
 import { FONT_SIZE_PRESETS, STROKE_WIDTH_PRESETS, type AlignMode, type DistributeAxis, type StyleProp } from '@folio/editor'
 import { FONT_FAMILIES, FONT_LABELS } from '@folio/renderer'
 import { computed, inject, ref } from 'vue'
+import { AI_DOCK_KEY } from '../ai/dock'
 import type { IconName } from '../icons'
 import { NOTEBOOK_KEY, type NotebookController, type QuickColorSet } from '../notebook'
 import { copyText } from '../services/export'
@@ -27,6 +28,7 @@ import StyleGlyph from './StyleGlyph.vue'
  */
 const props = defineProps<{ zen?: boolean; hudHidden?: boolean }>()
 const ctl = inject<NotebookController>(NOTEBOOK_KEY)!
+const ai = inject(AI_DOCK_KEY, null)
 const ctx = computed(() => ctl.styleCtx.value)
 const sel = ctl.selection
 const tool = ctl.tool
@@ -144,6 +146,9 @@ async function cleanUp() {
 }
 function tidy() {
   if (ctl.recognitionApi?.tidySelection() === 0) toast('This handwriting is already tidy.')
+}
+function askAi() {
+  void ai?.askAboutSelection().catch((err) => { diagnostics.log('ai.askSelection', err); toastError('Could not add the selection.') })
 }
 async function copy() {
   const text = ctl.recognitionApi?.selectionText() ?? ''
@@ -321,6 +326,7 @@ const title = computed(() => (hasSel.value ? `${sel.value.count} selected` : TOO
           <section class="actions" data-testid="selection-bar" role="toolbar" aria-label="Selection actions">
             <label>Actions</label>
             <div class="opt-row">
+              <button v-if="ai" class="opt ai" aria-label="Ask AI about the selection" title="Ask AI" data-testid="ask-ai" @click="askAi"><Icon name="sparkles" :size="20" /></button>
               <button v-if="sel.ink" class="opt" aria-label="Clean Up: turn ink into text and shapes" :title="busy ? 'Working…' : 'Clean Up'" data-testid="cleanup" :disabled="busy" @click="cleanUp"><Icon name="cleanup" :size="20" /></button>
               <button v-if="sel.ink" class="opt" aria-label="Tidy: straighten lines and even out spacing" title="Tidy" data-testid="tidy" @click="tidy"><Icon name="tidy" :size="20" /></button>
               <button v-if="sel.derived" class="opt" aria-label="Restore ink" title="Restore ink" data-testid="restore-ink" @click="ctl.recognitionApi?.restoreSelection()"><Icon name="restore" :size="20" /></button>
@@ -373,6 +379,7 @@ section > label b { color: var(--text); }
 .opt:hover { background: var(--surface-3); }
 .opt.on { background: var(--accent-soft); color: var(--accent-strong); border-color: var(--accent); }
 .opt.danger { color: var(--danger); }
+.opt.ai { color: var(--ai); }
 .heads { display: flex; gap: 6px; }
 .head-list { display: flex; gap: 4px; flex-wrap: wrap; padding: 6px; border-radius: var(--radius); background: var(--surface-2); }
 .head-list .opt { background: var(--surface); width: 32px; }

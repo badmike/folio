@@ -2,7 +2,7 @@
 import { computed, inject, nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { requireServices } from '../../app'
 import { SLASH_COMMANDS, type SlashCommand } from '../../ai/commands'
-import { AI_DOCK_KEY } from '../../ai/dock'
+import { AI_DOCK_KEY, chipKey, type ComposeRequest } from '../../ai/dock'
 import type { ContextChip, UserMessage } from '../../ai/protocol'
 import type { AiSession } from '../../ai/session'
 import type { IconName } from '../../icons'
@@ -16,7 +16,8 @@ import AiPending from './AiPending.vue'
 
 const props = defineProps<{ session: AiSession }>()
 const dock = inject(AI_DOCK_KEY)!
-const ctl = inject<NotebookController>(NOTEBOOK_KEY)!
+/** null in the library dock: no page or selection chips, only notebook mentions. */
+const ctl = inject<NotebookController | null>(NOTEBOOK_KEY, null)
 const { workspace: ws } = requireServices()
 
 interface DraftChip { key: string; chip: ContextChip }
@@ -47,7 +48,11 @@ const presets = computed(() => dock.config.value?.presets ?? [])
 const uploading = computed(() => attachments.value.some((a) => a.state === 'uploading'))
 const visionBlocked = computed(() => attachments.value.length > 0 && preset.value?.vision === false)
 const canSend = computed(() => !readOnly.value && !uploading.value && !visionBlocked.value && (!!text.value.trim() || !!command.value))
-const chips = computed(() => [...autoChips.value.filter((c) => !removed.value.has(c.key)), ...mentions.value])
+const chips = computed(() => {
+  const auto = autoChips.value.filter((c) => !removed.value.has(c.key))
+  const shown = new Set(auto.map((c) => c.key))
+  return [...auto, ...mentions.value.filter((m) => !shown.has(m.key))]
+})
 
 const credit = computed(() => {
   const c = dock.credit.value
@@ -76,10 +81,10 @@ async function refreshAuto(): Promise<void> {
     const { contextBuilder } = dock.tools
     try {
       const page = await contextBuilder.pageChip(host)
-      if (page) out.push({ key: `page:${view.pageId}`, chip: page })
+      if (page) out.push({ key: chipKey(page), chip: page })
       if (view.selection.length) {
         const sel = await contextBuilder.selectionChip(host)
-        if (sel) out.push({ key: `selection:${[...view.selection].sort().join(',')}`, chip: sel })
+        if (sel) out.push({ key: chipKey(sel), chip: sel })
       }
     } catch (e) {
       diagnostics.log('ai.chips', e)
@@ -91,15 +96,15 @@ function scheduleAuto() {
   clearTimeout(autoTimer)
   autoTimer = setTimeout(() => void refreshAuto(), 250)
 }
-watch([ctl.pageId, ctl.selection, session], scheduleAuto, { immediate: true })
+watch([() => ctl?.pageId.value, () => ctl?.selection.value, session], scheduleAuto, { immediate: true })
 onBeforeUnmount(() => {
   clearTimeout(autoTimer)
   for (const a of attachments.value) if (a.url) URL.revokeObjectURL(a.url)
 })
 
 function removeChip(c: DraftChip) {
-  if (mentions.value.includes(c)) mentions.value = mentions.value.filter((m) => m !== c)
-  else removed.value = new Set([...removed.value, c.key])
+  mentions.value = mentions.value.filter((m) => m.key !== c.key)
+  if (autoChips.value.some((a) => a.key === c.key)) removed.value = new Set([...removed.value, c.key])
 }
 
 const CHIP_ICONS: Record<ContextChip['kind'], IconName> = {
@@ -119,7 +124,8 @@ const trigger = computed(() => {
 const dismissedAt = ref<number | null>(null)
 const active = ref(0)
 
-const pageLabel = (i: number) => ctl.pages.value[i]?.title || `Page ${i + 1}`
+const pages = computed(() => ctl?.pages.value ?? [])
+const pageLabel = (i: number) => pages.value[i]?.title || `Page ${i + 1}`
 const entries = computed<MenuEntry[]>(() => {
   const t = trigger.value
   if (!t || dismissedAt.value === t.start) return []
@@ -129,11 +135,13 @@ const entries = computed<MenuEntry[]>(() => {
       .map((c) => ({ kind: 'command', key: c.id, label: c.label, hint: c.hint, icon: 'sparkles', command: c }))
   }
   const out: MenuEntry[] = []
-  const nb = ctl.id
-  ctl.pages.value.forEach((p, i) => {
+  const nb = ctl?.id ?? null
+  pages.value.forEach((p, i) => {
+    if (!nb) return
     out.push({ kind: 'mention', key: `page:${p.id}`, label: pageLabel(i), hint: 'Page', icon: 'doc', chipKind: 'page', ref: { notebookId: nb, pageId: p.id } })
   })
-  ctl.pages.value.forEach((p, i) => {
+  pages.value.forEach((p, i) => {
+    if (!ctl || !nb) return
     for (const o of ctl.doc.objects(p.id)) {
       if (o.type !== 'shape' || o.kind !== 'frame' || o.supersededBy) continue
       out.push({ kind: 'mention', key: `frame:${o.id}`, label: o.label || 'Frame', hint: pageLabel(i), icon: 'frame', chipKind: 'frame', ref: { notebookId: nb, pageId: p.id, objectIds: [o.id] } })
@@ -286,6 +294,20 @@ function restore(m: UserMessage) {
   void nextTick(() => input.value?.focus())
 }
 function focus() { input.value?.focus() }
+
+/** Take an entry point's request: its chips (shown again if removed) and text, then focus or send. */
+async function take(req: ComposeRequest) {
+  dock.request.value = null
+  const fresh = req.chips.map((chip) => ({ key: chipKey(chip), chip }))
+  const keys = new Set(fresh.map((c) => c.key))
+  removed.value = new Set([...removed.value].filter((k) => !keys.has(k)))
+  mentions.value = [...mentions.value.filter((m) => !keys.has(m.key)), ...fresh]
+  if (req.text) text.value = req.text
+  await nextTick()
+  focus()
+  if (req.send) await submit()
+}
+watch(() => dock.request.value, (req) => { if (req) void take(req) }, { immediate: true })
 /** Starter chips send a command right away. */
 function runCommand(c: SlashCommand) {
   command.value = c
