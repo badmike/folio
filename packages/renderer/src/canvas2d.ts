@@ -1,4 +1,4 @@
-import { DEFAULT_BLUR_SIZE, adaptColor, isDarkColor } from '@folio/document'
+import { DEFAULT_BLUR_SIZE, adaptColor, isDarkColor, legibleOn, themeColor, themeVariant } from '@folio/document'
 import type { ArrowObject, BackgroundPattern, CanvasObject, InkStroke, Page, Rect, ShapeObject, Vec2 } from '@folio/document'
 import { arrowPath } from './arrows'
 import { noteTailPoint, worldCorners } from './bounds'
@@ -10,13 +10,15 @@ import {
 } from './background'
 import { parseColor } from './color'
 import type { Camera, Renderer, Scene, Size, VisualTheme } from './contract'
-import { buildArrowGeometry, buildShapeGeometry, type PathGeometry } from './geometry/rough'
+import { buildArrowGeometry, buildShapeGeometry, labelBackdrop, type PathGeometry } from './geometry/rough'
+import { chalkPaint } from './grain'
 import { highlighterBlend, strokeFill } from './geometry/ink'
 import { ImageCache, type ImageResolver } from './images'
 import { transformMatrix } from './math'
 import { buildOverlay } from './overlay'
 import { arrowKey, isRenderable, objectKey } from './scenekey'
-import { ARROW_LABEL_WIDTH, labelLayout, layoutText } from './text'
+import { castsShadow, noteShadow, shadowOffset, shapeShadow } from './shadow'
+import { ARROW_LABEL_WIDTH, labelLayout, layoutText, withTypography } from './text'
 import { drawTextLayout, type Ctx2D } from './textdraw'
 
 export type Canvas2DTarget = HTMLCanvasElement | OffscreenCanvas
@@ -97,20 +99,14 @@ function strokePolyline(ctx: Ctx2D, pts: Vec2[]): void {
   ctx.stroke()
 }
 
-function drawGeometry(ctx: Ctx2D, geo: PathGeometry, stroke: string, fill: string | null): void {
+type Paint = string | CanvasPattern
+
+function drawGeometry(ctx: Ctx2D, geo: PathGeometry, stroke: Paint, fill: Paint | null): void {
   ctx.lineJoin = 'round'
   ctx.lineCap = 'round'
-  if (geo.solids.length) {
-    ctx.fillStyle = stroke
-    for (const poly of geo.solids) {
-      ctx.beginPath()
-      ctx.moveTo(poly[0].x, poly[0].y)
-      for (let i = 1; i < poly.length; i++) ctx.lineTo(poly[i].x, poly[i].y)
-      ctx.closePath()
-      ctx.fill()
-    }
-  }
   if (fill) {
+    const alpha = ctx.globalAlpha
+    ctx.globalAlpha = alpha * (geo.fillOpacity ?? 1)
     ctx.fillStyle = fill
     for (const poly of geo.fills) {
       ctx.beginPath()
@@ -123,6 +119,18 @@ function drawGeometry(ctx: Ctx2D, geo: PathGeometry, stroke: string, fill: strin
       ctx.strokeStyle = fill
       ctx.lineWidth = geo.hatchWidth
       for (const line of geo.hatch) strokePolyline(ctx, line)
+    }
+    ctx.globalAlpha = alpha
+  }
+  // solids (filled arrowheads, marker strokes) sit on the fill, like the outline
+  if (geo.solids.length) {
+    ctx.fillStyle = stroke
+    for (const poly of geo.solids) {
+      ctx.beginPath()
+      ctx.moveTo(poly[0].x, poly[0].y)
+      for (let i = 1; i < poly.length; i++) ctx.lineTo(poly[i].x, poly[i].y)
+      ctx.closePath()
+      ctx.fill()
     }
   }
   ctx.strokeStyle = stroke
@@ -392,12 +400,38 @@ export function paintScene(
   images: ImageCache,
   opts: PaintOptions,
 ): void {
+  // text lays out with the scene's theme (exports may paint another notebook than the editor's)
+  withTypography(scene.theme, () => paintObjects(ctx, scene, camera, width, height, geo, images, opts))
+}
+
+function paintObjects(
+  ctx: Ctx2D,
+  scene: Scene,
+  camera: Camera,
+  width: number,
+  height: number,
+  geo: GeometryStore,
+  images: ImageCache,
+  opts: PaintOptions,
+): void {
   if (opts.background) drawBackground(ctx, scene.page, camera, width, height, opts.desk)
   const z = camera.zoom
+  const theme = scene.theme
   const bgColor = scene.page.background.color
-  // every ink/stroke/fill/text colour goes through adaptColor for the page background
-  const col = (c: string | undefined, opacity = 1): string => rgba(c ? adaptColor(c, bgColor) : c, opacity)
-  const clean = scene.theme === 'clean'
+  // every ink/stroke/fill/text colour goes through the theme (palette remap or adaptColor) for the page background
+  const shown = (c: string): string => themeColor(theme, c, bgColor)
+  const col = (c: string | undefined, opacity = 1): string => rgba(c ? shown(c) : c, opacity)
+  // chalk grain on shapes, arrows, notes and text (not on ink)
+  const tex = (css: string, strength = 1): Paint => (theme.texture === 'chalk' ? chalkPaint(ctx, css, strength) : css)
+  const shadowCol = (opacity: number): string => rgba(themeVariant(theme, bgColor).shadow, opacity)
+  /** Draw an (already offset) shadow in the object's local space; expects the camera transform on ctx. */
+  const shadow = (m: number[], g: PathGeometry, opacity: number): void => {
+    ctx.save()
+    ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5])
+    const c = shadowCol(opacity)
+    drawGeometry(ctx, g, c, g.fills.length ? c : null)
+    ctx.restore()
+  }
   const frameOf = (obj: CanvasObject): ShapeObject | undefined => {
     if (!obj.frameId) return undefined
     const f = scene.resolve(obj.frameId)
@@ -417,16 +451,16 @@ export function paintScene(
     if (obj.type === 'arrow') {
       ctx.transform(z, 0, 0, z, -camera.x * z, -camera.y * z)
       const path = arrowPath(obj, scene.resolve)
-      const g = geo.arrow(obj, path, scene.theme)
-      drawGeometry(ctx, g, col(obj.style.strokeColor, obj.style.opacity), null)
+      const g = geo.arrow(obj, path, theme)
+      drawGeometry(ctx, g, tex(col(obj.style.strokeColor, obj.style.opacity)), null)
       if (obj.label) {
-        const l = labelLayout(obj.label, ARROW_LABEL_WIDTH, clean, true, obj.labelSize)
+        const l = labelLayout(obj.label, ARROW_LABEL_WIDTH, true, obj.labelSize)
         const mid = pathMidpoint(path)
         const mx = mid.x - l.width / 2
         const my = mid.y - l.height / 2
         ctx.fillStyle = rgba(bgColor, 0.85)
         ctx.fillRect(mx - 3, my - 1, l.width + 6, l.height + 2)
-        drawTextLayout(ctx, l, adaptColor(obj.style.strokeColor, bgColor), 'center', mx, my)
+        drawTextLayout(ctx, l, tex(shown(obj.style.strokeColor)), 'center', mx, my)
       }
       ctx.restore()
       return
@@ -439,12 +473,18 @@ export function paintScene(
     }
     // camera · object transform
     ctx.transform(z, 0, 0, z, -camera.x * z, -camera.y * z)
+    if (obj.type === 'shape' && castsShadow(obj, theme)) {
+      const g = geo.shape(obj, theme)
+      shadow(m, shapeShadow(obj, g, shadowOffset(obj.transform, g.strokeWidth)), obj.style.opacity)
+    } else if (obj.type === 'text' && castsShadow(obj, theme)) {
+      shadow(m, noteShadow(obj, noteTailPoint(obj, scene.resolve), shadowOffset(obj.transform, 2)), obj.opacity ?? 1)
+    }
     ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5])
     switch (obj.type) {
       case 'ink': {
         if (obj.style.tool === 'highlighter') ctx.globalCompositeOperation = highlighterBlend(bgColor)
         ctx.fillStyle = col(obj.style.color, obj.style.opacity)
-        for (const pass of geo.inkPolygons(obj, scene.theme)) {
+        for (const pass of geo.inkPolygons(obj, theme)) {
           ctx.beginPath()
           for (const o of pass) {
             ctx.moveTo(o[0].x, o[0].y)
@@ -458,15 +498,16 @@ export function paintScene(
       case 'shape': {
         const s = obj.style
         if (obj.kind === 'frame') {
-          drawGeometry(ctx, geo.shape(obj, scene.theme), col(frameColor(bgColor), s.opacity), null)
+          drawGeometry(ctx, geo.shape(obj, theme), rgba(adaptColor(frameColor(bgColor), bgColor), s.opacity), null)
           if (obj.label) {
             const size = obj.labelSize ?? FRAME_LABEL_SIZE
             const l = layoutText({ text: obj.label, fontSize: size, fontFamily: 'sans', align: 'left' })
-            drawTextLayout(ctx, l, col(frameColor(bgColor)), 'left', 0, -l.height - 2)
+            drawTextLayout(ctx, l, rgba(adaptColor(frameColor(bgColor), bgColor)), 'left', 0, -l.height - 2)
           }
           break
         }
-        drawGeometry(ctx, geo.shape(obj, scene.theme), col(s.strokeColor, s.opacity), s.fillColor ? col(s.fillColor, s.opacity) : null)
+        const fill = s.fillColor && s.fillColor !== 'transparent' ? shown(s.fillColor) : null
+        drawGeometry(ctx, geo.shape(obj, theme), tex(col(s.strokeColor, s.opacity)), fill ? tex(rgba(fill, s.opacity)) : null)
         if (obj.kind === 'counter') {
           const l = counterLabel(obj)
           // the number sits on the pin, so a filled pin keeps the picked colour as is
@@ -474,8 +515,10 @@ export function paintScene(
           break
         }
         if (obj.label) {
-          const l = labelLayout(obj.label, obj.width, clean, false, obj.labelSize)
-          drawTextLayout(ctx, l, adaptColor(s.strokeColor, bgColor), 'center', (obj.width - l.width) / 2, (obj.height - l.height) / 2)
+          const l = labelLayout(obj.label, obj.width, false, obj.labelSize)
+          const behind = labelBackdrop(s, theme, bgColor)
+          const lc = behind ? legibleOn(shown(s.strokeColor), behind) : shown(s.strokeColor)
+          drawTextLayout(ctx, l, tex(lc), 'center', (obj.width - l.width) / 2, (obj.height - l.height) / 2)
         }
         break
       }
@@ -483,7 +526,8 @@ export function paintScene(
         if (obj.opacity !== undefined && obj.opacity < 1) ctx.globalAlpha = Math.max(0, obj.opacity)
         if (obj.background) {
           const box = noteBox(obj)
-          ctx.fillStyle = col(obj.background)
+          const fill = shown(obj.background)
+          ctx.fillStyle = tex(rgba(fill), 0.5)
           for (const poly of [noteOutline(box), noteTail(box, noteTailPoint(obj, scene.resolve))]) {
             if (!poly) continue
             ctx.beginPath()
@@ -491,11 +535,11 @@ export function paintScene(
             ctx.closePath()
             ctx.fill()
           }
-          // the text sits on the box, so it keeps the picked colour as is
-          drawTextLayout(ctx, layoutText(obj), obj.color, obj.align)
+          // the text sits on the box, so it keeps the picked colour unless that would not read
+          drawTextLayout(ctx, layoutText(obj), tex(legibleOn(obj.color, fill)), obj.align)
           break
         }
-        drawTextLayout(ctx, layoutText(obj), adaptColor(obj.color, bgColor), obj.align)
+        drawTextLayout(ctx, layoutText(obj), tex(shown(obj.color)), obj.align)
         break
       case 'image':
         drawImageObject(ctx, obj, images)

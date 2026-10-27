@@ -3,7 +3,10 @@
  * Handles new text objects, editing existing text and editing shape/arrow labels.
  */
 import { DEFAULT_LABEL_SIZE, type ArrowBinding, type ObjectId, type ShapeObject, type TextObject, type Transform, type Vec2 } from '@folio/document'
-import { ARROW_LABEL_WIDTH, FONT_FAMILIES, FRAME_LABEL_SIZE, arrowPath, counterLabel, frameColor, labelLayout, layoutText, pathMidpoint, type TextLayout } from '@folio/renderer'
+import {
+  ARROW_LABEL_WIDTH, FONT_FAMILIES, FRAME_LABEL_SIZE, arrowPath, counterLabel, displayFamily, displayUppercase, frameColor, labelLayout, layoutText, pathMidpoint,
+  type TextLayout,
+} from '@folio/renderer'
 import type { Editor } from './editor'
 import { IDENTITY, createId, localToWorld, worldToLocal } from './geometry'
 
@@ -17,6 +20,8 @@ interface Placement {
   layout: TextLayout
   fontSize: number
   family: string
+  /** Shown in capitals (the theme's base font). */
+  uppercase: boolean
   color: string
   align: 'left' | 'center' | 'right'
   wrap: boolean
@@ -141,7 +146,7 @@ export class TextEditor {
     Object.assign(el.style, {
       left: `${s.x}px`, top: `${s.y}px`, width: `${p.layout.width * z}px`, height: `${p.layout.height * z}px`, padding: `${padY}px ${padX}px`,
       fontSize: `${p.fontSize * z}px`, lineHeight: String(p.layout.lineHeight / p.fontSize), fontFamily: p.family,
-      color: p.color, textAlign: p.align, whiteSpace: p.wrap ? 'pre-wrap' : 'pre',
+      color: p.color, textAlign: p.align, whiteSpace: p.wrap ? 'pre-wrap' : 'pre', textTransform: p.uppercase ? 'uppercase' : 'none',
       transform: `rotate(${p.transform.rotation}rad) scale(${p.transform.scaleX}, ${p.transform.scaleY}) translate(${-padX}px, ${-padY}px)`,
     })
   }
@@ -158,32 +163,31 @@ export class TextEditor {
 
   /** Layout box of the edited text in the object's local space, mirroring how the renderer draws it. */
   private placement(mode: Mode, value: string): Placement | undefined {
-    const clean = this.editor.theme === 'clean'
     if (mode.kind === 'label') {
       const o = this.editor.getObject(mode.id)
       if (o?.type === 'shape' && o.kind === 'frame') {
         const fontSize = o.labelSize ?? FRAME_LABEL_SIZE
         const layout = layoutText({ text: value, fontSize, fontFamily: 'sans', align: 'left' })
         const color = frameColor(this.editor.page?.background.color ?? '#ffffff')
-        return { transform: o.transform, origin: { x: 0, y: -layout.height - 2 }, layout, fontSize, family: FONT_FAMILIES.sans, color, align: 'left', wrap: false }
+        return { transform: o.transform, origin: { x: 0, y: -layout.height - 2 }, layout, fontSize, family: FONT_FAMILIES.sans, uppercase: false, color, align: 'left', wrap: false }
       }
       if (o?.type !== 'shape' && o?.type !== 'arrow') return undefined
       if (o.type === 'shape' && o.kind === 'counter') {
         const l = counterLabel({ ...o, label: value || ' ' })!
         return {
-          transform: o.transform, origin: { x: l.x, y: l.y }, layout: l.layout, fontSize: l.fontSize, family: FONT_FAMILIES[o.fontFamily ?? 'sans'],
+          transform: o.transform, origin: { x: l.x, y: l.y }, layout: l.layout, fontSize: l.fontSize, family: FONT_FAMILIES[displayFamily(o.fontFamily ?? 'sans')], uppercase: displayUppercase(o.fontFamily ?? 'sans'),
           color: o.style.strokeColor, align: 'center', wrap: false,
         }
       }
       const fontSize = o.labelSize ?? DEFAULT_LABEL_SIZE
-      const family = clean ? FONT_FAMILIES.sans : FONT_FAMILIES.hand
-      const label = { family, color: o.style.strokeColor, align: 'center', wrap: true, fontSize } as const
+      const family = FONT_FAMILIES[displayFamily('hand')]
+      const label = { family, uppercase: displayUppercase('hand'), color: o.style.strokeColor, align: 'center', wrap: true, fontSize } as const
       if (o.type === 'shape') {
-        const layout = labelLayout(value, o.width, clean, false, fontSize)
+        const layout = labelLayout(value, o.width, false, fontSize)
         return { ...label, transform: o.transform, origin: { x: (o.width - layout.width) / 2, y: (o.height - layout.height) / 2 }, layout }
       }
       // the box spans the full wrap width; centered lines land where the renderer's fitted box puts them
-      const layout = labelLayout(value, ARROW_LABEL_WIDTH, clean, false, fontSize)
+      const layout = labelLayout(value, ARROW_LABEL_WIDTH, false, fontSize)
       const mid = pathMidpoint(arrowPath(o, this.editor.resolve))
       return { ...label, transform: IDENTITY, origin: { x: mid.x - layout.width / 2, y: mid.y - layout.height / 2 }, layout }
     }
@@ -194,7 +198,7 @@ export class TextEditor {
     const stored = mode.kind === 'text' ? this.editor.document.object(this.editor.pageId, mode.id) : undefined
     return {
       transform: t.transform, origin: { x: 0, y: 0 }, layout, fontSize: t.fontSize,
-      family: FONT_FAMILIES[t.fontFamily], color: stored?.type === 'text' ? stored.color : t.color, align: t.align ?? 'left', wrap: !!t.width,
+      family: FONT_FAMILIES[displayFamily(t.fontFamily)], uppercase: displayUppercase(t.fontFamily), color: stored?.type === 'text' ? stored.color : t.color, align: t.align ?? 'left', wrap: !!t.width,
     }
   }
 

@@ -9,7 +9,7 @@ import { arrowHeadLength, arrowheadParts, buildArrowGeometry, buildShapeGeometry
 import { createLiveInkLayer } from '../src/live-ink'
 import { objectWorldBounds } from '../src/bounds'
 import { hitTestObject, objectIntersectsRect } from '../src/hit'
-import { arrow, ink, PAGE, scene, shape, text, useFakeMeasure } from './helpers'
+import { CLEAN, ROUGH, arrow, ink, PAGE, scene, shape, text, useFakeMeasure } from './helpers'
 
 beforeAll(useFakeMeasure)
 
@@ -51,13 +51,13 @@ describe('dashes', () => {
   })
 
   it('shape and arrow geometry apply strokeStyle (rough theme too)', () => {
-    const solid = buildShapeGeometry(shape('s', 'rectangle', 200, 100, {}, { roughness: 1 }), 'rough')
-    const dashed = buildShapeGeometry(shape('s', 'rectangle', 200, 100, {}, { roughness: 1, strokeStyle: 'dashed' }), 'rough')
+    const solid = buildShapeGeometry(shape('s', 'rectangle', 200, 100, {}, { roughness: 1 }), ROUGH)
+    const dashed = buildShapeGeometry(shape('s', 'rectangle', 200, 100, {}, { roughness: 1, strokeStyle: 'dashed' }), ROUGH)
     expect(dashed.strokes.length).toBeGreaterThan(solid.strokes.length * 3)
-    const dotted = buildShapeGeometry(shape('s', 'ellipse', 100, 100, {}, { roughness: 0, strokeStyle: 'dotted' }), 'clean')
+    const dotted = buildShapeGeometry(shape('s', 'ellipse', 100, 100, {}, { roughness: 0, strokeStyle: 'dotted' }), CLEAN)
     expect(dotted.strokes.length).toBeGreaterThan(20)
     const a = arrow('a', { x: 0, y: 0 }, { x: 200, y: 0 }, { style: { strokeColor: '#000', strokeWidth: 2, opacity: 1, roughness: 0, seed: 1, strokeStyle: 'dashed' } })
-    const g = buildArrowGeometry(a, [a.start, a.end], 'clean')
+    const g = buildArrowGeometry(a, [a.start, a.end], CLEAN)
     expect(g.strokes.length).toBeGreaterThan(8)
     // the head stays a solid open polyline
     expect(g.strokes.some((l) => l.length === 3)).toBe(true)
@@ -65,15 +65,15 @@ describe('dashes', () => {
 
   it('fillStyle is passed through (hachure / cross-hatch / solid)', () => {
     const base = { fillColor: '#f00', roughness: 1 }
-    const solid = buildShapeGeometry(shape('s', 'rectangle', 120, 80, {}, { ...base, fillStyle: 'solid' }), 'rough')
-    const hach = buildShapeGeometry(shape('s', 'rectangle', 120, 80, {}, { ...base, fillStyle: 'hachure' }), 'rough')
-    const cross = buildShapeGeometry(shape('s', 'rectangle', 120, 80, {}, { ...base, fillStyle: 'cross-hatch' }), 'rough')
+    const solid = buildShapeGeometry(shape('s', 'rectangle', 120, 80, {}, { ...base, fillStyle: 'solid' }), ROUGH)
+    const hach = buildShapeGeometry(shape('s', 'rectangle', 120, 80, {}, { ...base, fillStyle: 'hachure' }), ROUGH)
+    const cross = buildShapeGeometry(shape('s', 'rectangle', 120, 80, {}, { ...base, fillStyle: 'cross-hatch' }), ROUGH)
     expect(solid.fills.length).toBeGreaterThan(0)
     expect(solid.hatch).toHaveLength(0)
     expect(hach.hatch.length).toBeGreaterThan(3)
     expect(cross.hatch.length).toBeGreaterThan(hach.hatch.length)
     // clean theme: hachure is straight parallel lines
-    const clean = buildShapeGeometry(shape('s', 'rectangle', 120, 80, {}, { ...base, fillStyle: 'hachure' }), 'clean')
+    const clean = buildShapeGeometry(shape('s', 'rectangle', 120, 80, {}, { ...base, fillStyle: 'hachure' }), CLEAN)
     expect(clean.hatch.length).toBeGreaterThan(3)
     for (const l of clean.hatch) {
       const a = l[0], b = l[l.length - 1]
@@ -146,7 +146,7 @@ describe('arrowheads', () => {
     const maxX = (g: ReturnType<typeof buildArrowGeometry>) => Math.max(...g.strokes[0].map((q) => q.x))
     const build = (endHead: 'triangle-outline' | 'dot-outline' | 'diamond-outline' | 'triangle') => {
       const a = arrow('a', { x: 0, y: 0 }, { x: 200, y: 0 }, { endHead, style })
-      return buildArrowGeometry(a, [a.start, a.end], 'clean')
+      return buildArrowGeometry(a, [a.start, a.end], CLEAN)
     }
     const len = arrowHeadLength(style, 200)
     expect(maxX(build('triangle-outline'))).toBeCloseTo(200 - len * Math.cos(Math.PI / 7))
@@ -166,7 +166,7 @@ describe('arrowheads', () => {
   })
   it('geometry adds solid polygons for triangle/dot and filled heads render with the stroke colour', () => {
     const a = arrow('a', { x: 0, y: 0 }, { x: 100, y: 0 }, { endHead: 'triangle', startHead: 'dot', style })
-    const g = buildArrowGeometry(a, [a.start, a.end], 'clean')
+    const g = buildArrowGeometry(a, [a.start, a.end], CLEAN)
     expect(g.solids).toHaveLength(2)
   })
 })

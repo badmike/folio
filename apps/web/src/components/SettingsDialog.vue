@@ -11,6 +11,7 @@ import CalibrationDialog from './CalibrationDialog.vue'
 import Icon from './Icon.vue'
 import Modal from './Modal.vue'
 import Switch from './Switch.vue'
+import ThemeSettings from './ThemeSettings.vue'
 
 defineEmits<{ (e: 'close'): void }>()
 const svc = requireServices()
@@ -20,6 +21,7 @@ const SECTIONS = [
   { id: 'account', label: 'Account', icon: 'user' },
   { id: 'handwriting', label: 'Handwriting', icon: 'pen' },
   { id: 'drawing', label: 'Drawing', icon: 'shape' },
+  { id: 'themes', label: 'Themes', icon: 'palette' },
   { id: 'data', label: 'Data & offline', icon: 'layers' },
 ] as const
 type Section = (typeof SECTIONS)[number]['id']
@@ -143,17 +145,11 @@ const STORAGE: Record<typeof svc.storageKind, string> = { 'sqlite-opfs': 'SQLite
             </div>
           </template>
 
+          <template v-else-if="section === 'themes'">
+            <ThemeSettings />
+          </template>
+
           <template v-else-if="section === 'drawing'">
-            <div class="setting">
-              <div class="text">
-                <div class="name">Shape style</div>
-                <p>How shapes, arrows and cleaned-up drawings look.</p>
-              </div>
-              <div class="seg soft" role="radiogroup" aria-label="Shape style">
-                <button :class="{ on: settings.theme === 'rough' }" @click="settings.theme = 'rough'">Hand-drawn</button>
-                <button :class="{ on: settings.theme === 'clean' }" @click="settings.theme = 'clean'">Clean</button>
-              </div>
-            </div>
             <div class="setting">
               <div class="text">
                 <label class="name" for="s-pen">Draw with</label>

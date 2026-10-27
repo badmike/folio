@@ -5,6 +5,7 @@ import { highlighterOutline } from '../src/geometry/ink'
 import { buildShapeGeometry } from '../src/geometry/rough'
 import { hitTestObject } from '../src/hit'
 import { cornerRadius, roundedPolygon, roundedShape, shapeOutline } from '../src/shapes'
+import { CLEAN, ROUGH } from './helpers'
 
 const ident = { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 }
 const style = { strokeColor: '#000', strokeWidth: 2, opacity: 1, roughness: 0, seed: 1 }
@@ -27,17 +28,17 @@ describe('rounded corners', () => {
     expect(roundedPolygon([{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 60 }, { x: 0, y: 60 }], 15).d).toMatch(/^M0 15 C0 5 5 0 15 0L85 0 C95 0 100 5 100 15/)
   })
   it('rough geometry of a round rectangle is a curved path, a sharp one a rectangle', () => {
-    const round = buildShapeGeometry(box('rectangle', 100, 60, { style: { ...style, roundness: 'round' } }), 'rough')
-    const sharp = buildShapeGeometry(box('rectangle', 100, 60), 'rough')
+    const round = buildShapeGeometry(box('rectangle', 100, 60, { style: { ...style, roundness: 'round' } }), ROUGH)
+    const sharp = buildShapeGeometry(box('rectangle', 100, 60), ROUGH)
     expect(round.strokes.flat().length).toBeGreaterThan(sharp.strokes.flat().length)
   })
   it('rounded outlines are drawn as joined strokes that start and end on the tangent points', () => {
     const shape = box('rectangle', 100, 60, { style: { ...style, roundness: 'round' } })
-    const clean = buildShapeGeometry(shape, 'clean').strokes
+    const clean = buildShapeGeometry(shape, CLEAN).strokes
     expect(clean).toHaveLength(1)
     expect(clean[0][0]).toEqual(clean[0].at(-1))
     const tangents = [[0, 15], [15, 0], [85, 0], [100, 15], [100, 45], [85, 60], [15, 60], [0, 45]].map(([x, y]) => ({ x, y }))
-    const rough = buildShapeGeometry({ ...shape, style: { ...shape.style, roughness: 2 } }, 'rough').strokes
+    const rough = buildShapeGeometry({ ...shape, style: { ...shape.style, roughness: 2 } }, ROUGH).strokes
     for (const line of rough) {
       expect(tangents).toContainEqual(line[0])
       expect(tangents).toContainEqual(line.at(-1))
@@ -93,7 +94,7 @@ describe('lines with points, frames and blur masks', () => {
     const l = box('line', 200, 100, { points: [{ x: 0, y: 0 }, { x: 100, y: 100 }, { x: 200, y: 0 }] })
     expect(hitTestObject(l, { x: 100, y: 98 }, 4, resolve)).toBe(true)
     expect(hitTestObject(l, { x: 100, y: 50 }, 4, resolve)).toBe(false)
-    const g = buildShapeGeometry(l, 'clean').strokes.flat()
+    const g = buildShapeGeometry(l, CLEAN).strokes.flat()
     expect(g.some((p) => Math.abs(p.x - 100) < 1e-6 && Math.abs(p.y - 100) < 1e-6)).toBe(true)
   })
   it('line handles: ends, interior points and segment middles in world space', () => {
@@ -120,7 +121,7 @@ describe('lines with points, frames and blur masks', () => {
     expect(hitTestObject(f, { x: 20, y: -10 }, 4, resolve)).toBe(true)
     const p = box('blur', 100, 100)
     expect(hitTestObject(p, { x: 50, y: 50 }, 4, resolve)).toBe(true)
-    expect(buildShapeGeometry(p, 'rough').strokes).toEqual([])
+    expect(buildShapeGeometry(p, ROUGH).strokes).toEqual([])
   })
   it('elbow: dragging an end segment keeps the end point fixed and subdivides the route', () => {
     const path = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }]

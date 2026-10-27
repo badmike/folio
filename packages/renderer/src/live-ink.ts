@@ -1,6 +1,6 @@
-import { adaptColor } from '@folio/document'
+import { adaptColor, themeColor } from '@folio/document'
 import type { InkPoint, StrokeStyle } from '@folio/document'
-import type { Camera, LiveInkLayer, Size } from './contract'
+import type { Camera, LiveInkLayer, Size, VisualTheme } from './contract'
 import { highlighterBlend, highlighterPasses } from './geometry/ink'
 
 /** Width multiplier for a pressure value; matches perfect-freehand thinning 0.5 at mid pressure. */
@@ -30,8 +30,9 @@ export function createLiveInkLayer(canvas: HTMLCanvasElement): LiveInkLayer {
   let camera: Camera = { x: 0, y: 0, zoom: 1 }
   let prevMid: { x: number; y: number } | null = null
   let background = '#ffffff'
-  /** Colour actually painted for the current stroke on this page background. */
-  const paintColor = () => adaptColor(style!.color, background)
+  let theme: VisualTheme | null = null
+  /** Colour actually painted for the current stroke on this page background (as the scene will show it). */
+  const paintColor = () => (theme ? themeColor(theme, style!.color, background) : adaptColor(style!.color, background))
 
   const sx = (x: number) => (x - camera.x) * camera.zoom
   const sy = (y: number) => (y - camera.y) * camera.zoom
@@ -141,6 +142,9 @@ export function createLiveInkLayer(canvas: HTMLCanvasElement): LiveInkLayer {
   const layer: LiveInkLayer = {
     setBackground(color) {
       background = color
+    },
+    setTheme(t) {
+      theme = t
     },
     begin(s) {
       style = s

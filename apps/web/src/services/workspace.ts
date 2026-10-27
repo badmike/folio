@@ -1,13 +1,13 @@
 import {
   NotebookDocument, WorkspaceDocument, createId, createPage, defaultBackground, exportFolio, exportMarkdown,
   importExcalidraw, importFolio, searchDocsFor, type ExcalidrawAsset,
-  CANVAS_BACKGROUNDS_DARK, defaultLineColor,
-  type Appearance, type AssetMap, type BackgroundPattern, type PageBackground, type FolderEntry, type FolderId, type NotebookEntry, type NotebookId,
-  type Operation, type Page,
+  type Appearance, type AssetMap, type BackgroundPattern, type FolderEntry, type FolderId, type NotebookEntry, type NotebookId,
+  type Operation, type Page, type ResolvedTheme, type ThemeId,
 } from '@folio/document'
 import { DocPersister, type Diagnostics, type SearchHit, type Storage } from '@folio/persistence'
 import { welcomeOperations } from './welcome'
 import { settings, type DefaultPageType } from './settings'
+import { themeFor, themedBackground } from './themes'
 
 export const WORKSPACE_DOC_ID = 'workspace'
 const OPEN_CACHE_LIMIT = 6
@@ -29,22 +29,13 @@ export interface NewNotebookOptions {
   pattern?: BackgroundPattern
   folderId?: FolderId | null
   tags?: string[]
+  /** Visual theme (default: the device's default theme). */
+  theme?: ThemeId
 }
 
-/** Default page background; follows the app's light/dark scheme when the setting is on. */
-export function themedBackground(pattern: BackgroundPattern): PageBackground {
-  const bg = defaultBackground(pattern)
-  const dark = typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches
-  if (settings.canvasFollowsTheme && dark) {
-    const color = CANVAS_BACKGROUNDS_DARK[0]
-    return { ...bg, color, lineColor: defaultLineColor(color) }
-  }
-  return bg
-}
-
-/** Build the first page for a new notebook. */
-export function pageFor(type: DefaultPageType, pattern: BackgroundPattern, order = 1): Page {
-  const background = themedBackground(pattern)
+/** Build the first page for a new notebook, on the theme's paper. */
+export function pageFor(type: DefaultPageType, pattern: BackgroundPattern, theme: ResolvedTheme, order = 1): Page {
+  const background = themedBackground(pattern, theme)
   return type === 'infinite'
     ? createPage({ kind: 'infinite', order, background })
     : createPage({ kind: 'fixed', format: type, order, background })
@@ -389,18 +380,20 @@ export class Workspace {
 
   async createNotebook(opts: NewNotebookOptions = {}): Promise<NotebookId> {
     const now = Date.now()
+    const themeId = opts.theme ?? settings.defaultTheme
     const doc = NotebookDocument.create(
-      { title: opts.title?.trim() || 'Untitled', tags: opts.tags ?? [], createdAt: now, updatedAt: now },
+      { title: opts.title?.trim() || 'Untitled', tags: opts.tags ?? [], createdAt: now, updatedAt: now, theme: themeId },
       { peerId: this.peerId, now },
     )
+    const theme = themeFor(themeId)
     const type = opts.pageType ?? 'infinite'
     const pattern = opts.pattern ?? 'blank'
     if (type !== 'infinite' || pattern !== 'blank') {
       const first = doc.pages()[0]
-      const page = pageFor(type, pattern)
+      const page = pageFor(type, pattern, theme)
       doc.apply([{ type: 'addPage', page }, { type: 'deletePage', pageId: first.id }])
     } else {
-      const bg = themedBackground('blank')
+      const bg = themedBackground('blank', theme)
       if (bg.color !== doc.pages()[0].background.color) doc.apply([{ type: 'updatePage', pageId: doc.pages()[0].id, patch: { background: bg } }])
     }
     return (await this.register(doc, opts.folderId ?? null)).id
@@ -550,7 +543,7 @@ export class Workspace {
     const now = Date.now()
     const doc = NotebookDocument.create({ title: title.trim() || 'Untitled', tags: [], createdAt: now, updatedAt: now }, { peerId: this.peerId, now })
     const pageId = doc.pages()[0].id
-    const bg = themedBackground('blank')
+    const bg = themedBackground('blank', themeFor(settings.defaultTheme))
     doc.apply([{ type: 'updatePage', pageId, patch: { background: bg } }, ...(objects.length ? [{ type: 'addObjects' as const, pageId, objects }] : [])])
     return (await this.register(doc, folderId)).id
   }

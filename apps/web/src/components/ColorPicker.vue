@@ -1,18 +1,20 @@
 <script setup lang="ts">
-import { PALETTE, adaptColor } from '@folio/document'
+import { PALETTE, adaptColor, themeColor, type ResolvedTheme } from '@folio/document'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { GRID_KEYS, colorForHue, normalizeHex, sameColor, shadesFor } from '../color-ui'
 import Icon from './Icon.vue'
 
 /**
  * Excalidraw-style colour picker popover: "Colors" hue grid (keyboard letters), "Shades" row (keys 1-5) and
- * a hex code input with an optional eyedropper. Swatches are previewed adapted to the page background, but
+ * a hex code input with an optional eyedropper. Swatches are previewed as the theme shows them on the page background, but
  * the emitted value is always the canonical (stored) colour.
  */
 const props = withDefaults(defineProps<{
   modelValue: string
   /** Page background the swatches are previewed on. */
   background?: string
+  /** Notebook theme: swatches preview its palette. */
+  theme?: ResolvedTheme
   /** 'stroke' colours cannot be transparent. */
   allowTransparent?: boolean
   title?: string
@@ -24,7 +26,7 @@ const hex = ref('')
 const hexError = ref(false)
 const supportsEyeDropper = typeof window !== 'undefined' && 'EyeDropper' in window
 const shades = computed(() => shadesFor(props.modelValue))
-const show = (c: string) => adaptColor(c, props.background)
+const show = (c: string) => (props.theme ? themeColor(props.theme, c, props.background) : adaptColor(c, props.background))
 const isAdapted = (c: string) => c !== 'transparent' && show(c).toLowerCase() !== c.toLowerCase()
 
 function syncHex() {

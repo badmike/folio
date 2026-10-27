@@ -1,19 +1,21 @@
 <script setup lang="ts">
-import type { BackgroundPattern } from '@folio/document'
+import type { BackgroundPattern, ThemeId } from '@folio/document'
 import { onMounted, ref } from 'vue'
 import { settings, type DefaultPageType } from '../services/settings'
 import { PATTERN_OPTIONS } from '../patterns'
 import Modal from './Modal.vue'
 import PatternGlyph from './PatternGlyph.vue'
+import ThemePicker from './ThemePicker.vue'
 
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'create', o: { title: string; pageType: DefaultPageType; pattern: BackgroundPattern }): void
+  (e: 'create', o: { title: string; pageType: DefaultPageType; pattern: BackgroundPattern; theme: ThemeId }): void
 }>()
 
 const title = ref('')
 const pageType = ref<DefaultPageType>(settings.defaultPageType)
 const pattern = ref<BackgroundPattern>(settings.defaultPattern)
+const theme = ref<ThemeId>(settings.defaultTheme)
 const input = ref<HTMLInputElement | null>(null)
 onMounted(() => input.value?.focus())
 
@@ -26,12 +28,12 @@ const TYPES: { v: DefaultPageType; label: string; sub: string; w: number; h: num
 ]
 const PATTERNS = PATTERN_OPTIONS
 function submit() {
-  emit('create', { title: title.value, pageType: pageType.value, pattern: pattern.value })
+  emit('create', { title: title.value, pageType: pageType.value, pattern: pattern.value, theme: theme.value })
 }
 </script>
 
 <template>
-  <Modal title="New notebook" description="Pick a page type and a background. You can change both later, page by page." @close="emit('close')">
+  <Modal title="New notebook" description="Pick a page type, a background and a theme. You can change them later." @close="emit('close')">
     <form id="new-nb" @submit.prevent="submit">
       <div class="field">
         <label for="nb-title">Title</label>
@@ -63,6 +65,10 @@ function submit() {
             <span>{{ p.label }}</span>
           </button>
         </div>
+      </div>
+      <div class="field">
+        <span class="label">Theme</span>
+        <ThemePicker v-model="theme" label="Theme" />
       </div>
     </form>
     <template #footer>

@@ -1,5 +1,5 @@
 import earcut from 'earcut'
-import { adaptColor, type ArrowObject, type InkStroke, type ShapeObject, type Vec2 } from '@folio/document'
+import { adaptColor, themeColor, type ArrowObject, type InkStroke, type ShapeObject, type Vec2 } from '@folio/document'
 import type { VisualTheme } from '../contract'
 import { premultiplied, type RGBA } from '../color'
 import { strokeFill, strokeOutline } from './ink'
@@ -182,6 +182,9 @@ function addDot(mb: MeshBuilder, c: Vec2, width: number, color: RGBA): void {
 }
 
 export function addGeometry(mb: MeshBuilder, geo: PathGeometry, strokeColor: RGBA, fillColor: RGBA | null): void {
+  // colours are premultiplied, so opacity scales every channel
+  const f = geo.fillOpacity ?? 1
+  if (fillColor && f !== 1) fillColor = fillColor.map((c) => c * f) as RGBA
   if (fillColor) {
     for (const poly of geo.fills) addPolygon(mb, poly, fillColor)
     for (const line of geo.hatch) addPolyline(mb, line, geo.hatchWidth, fillColor)
@@ -191,11 +194,14 @@ export function addGeometry(mb: MeshBuilder, geo: PathGeometry, strokeColor: RGB
 }
 
 // --- object level builders ------------------------------------------------
-// `bg` = page background colour: stored colours are adapted to it (see adaptColor).
+// `bg` = page background colour: stored colours are mapped for it by the theme (see themeColor),
+// or adapted to it (adaptColor) when no theme is given.
 
-export function buildInkMesh(mb: MeshBuilder, stroke: InkStroke, bg = '#ffffff'): void {
+const shown = (c: string, bg: string, theme?: VisualTheme): string => (theme ? themeColor(theme, c, bg) : adaptColor(c, bg))
+
+export function buildInkMesh(mb: MeshBuilder, stroke: InkStroke, bg = '#ffffff', theme?: VisualTheme): void {
   const outline = strokeOutline(stroke)
-  addPolygon(mb, outline, premultiplied(adaptColor(stroke.style.color, bg), stroke.style.opacity))
+  addPolygon(mb, outline, premultiplied(shown(stroke.style.color, bg, theme), stroke.style.opacity))
 }
 
 /**
@@ -216,9 +222,9 @@ export interface StencilFill {
  * and sharp turns do not leave holes. Ear clipping can do neither. Each highlighter pass is a
  * separate fill, so where the stroke goes back over itself the colour builds up.
  */
-export function buildInkStencilMesh(mb: MeshBuilder, stroke: InkStroke, bg = '#ffffff'): StencilFill {
+export function buildInkStencilMesh(mb: MeshBuilder, stroke: InkStroke, bg = '#ffffff', theme?: VisualTheme): StencilFill {
   const { polygons, union, passes: counts } = strokeFill(stroke)
-  const color = premultiplied(adaptColor(stroke.style.color, bg), stroke.style.opacity)
+  const color = premultiplied(shown(stroke.style.color, bg, theme), stroke.style.opacity)
   const passes: StencilFill['passes'] = []
   let next = 0
   for (const count of counts) {
@@ -245,17 +251,17 @@ export function buildInkStencilMesh(mb: MeshBuilder, stroke: InkStroke, bg = '#f
 export function buildShapeMesh(mb: MeshBuilder, shape: ShapeObject, theme: VisualTheme, bg = '#ffffff'): void {
   const s = shape.style
   const geo = buildShapeGeometry(shape, theme)
-  const stroke = shape.kind === 'frame' ? frameColor(bg) : adaptColor(s.strokeColor, bg)
+  const stroke = shape.kind === 'frame' ? frameColor(bg) : shown(s.strokeColor, bg, theme)
   addGeometry(
     mb,
     geo,
     premultiplied(stroke, s.opacity),
-    s.fillColor && shape.kind !== 'frame' ? premultiplied(adaptColor(s.fillColor, bg), s.opacity) : null,
+    s.fillColor && shape.kind !== 'frame' ? premultiplied(shown(s.fillColor, bg, theme), s.opacity) : null,
   )
 }
 
 /** `path` = arrowPath(arrow, resolve). */
 export function buildArrowMesh(mb: MeshBuilder, arrow: ArrowObject, path: Vec2[], theme: VisualTheme, bg = '#ffffff'): void {
   const geo = buildArrowGeometry(arrow, path, theme)
-  addGeometry(mb, geo, premultiplied(adaptColor(arrow.style.strokeColor, bg), arrow.style.opacity), null)
+  addGeometry(mb, geo, premultiplied(shown(arrow.style.strokeColor, bg, theme), arrow.style.opacity), null)
 }

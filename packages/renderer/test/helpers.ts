@@ -1,6 +1,10 @@
-import type { ArrowObject, CanvasObject, ImageObject, InkStroke, Page, ShapeObject, TextObject, Transform } from '@folio/document'
+import { resolveTheme, type ArrowObject, type CanvasObject, type ImageObject, type InkStroke, type Page, type ShapeObject, type TextObject, type Transform } from '@folio/document'
 import type { Scene } from '../src/contract'
 import { setTextMeasurer } from '../src/text'
+
+/** Resolved presets for tests. */
+export const ROUGH = resolveTheme('rough')
+export const CLEAN = resolveTheme('clean')
 
 export const T: Transform = { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 }
 
@@ -55,5 +59,5 @@ export const PAGE: Page = {
 
 export function scene(objects: CanvasObject[], over: Partial<Scene> = {}): Scene {
   const map = new Map(objects.map((o) => [o.id, o]))
-  return { page: PAGE, objects, resolve: (id) => map.get(id), theme: 'rough', ...over }
+  return { page: PAGE, objects, resolve: (id) => map.get(id), theme: ROUGH, ...over }
 }

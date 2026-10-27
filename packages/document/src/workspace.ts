@@ -1,6 +1,7 @@
 import { LoroDoc, LoroMap, VersionVector } from 'loro-crdt'
 import type { WorkspaceDocumentApi } from './api'
 import { cloneJson } from './internal'
+import { THEME_IDS, isThemeId, sanitizeThemeOverrides, type ThemeId, type ThemeOverrides } from './themes'
 import type { FolderEntry, FolderId, NotebookEntry, NotebookId, TagStyle, Unsubscribe } from './types'
 
 type Origin = 'local' | 'remote' | 'load'
@@ -10,6 +11,7 @@ type Origin = 'local' | 'remote' | 'load'
  *   folders:   Map folderId   -> Map(field -> value)
  *   notebooks: Map notebookId -> Map(field -> value)
  *   tags:      Map tag name   -> Map(field -> value)
+ *   themes:    Map 'themeId:option' -> value   (customisations; flat, so concurrent edits merge per option)
  * Deletion is soft (`deleted: true`). Deleting a folder soft-deletes it and its nested
  * folders and moves every notebook inside them to the deleted folder's nearest live
  * ancestor (root if none), so notes are never lost. Reads are also defensive: entries
@@ -18,7 +20,7 @@ type Origin = 'local' | 'remote' | 'load'
 export class WorkspaceDocument implements WorkspaceDocumentApi {
   readonly loro: LoroDoc
   private listeners = new Set<(o: Origin) => void>()
-  private cache: { folders: FolderEntry[]; notebooks: NotebookEntry[]; tags: TagStyle[] } | null = null
+  private cache: { folders: FolderEntry[]; notebooks: NotebookEntry[]; tags: TagStyle[]; themes: Partial<Record<ThemeId, ThemeOverrides>> } | null = null
 
   constructor(opts: { peerId?: number | bigint | `${number}`; snapshot?: Uint8Array } = {}) {
     this.loro = new LoroDoc()
@@ -36,6 +38,7 @@ export class WorkspaceDocument implements WorkspaceDocumentApi {
       folders?: Record<string, FolderEntry>
       notebooks?: Record<string, NotebookEntry>
       tags?: Record<string, TagStyle>
+      themes?: Record<string, unknown>
     }
     const allFolders = new Map<FolderId, FolderEntry>()
     for (const [id, f] of Object.entries(json.folders ?? {})) {
@@ -71,9 +74,19 @@ export class WorkspaceDocument implements WorkspaceDocumentApi {
     for (const [name, t] of Object.entries(json.tags ?? {})) {
       if (t && typeof t === 'object') tags.push({ ...t, name })
     }
+    const raw: Partial<Record<ThemeId, Record<string, unknown>>> = {}
+    for (const [key, value] of Object.entries(json.themes ?? {})) {
+      const [id, option] = key.split(':')
+      if (isThemeId(id) && option) (raw[id] ??= {})[option] = value
+    }
+    const themes: Partial<Record<ThemeId, ThemeOverrides>> = {}
+    for (const [id, r] of Object.entries(raw)) {
+      const o = sanitizeThemeOverrides(r)
+      if (Object.keys(o).length) themes[id as ThemeId] = o
+    }
     folders.sort((a, b) => a.name.localeCompare(b.name) || (a.id < b.id ? -1 : 1))
     notebooks.sort((a, b) => b.updatedAt - a.updatedAt || (a.id < b.id ? -1 : 1))
-    return (this.cache = { folders, notebooks, tags })
+    return (this.cache = { folders, notebooks, tags, themes })
   }
 
   folders(): FolderEntry[] {
@@ -98,6 +111,20 @@ export class WorkspaceDocument implements WorkspaceDocumentApi {
     const tags = this.loro.getMap('tags')
     if (tags.get(name) === undefined) return
     tags.delete(name)
+    this.commit('local')
+  }
+
+  themeOverrides(): Partial<Record<ThemeId, ThemeOverrides>> {
+    return cloneJson(this.read().themes)
+  }
+
+  setThemeOverrides(id: ThemeId, overrides: ThemeOverrides | null): void {
+    if (!THEME_IDS.includes(id)) return
+    const next = sanitizeThemeOverrides(overrides) as Record<string, unknown>
+    const themes = this.loro.getMap('themes')
+    // one entry per option, so two devices tuning different knobs both keep their change
+    for (const key of themes.keys()) if (key.startsWith(`${id}:`) && !(key.slice(id.length + 1) in next)) themes.delete(key)
+    for (const [k, v] of Object.entries(next)) if (themes.get(`${id}:${k}`) !== v) themes.set(`${id}:${k}`, v as never)
     this.commit('local')
   }
 

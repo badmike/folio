@@ -1,19 +1,20 @@
 import {
   QUICK_COLORS_MAX, createPage, defaultQuickColors, importExcalidraw, isExcalidrawJson, worldBounds,
-  type BackgroundPattern, type NotebookMeta, type Operation, type Page, type PageBackground, type PageFormat, type PageId, type QuickColors, type Rect,
+  type BackgroundPattern, type ResolvedTheme, type ThemeId, type NotebookMeta, type Operation, type Page, type PageBackground, type PageFormat, type PageId, type QuickColors, type Rect,
   type ToolSettings,
 } from '@folio/document'
 import {
   createEditor, type AlignMode, type DistributeAxis, type Editor, type ExecuteOptions, type ItemStyle, type PenMode, type SelectionStylePatch,
   type StyleContext, type StylePatch, type Tool, type ToolColors, type ToolOptionsMap,
 } from '@folio/editor'
-import { ref, shallowRef } from 'vue'
+import { ref, shallowRef, watch, type ShallowRef } from 'vue'
 import { diagnostics } from './services/diagnostics'
 import { exportBounds, isExcalidrawFile, thumbnailDataUrl } from './services/export'
 import { assetImageResolver, isImageFile, pickImageFiles, storeImageFile } from './services/images'
 import { whenFontsReady } from './services/fonts'
 import { AttachedRecognition, type RecognitionService } from './services/recognition'
 import { settings } from './services/settings'
+import { notebookThemeId, repaintedBackground, themeFor, themeOverrides } from './services/themes'
 import { toast } from './services/toast'
 import { storeExcalidrawAssets, type NotebookSession, type Workspace } from './services/workspace'
 
@@ -90,6 +91,8 @@ export class NotebookController {
   /** Read-only (temporarily locked) on this device. */
   readonly locked = ref(false)
   readonly toolLock = ref(settings.toolLock)
+  /** The notebook's visual theme with the user's customisations. */
+  readonly theme: ShallowRef<ResolvedTheme>
 
   private rec: AttachedRecognition | null = null
   private offs: (() => void)[] = []
@@ -107,9 +110,15 @@ export class NotebookController {
   ) {
     this.title.value = session.doc.meta().title
     this.pages.value = session.doc.pages()
+    this.theme = shallowRef(themeFor(notebookThemeId(session.doc.meta())))
+    // the theme follows the notebook's choice, the device default and synced customisations
+    this.offs.push(watch([() => settings.defaultTheme, themeOverrides], () => this.refreshTheme()))
     // Meta / page-list changes may arrive without touching the current page (rename, remote edits).
     this.offs.push(session.doc.subscribe((e) => {
-      if (e.metaChanged) this.title.value = session.doc.meta().title
+      if (e.metaChanged) {
+        this.title.value = session.doc.meta().title
+        this.refreshTheme()
+      }
       if (e.pagesChanged) {
         const pages = session.doc.pages()
         if (pages !== this.pages.value) this.pages.value = pages
@@ -133,7 +142,7 @@ export class NotebookController {
       container,
       document: doc,
       pageId,
-      theme: settings.theme,
+      theme: this.theme.value,
       penMode: settings.penMode as PenMode,
       initialTool: 'select',
       toolLock: settings.toolLock,
@@ -512,6 +521,24 @@ export class NotebookController {
     this.setPage(page.id)
   }
 
+  /** Switch the notebook's theme; `repaint` also gives every page the theme's paper (light or dark per page). */
+  setTheme(id: ThemeId, repaint: boolean) {
+    const theme = themeFor(id)
+    const ops: Operation[] = [{ type: 'updateMeta', patch: { theme: id } }]
+    if (repaint) {
+      for (const p of this.doc.pages()) ops.push({ type: 'updatePage', pageId: p.id, patch: { background: repaintedBackground(p.background, theme) } })
+    }
+    this.applyDoc(ops)
+    this.refreshTheme()
+  }
+
+  private refreshTheme() {
+    const next = themeFor(notebookThemeId(this.doc.meta()))
+    if (next.key === this.theme.value.key) return
+    this.theme.value = next
+    this.editor.value?.setTheme(next)
+  }
+
   updatePage(pageId: PageId, patch: Partial<Omit<Page, 'id'>>) {
     this.applyDoc([{ type: 'updatePage', pageId, patch: { ...patch, updatedAt: Date.now() } }])
     this.pages.value = this.doc.pages()
@@ -617,7 +644,7 @@ export class NotebookController {
   /** Small preview of the first page for the library card. */
   async saveThumbnail(): Promise<void> {
     try {
-      const url = await thumbnailDataUrl(this.doc, settings.theme, assetImageResolver(this.ws))
+      const url = await thumbnailDataUrl(this.doc, this.theme.value, assetImageResolver(this.ws))
       if (url) await this.ws.setThumbnail(this.id, url)
     } catch { /* thumbnails are best effort */ }
   }

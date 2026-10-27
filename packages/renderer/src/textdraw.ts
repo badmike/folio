@@ -7,7 +7,7 @@ export type Ctx2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
 export function drawTextLayout(
   ctx: Ctx2D,
   layout: TextLayout,
-  color: string,
+  color: string | CanvasPattern,
   align: 'left' | 'center' | 'right' | undefined,
   x = 0,
   y = 0,

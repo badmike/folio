@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { QUICK_COLORS_MAX, adaptColor } from '@folio/document'
+import { QUICK_COLORS_MAX, adaptColor, themeColor, type ResolvedTheme } from '@folio/document'
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { sameColor } from '../color-ui'
 import ColorPicker from './ColorPicker.vue'
@@ -18,6 +18,8 @@ const props = withDefaults(defineProps<{
   quick: readonly string[]
   modelValue: string | 'mixed' | undefined
   canvasBackground: string
+  /** Notebook theme: swatches preview its palette. */
+  theme?: ResolvedTheme
   allowTransparent?: boolean
   /** Compact: swatches only, no current-colour button. */
   compact?: boolean
@@ -34,7 +36,7 @@ const open = ref(false)
 /** Index of the quick swatch being edited, or null when the picker edits the current colour. */
 const editing = ref<number | null>(null)
 const cur = computed(() => (props.modelValue && props.modelValue !== 'mixed' ? props.modelValue : ''))
-const show = (c: string) => adaptColor(c, props.canvasBackground)
+const show = (c: string) => (props.theme ? themeColor(props.theme, c, props.canvasBackground) : adaptColor(c, props.canvasBackground))
 const pickerValue = computed(() => (editing.value === null ? cur.value : props.quick[editing.value]))
 const pickerTitle = computed(() => (editing.value === null ? `${props.label} colors` : `Change swatch ${editing.value + 1}`))
 const canAdd = computed(() => !!cur.value && props.quick.length < QUICK_COLORS_MAX && !props.quick.some((c) => sameColor(c, cur.value)))
@@ -99,7 +101,7 @@ onBeforeUnmount(() => clearTimeout(timer))
     <Teleport to="body">
       <div v-if="open" class="pop">
         <ColorPicker
-          :model-value="pickerValue" :background="canvasBackground" :allow-transparent="allowTransparent" :title="pickerTitle"
+          :model-value="pickerValue" :background="canvasBackground" :theme="theme" :allow-transparent="allowTransparent" :title="pickerTitle"
           @update:model-value="onPicked" @close="open = false"
         >
           <div v-if="editing === null ? canAdd : canRemove" class="swatch-action">

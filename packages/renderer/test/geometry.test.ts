@@ -6,7 +6,7 @@ import { buildArrowGeometry, buildShapeGeometry, opsetToPolylines } from '../src
 import { MeshBuilder, addPolyline, addPolygon, buildInkMesh, buildShapeMesh, buildArrowMesh, VERTEX_FLOATS } from '../src/geometry/mesh'
 import { boundsOfPoints, polygonArea } from '../src/math'
 import { parseColor, premultiplied } from '../src/color'
-import { arrow, ink, shape } from './helpers'
+import { CLEAN, ROUGH, arrow, ink, shape } from './helpers'
 
 function meshArea(mb: MeshBuilder): number {
   const d = mb.view()
@@ -82,20 +82,20 @@ describe('strokeOutline / triangulate', () => {
 
 describe('rough geometry', () => {
   it('is deterministic for the same seed and differs across seeds', () => {
-    const a = buildShapeGeometry(shape('s', 'rectangle', 100, 60), 'rough')
-    const b = buildShapeGeometry(shape('s', 'rectangle', 100, 60), 'rough')
-    const c = buildShapeGeometry(shape('s', 'rectangle', 100, 60, {}, { seed: 43 }), 'rough')
+    const a = buildShapeGeometry(shape('s', 'rectangle', 100, 60), ROUGH)
+    const b = buildShapeGeometry(shape('s', 'rectangle', 100, 60), ROUGH)
+    const c = buildShapeGeometry(shape('s', 'rectangle', 100, 60, {}, { seed: 43 }), ROUGH)
     expect(JSON.stringify(a)).toBe(JSON.stringify(b))
     expect(JSON.stringify(a)).not.toBe(JSON.stringify(c))
   })
 
   it('seed 0 is still deterministic', () => {
-    const mk = () => buildShapeGeometry(shape('s', 'ellipse', 80, 50, {}, { seed: 0 }), 'rough')
+    const mk = () => buildShapeGeometry(shape('s', 'ellipse', 80, 50, {}, { seed: 0 }), ROUGH)
     expect(JSON.stringify(mk())).toBe(JSON.stringify(mk()))
   })
 
   it('clean theme yields exact geometric rectangle lines', () => {
-    const g = buildShapeGeometry(shape('s', 'rectangle', 100, 60), 'clean')
+    const g = buildShapeGeometry(shape('s', 'rectangle', 100, 60), CLEAN)
     const pts = g.strokes.flat()
     const b = boundsOfPoints(pts)
     expect(b.x).toBeCloseTo(0)
@@ -105,23 +105,23 @@ describe('rough geometry', () => {
   })
 
   it('rough theme wobbles beyond the exact box', () => {
-    const g = buildShapeGeometry(shape('s', 'rectangle', 100, 60, {}, { roughness: 3 }), 'rough')
+    const g = buildShapeGeometry(shape('s', 'rectangle', 100, 60, {}, { roughness: 3 }), ROUGH)
     const b = boundsOfPoints(g.strokes.flat())
     expect(b.width !== 100 || b.height !== 60).toBe(true)
   })
 
   it('fills: solid polygons when clean, hachure lines when rough', () => {
-    const clean = buildShapeGeometry(shape('s', 'diamond', 100, 60, {}, { fillColor: '#f00' }), 'clean')
+    const clean = buildShapeGeometry(shape('s', 'diamond', 100, 60, {}, { fillColor: '#f00' }), CLEAN)
     expect(clean.fills.length).toBeGreaterThan(0)
-    const rough = buildShapeGeometry(shape('s', 'diamond', 100, 60, {}, { fillColor: '#f00' }), 'rough')
+    const rough = buildShapeGeometry(shape('s', 'diamond', 100, 60, {}, { fillColor: '#f00' }), ROUGH)
     expect(rough.hatch.length).toBeGreaterThan(0)
-    const none = buildShapeGeometry(shape('s', 'diamond', 100, 60), 'rough')
+    const none = buildShapeGeometry(shape('s', 'diamond', 100, 60), ROUGH)
     expect(none.hatch.length + none.fills.length).toBe(0)
   })
 
   it('covers every shape kind', () => {
     for (const k of ['rectangle', 'ellipse', 'triangle', 'diamond', 'line'] as const) {
-      const g = buildShapeGeometry(shape('s', k, 90, 50), 'rough')
+      const g = buildShapeGeometry(shape('s', k, 90, 50), ROUGH)
       expect(g.strokes.length).toBeGreaterThan(0)
       expect(g.strokes.flat().every((p) => Number.isFinite(p.x) && Number.isFinite(p.y))).toBe(true)
     }
@@ -143,23 +143,23 @@ describe('rough geometry', () => {
 
   it('arrow: shaft + head at end only / both', () => {
     const a = arrow('a', { x: 0, y: 0 }, { x: 100, y: 0 })
-    const one = buildArrowGeometry(a, [a.start, a.end], 'clean')
+    const one = buildArrowGeometry(a, [a.start, a.end], CLEAN)
     expect(one.strokes).toHaveLength(2) // shaft + one barb polyline (a-tip-b)
-    const both = buildArrowGeometry({ ...a, startHead: 'arrow' }, [a.start, a.end], 'clean')
+    const both = buildArrowGeometry({ ...a, startHead: 'arrow' }, [a.start, a.end], CLEAN)
     expect(both.strokes).toHaveLength(3)
-    const none = buildArrowGeometry({ ...a, endHead: 'none' }, [a.start, a.end], 'clean')
+    const none = buildArrowGeometry({ ...a, endHead: 'none' }, [a.start, a.end], CLEAN)
     expect(none.strokes).toHaveLength(1)
     // head barbs end at the tip
     const tip = one.strokes[1][1]
     expect(Math.abs(tip.x - 100)).toBeLessThan(1)
-    expect(buildArrowGeometry(a, [a.start, a.start], 'clean').strokes).toHaveLength(0)
+    expect(buildArrowGeometry(a, [a.start, a.start], CLEAN).strokes).toHaveLength(0)
   })
 
   it('rough arrows keep shaft endpoints and arrow tips attached at every sloppiness', () => {
     for (const roughness of [1, 2, 3]) {
       const a = arrow('a', { x: 0, y: 0 }, { x: 200, y: 0 })
       a.style.roughness = roughness
-      const g = buildArrowGeometry(a, [a.start, a.end], 'rough')
+      const g = buildArrowGeometry(a, [a.start, a.end], ROUGH)
       expect(g.strokes[0][0]).toEqual(a.start)
       expect(g.strokes[0].at(-1)).toEqual(a.end)
       expect(g.strokes.slice(2).every((line) => line.some((p) => p.x === a.end.x && p.y === a.end.y))).toBe(true)
@@ -170,16 +170,16 @@ describe('rough geometry', () => {
   it('curved shafts use two seeded passes and respond to maximum sloppiness', () => {
     const a = arrow('a', { x: 0, y: 0 }, { x: 240, y: 0 }, { arrowType: 'curved', waypoints: [{ x: 120, y: 80 }], endHead: 'none' })
     const path = catmullRom([a.start, ...a.waypoints!, a.end]).path
-    const g = buildArrowGeometry(a, path, 'rough')
+    const g = buildArrowGeometry(a, path, ROUGH)
     expect(g.strokes).toHaveLength(3) // two passes per cubic segment, joined where one ends at the next start
-    expect(g).toEqual(buildArrowGeometry(a, path, 'rough'))
+    expect(g).toEqual(buildArrowGeometry(a, path, ROUGH))
     for (const line of g.strokes) {
       expect([a.start, ...a.waypoints!]).toContainEqual(line[0])
       expect([...a.waypoints!, a.end]).toContainEqual(line.at(-1))
     }
-    const more = (roughness: number) => buildArrowGeometry({ ...a, style: { ...a.style, roughness } }, path, 'rough')
+    const more = (roughness: number) => buildArrowGeometry({ ...a, style: { ...a.style, roughness } }, path, ROUGH)
     expect(more(2).strokes).not.toEqual(more(3).strokes)
-    expect(buildArrowGeometry(a, path, 'clean').strokes).toEqual([path])
+    expect(buildArrowGeometry(a, path, CLEAN).strokes).toEqual([path])
   })
 
   it('cubic curve geometry matches the curve used for handles and hit tests', () => {
@@ -198,7 +198,7 @@ describe('rough geometry', () => {
   it('rough dashed shafts keep clear gaps and solid connected heads', () => {
     const a = arrow('a', { x: 0, y: 0 }, { x: 200, y: 0 })
     a.style.strokeStyle = 'dashed'
-    const g = buildArrowGeometry(a, [a.start, a.end], 'rough')
+    const g = buildArrowGeometry(a, [a.start, a.end], ROUGH)
     const shaft = g.strokes.filter((line) => !line.some((p) => p.x === 200 && p.y === 0))
     expect(shaft.length).toBeGreaterThan(3)
     for (let i = 1; i < shaft.length; i++) expect(shaft[i][0].x - shaft[i - 1].at(-1)!.x).toBeGreaterThan(5)
@@ -207,10 +207,10 @@ describe('rough geometry', () => {
 
   it('meshes for shapes and arrows are non-empty and finite', () => {
     const mb = new MeshBuilder()
-    buildShapeMesh(mb, shape('s', 'ellipse', 80, 50, {}, { fillColor: '#0f0' }), 'rough')
+    buildShapeMesh(mb, shape('s', 'ellipse', 80, 50, {}, { fillColor: '#0f0' }), ROUGH)
     const n = mb.vertexCount
     expect(n).toBeGreaterThan(30)
-    buildArrowMesh(mb, arrow('a', { x: 0, y: 0 }, { x: 50, y: 50 }), [{ x: 0, y: 0 }, { x: 50, y: 50 }], 'clean')
+    buildArrowMesh(mb, arrow('a', { x: 0, y: 0 }, { x: 50, y: 50 }), [{ x: 0, y: 0 }, { x: 50, y: 50 }], CLEAN)
     expect(mb.vertexCount).toBeGreaterThan(n)
     expect(mb.view().every(Number.isFinite)).toBe(true)
   })
@@ -279,8 +279,8 @@ describe('arrow label layout', () => {
   it('fit shrinks the label box to the text so the background does not cover the shaft', async () => {
     const { labelLayout, setTextMeasurer } = await import('../src/text')
     setTextMeasurer((_f, t) => t.length * 9)
-    const wide = labelLayout('clean up', 160, false)
-    const fit = labelLayout('clean up', 160, false, true)
+    const wide = labelLayout('clean up', 160)
+    const fit = labelLayout('clean up', 160, true)
     expect(wide.width).toBe(144)
     expect(fit.width).toBe(72)
     expect(fit.height).toBe(wide.height)

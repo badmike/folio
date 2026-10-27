@@ -1,4 +1,4 @@
-import { PALETTE, QUICK_HIGHLIGHTER_COLORS, adaptColor, defaultQuickColors } from '@folio/document'
+import { PALETTE, QUICK_HIGHLIGHTER_COLORS, adaptColor, defaultQuickColors, resolveTheme } from '@folio/document'
 import type { StyleContext } from '@folio/editor'
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -120,6 +120,7 @@ function fakeController(ctx: StyleContext, over: Record<string, unknown> = {}) {
     styleCtx: shallowRef(ctx),
     selection: shallowRef({ count: ctx.source === 'selection' ? 1 : 0, ink: false, derived: false, text: false, group: false, frame: false, highlighter: false }),
     quickColors: shallowRef(defaultQuickColors()),
+    theme: shallowRef(resolveTheme('rough')),
     locked: ref(false),
     toolLock: ref(false),
     setQuickColor: vi.fn(), addQuickColor: vi.fn(), removeQuickColor: vi.fn(), alignSelection: vi.fn(), distributeSelection: vi.fn(), setToolLock: vi.fn(), setLocked: vi.fn(),

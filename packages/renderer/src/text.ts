@@ -13,6 +13,7 @@ export const FONT_FAMILIES: Record<FontFamily, string> = {
   gloria: "'Gloria Hallelujah', 'Comic Sans MS', cursive",
   marker: "'Permanent Marker', 'Comic Sans MS', cursive",
   playpen: "'Playpen Sans', 'Comic Sans MS', cursive",
+  gochi: "'Gochi Hand', 'Comic Sans MS', cursive",
 }
 
 /** Human names of the font families, in menu order: the three standard choices, then the extra fonts. */
@@ -29,13 +30,54 @@ export const FONT_LABELS: { family: FontFamily; label: string }[] = [
   { family: 'gloria', label: 'Gloria Hallelujah' },
   { family: 'marker', label: 'Permanent Marker' },
   { family: 'playpen', label: 'Playpen Sans' },
+  { family: 'gochi', label: 'Gochi Hand' },
 ]
 
 /** Web font faces to preload (family name as used in CSS). */
 export const WEB_FONT_NAMES = [
   'Excalifont', 'Caveat', 'Kalam', 'Patrick Hand', 'Indie Flower', 'Architects Daughter', 'Shadows Into Light', 'Gloria Hallelujah',
-  'Permanent Marker', 'Playpen Sans', 'Fira Code',
+  'Permanent Marker', 'Playpen Sans', 'Gochi Hand', 'Fira Code',
 ]
+
+/** Text look of the active theme: the font that replaces the base 'hand' family, and whether that text renders in capitals. */
+export interface Typography {
+  font: FontFamily
+  uppercase: boolean
+}
+
+let typo: Typography = { font: 'hand', uppercase: false }
+let typoKey = 'hand|0'
+
+/**
+ * Set the typography every layout uses (the editor sets it from its theme, so bounds,
+ * hit testing, rendering and the text editor agree). Painters wrap a frame in
+ * `withTypography` so exports of another theme lay out with theirs.
+ */
+export function setTypography(t: Typography): void {
+  typo = { font: t.font, uppercase: t.uppercase }
+  typoKey = `${t.font}|${t.uppercase ? 1 : 0}`
+}
+
+export function typography(): Typography {
+  return typo
+}
+
+/** Run `fn` with `t` as the active typography, then restore the previous one. */
+export function withTypography<T>(t: Typography, fn: () => T): T {
+  const prev = typo
+  setTypography(t)
+  try { return fn() } finally { setTypography(prev) }
+}
+
+/** The family a stored font family renders in under the active typography. */
+export function displayFamily(family: FontFamily): FontFamily {
+  return family === 'hand' ? typo.font : family
+}
+
+/** Whether text in `family` renders in capitals: only the base font follows the theme, picked fonts keep their case. */
+export function displayUppercase(family: FontFamily): boolean {
+  return family === 'hand' && typo.uppercase
+}
 
 export function fontString(size: number, family: FontFamily): string {
   return `${size}px ${FONT_FAMILIES[family] ?? FONT_FAMILIES.sans}`
@@ -124,14 +166,16 @@ const layoutCache = new Map<string, TextLayout>()
 const LINE_HEIGHTS: Partial<Record<FontFamily, number>> = { hand: 1.25, caveat: 1.2, shadows: 1.2 }
 
 export function layoutText(t: TextLike): TextLayout {
-  const key = `${t.fontFamily}|${t.fontSize}|${t.width ?? ''}|${t.text}`
+  const key = `${typoKey}|${t.fontFamily}|${t.fontSize}|${t.width ?? ''}|${t.text}`
   const hit = layoutCache.get(key)
   if (hit) return hit
-  const font = fontString(t.fontSize, t.fontFamily)
+  const family = displayFamily(t.fontFamily)
+  const font = fontString(t.fontSize, family)
   const measure = customMeasurer ?? defaultMeasurer
   const wrap = t.width && t.width > 0 ? t.width : undefined
   const lines: string[] = []
-  for (const para of t.text.split('\n')) {
+  const text = displayUppercase(t.fontFamily) ? t.text.toUpperCase() : t.text
+  for (const para of text.split('\n')) {
     if (wrap === undefined || measure(font, para) <= wrap) {
       lines.push(para)
       continue
@@ -154,7 +198,7 @@ export function layoutText(t: TextLike): TextLayout {
     lines.push(cur.trimEnd())
   }
   const lineWidths = lines.map((l) => measure(font, l))
-  const lineHeight = t.fontSize * (LINE_HEIGHTS[t.fontFamily] ?? 1.3)
+  const lineHeight = t.fontSize * (LINE_HEIGHTS[family] ?? 1.3)
   const { ascent, descent } = fontExtent(font, t.fontSize)
   const layout: TextLayout = {
     lines,
@@ -186,12 +230,12 @@ export function lineOffsetX(layout: TextLayout, lineIndex: number, align: TextLi
 /** Box width arrow labels wrap in. */
 export const ARROW_LABEL_WIDTH = 160
 
-/** Label font for shapes/arrows. */
-export function labelLayout(label: string, boxWidth: number, clean: boolean, fit = false, fontSize = DEFAULT_LABEL_SIZE): TextLayout {
+/** Label of a shape/arrow: the base font, so it follows the theme's font. */
+export function labelLayout(label: string, boxWidth: number, fit = false, fontSize = DEFAULT_LABEL_SIZE): TextLayout {
   const layout = layoutText({
     text: label,
     fontSize,
-    fontFamily: clean ? 'sans' : 'hand',
+    fontFamily: 'hand',
     width: Math.max(20, boxWidth - 16),
     align: 'center',
   })

@@ -2,6 +2,7 @@ import type {
   CanvasObject, DocChangeEvent, FolderEntry, FolderId, NotebookEntry, NotebookId, NotebookMeta, TagStyle,
   ObjectId, Operation, Page, PageId, Recognition, Unsubscribe,
 } from './types'
+import type { ThemeId, ThemeOverrides } from './themes'
 
 /**
  * A notebook backed by a CRDT (Loro). Keeps a materialised, read-optimised cache
@@ -43,6 +44,10 @@ export interface WorkspaceDocumentApi {
   tagStyles(): TagStyle[]
   upsertTagStyle(t: TagStyle): void
   deleteTagStyle(name: string): void
+  /** Per-theme customisations (sanitised; themes without any are absent). */
+  themeOverrides(): Partial<Record<ThemeId, ThemeOverrides>>
+  /** Replace one theme's customisations; null or {} resets it to the preset. */
+  setThemeOverrides(id: ThemeId, overrides: ThemeOverrides | null): void
   subscribe(listener: (origin: 'local' | 'remote' | 'load') => void): Unsubscribe
   exportSnapshot(): Uint8Array
   exportUpdates(since?: Uint8Array): Uint8Array

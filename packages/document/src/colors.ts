@@ -155,6 +155,20 @@ export function adaptColor(color: string, background: string): string {
   return out
 }
 
+/** Linear blend of two hex colours (`t` = 0 → a, 1 → b); alpha comes from `a`. Unparsable input returns `a`. */
+export function mixColors(a: string, b: string, t: number): string {
+  const x = parseHex(a), y = parseHex(b)
+  if (!x || !y) return a
+  return toHex({ r: x.r + (y.r - x.r) * t, g: x.g + (y.g - x.g) * t, b: x.b + (y.b - x.b) * t, a: x.a })
+}
+
+/** Text colour on `fill`: `color` when it reads (contrast >= 4.5), else near-black or near-white, whichever contrasts more. */
+export function legibleOn(color: string, fill: string): string {
+  const f = parseHex(fill)
+  if (!f || f.a === 0 || contrastRatio(color, fill) >= 4.5) return color
+  return contrastRatio('#111111', fill) >= contrastRatio('#f5f5f5', fill) ? '#111111' : '#f5f5f5'
+}
+
 /** Colour of UI chrome / pattern lines that reads well on `background`. */
 export function defaultLineColor(background: string): string {
   return isDarkColor(background) ? '#3a3f45' : '#c9ced6'

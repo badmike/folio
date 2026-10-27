@@ -1,4 +1,4 @@
-import { DEFAULT_BLUR_SIZE, adaptColor, isDarkColor } from '@folio/document'
+import { DEFAULT_BLUR_SIZE, isDarkColor, legibleOn, themeColor, themeVariant } from '@folio/document'
 import type { ArrowObject, CanvasObject, ImageObject, InkStroke, ShapeObject, TextObject, Vec2 } from '@folio/document'
 import { arrowPath } from './arrows'
 import { CORNELL_CUE, CORNELL_SUMMARY, DESK_COLOR, DESK_COLOR_DARK, DOT_RADIUS_PX, FADE_FULL_PX, FADE_MIN_PX, MINOR_WEIGHT, POLAR_STEP, backgroundLevels, frameColor, pageRect, patternColor, patternKind } from './background'
@@ -9,12 +9,15 @@ import { FRAME_LABEL_SIZE } from './hit'
 import { parseColor, premultiplied } from './color'
 import type { Camera, Renderer, Scene, Size, VisualTheme } from './contract'
 import { highlighterBlend } from './geometry/ink'
-import { buildArrowMesh, buildInkMesh, buildInkStencilMesh, buildShapeMesh, addPolygon, addPolyline, MeshBuilder, VERTEX_FLOATS, type StencilFill } from './geometry/mesh'
+import { GRAIN_GLSL, chalkPaint } from './grain'
+import { buildArrowMesh, buildInkMesh, buildInkStencilMesh, buildShapeMesh, addGeometry, addPolygon, addPolyline, MeshBuilder, VERTEX_FLOATS, type StencilFill } from './geometry/mesh'
+import { buildShapeGeometry, labelBackdrop } from './geometry/rough'
 import { ImageCache, type ImageResolver, type ImageSource } from './images'
 import { IDENTITY, multiply, toMat3, transformMatrix, type Mat } from './math'
 import { buildOverlay } from './overlay'
 import { arrowKey, isRenderable, objectKey } from './scenekey'
-import { ARROW_LABEL_WIDTH, labelLayout, layoutText, type TextLayout } from './text'
+import { castsShadow, noteShadow, shadowOffset, shapeShadow } from './shadow'
+import { ARROW_LABEL_WIDTH, labelLayout, layoutText, withTypography, type TextLayout } from './text'
 import { drawTextLayout, type Ctx2D } from './textdraw'
 
 type GL = WebGLRenderingContext | WebGL2RenderingContext
@@ -30,17 +33,26 @@ uniform mat3 u_model;
 uniform vec4 u_cam;   // xy = world position of viewport top-left, z = zoom
 uniform vec2 u_view;  // viewport size in CSS px
 varying vec4 v_color;
+varying vec2 v_local;
 void main() {
   vec2 w = (u_model * vec3(a_pos, 1.0)).xy;
   vec2 s = (w - u_cam.xy) * u_cam.z;
   vec2 c = s / u_view * 2.0 - 1.0;
   gl_Position = vec4(c.x, -c.y, 0.0, 1.0);
   v_color = a_color;
+  v_local = a_pos;
 }`
 
+/** Flat colour, optionally broken up by chalk grain in object space (u_grain = strength 0..1). */
 const FRAG_MESH = `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#endif
 varying vec4 v_color;
-void main() { FRAG_OUT = v_color; }`
+varying vec2 v_local;
+uniform float u_grain;
+${GRAIN_GLSL}
+void main() { FRAG_OUT = u_grain > 0.0 ? v_color * mix(1.0, grain(v_local), u_grain) : v_color; }`
 
 const VERT_QUAD = `
 attribute vec2 a_pos;
@@ -290,6 +302,8 @@ export class WebGLRenderer implements Renderer {
   private lost = false
   private viewport: Size = { width: 1, height: 1, dpr: 1 }
   private frame = 0
+  /** Chalk grain strength (0 = none) of the object being drawn (meshes and text textures). */
+  private grain = 0
 
   private meshProg!: Prog
   private quadProg!: Prog
@@ -414,7 +428,7 @@ export class WebGLRenderer implements Renderer {
 
   private initGL(): void {
     const gl = this.gl
-    this.meshProg = this.link(VERT_MESH, FRAG_MESH, ['u_model', 'u_cam', 'u_view'])
+    this.meshProg = this.link(VERT_MESH, FRAG_MESH, ['u_model', 'u_cam', 'u_view', 'u_grain'])
     this.quadProg = this.link(VERT_QUAD, FRAG_QUAD, ['u_model', 'u_cam', 'u_view', 'u_tex', 'u_tint', 'u_useTex', 'u_alpha'])
     this.pixProg = this.link(VERT_QUAD, FRAG_PIXELATE, ['u_model', 'u_cam', 'u_view', 'u_tex', 'u_blocks', 'u_alpha'])
     this.blurProg = this.link(VERT_QUAD, FRAG_BLUR, ['u_model', 'u_cam', 'u_view', 'u_tex', 'u_dir', 'u_alpha'])
@@ -516,13 +530,16 @@ export class WebGLRenderer implements Renderer {
 
     gl.enable(gl.BLEND)
     const theme = scene.theme
-    for (const obj of scene.objects) {
-      if (!isRenderable(obj, scene.hiddenIds)) continue
-      const clipped = this.clipToFrame(obj, scene, camera)
-      this.drawObject(obj, scene, camera, theme, true)
-      if (clipped) gl.disable(gl.SCISSOR_TEST)
-    }
-    if (scene.previews) for (const obj of scene.previews) this.drawObject(obj, scene, camera, theme, false)
+    withTypography(theme, () => {
+      for (const obj of scene.objects) {
+        if (!isRenderable(obj, scene.hiddenIds)) continue
+        const clipped = this.clipToFrame(obj, scene, camera)
+        this.drawObject(obj, scene, camera, theme, true)
+        if (clipped) gl.disable(gl.SCISSOR_TEST)
+      }
+      if (scene.previews) for (const obj of scene.previews) this.drawObject(obj, scene, camera, theme, false)
+    })
+    this.grain = 0
     this.drawOverlay(scene, camera, width, height)
     gl.disable(gl.BLEND)
     this.evict()
@@ -692,6 +709,7 @@ export class WebGLRenderer implements Renderer {
     gl.uniformMatrix3fv(p.u.u_model, false, toMat3(model, this.m3) as Float32Array)
     gl.uniform4f(p.u.u_cam, cam.x, cam.y, cam.zoom, 0)
     gl.uniform2f(p.u.u_view, this.viewport.width, this.viewport.height)
+    gl.uniform1f(p.u.u_grain, this.grain)
   }
 
   private bindMeshBuffer(buf: WebGLBuffer | null): void {
@@ -781,8 +799,9 @@ export class WebGLRenderer implements Renderer {
   }
 
   private drawObject(obj: CanvasObject, scene: Scene, camera: Camera, theme: VisualTheme, cache: boolean): void {
-    const clean = theme === 'clean'
     const bgc = scene.page.background.color
+    const shown = (c: string): string => themeColor(theme, c, bgc)
+    this.grain = 0
     switch (obj.type) {
       case 'ink': {
         const gl = this.gl
@@ -795,7 +814,7 @@ export class WebGLRenderer implements Renderer {
         this.drawCachedMesh(
           obj.id, objectKey(obj, theme, bgc), transformMatrix(obj.transform), camera,
           // without a stencil buffer fall back to ear clipping (wrong only for self-crossing strokes)
-          (mb) => (this.hasStencil ? buildInkStencilMesh(mb, obj as InkStroke, bgc) : void buildInkMesh(mb, obj as InkStroke, bgc)), cache,
+          (mb) => (this.hasStencil ? buildInkStencilMesh(mb, obj as InkStroke, bgc, theme) : void buildInkMesh(mb, obj as InkStroke, bgc, theme)), cache,
         )
         if (marker) gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
         break
@@ -807,33 +826,44 @@ export class WebGLRenderer implements Renderer {
           break
         }
         const m = transformMatrix(s.transform)
+        if (castsShadow(s, theme)) {
+          const shadow = premultiplied(themeVariant(theme, bgc).shadow, s.style.opacity)
+          const build = (mb: MeshBuilder) => {
+            const geo = buildShapeGeometry(s, theme)
+            const g = shapeShadow(s, geo, shadowOffset(s.transform, geo.strokeWidth))
+            addGeometry(mb, g, shadow, g.fills.length ? shadow : null)
+          }
+          this.drawCachedMesh(s.id + '#shadow', objectKey(s, theme, bgc), m, camera, build, cache)
+        }
+        this.grain = theme.texture === 'chalk' && s.kind !== 'frame' ? 1 : 0
         this.drawCachedMesh(s.id, objectKey(s, theme, bgc), m, camera, (mb) => buildShapeMesh(mb, s, theme, bgc), cache)
         if (s.kind === 'frame') {
           if (s.label) {
             const l = layoutText({ text: s.label, fontSize: s.labelSize ?? FRAME_LABEL_SIZE, fontFamily: 'sans', align: 'left' })
             const fc = frameColor(bgc)
-            this.drawText(cache ? s.id + '#label' : null, `${s.label}|${fc}|${s.labelSize ?? ''}`, l, fc, 'left', null, multiply(m, [1, 0, 0, 1, 0, -l.height - 2]), 1, camera)
+            this.drawText(cache ? s.id + '#label' : null, `${s.label}|${fc}|${theme.key}|${s.labelSize ?? ''}`, l, fc, 'left', null, multiply(m, [1, 0, 0, 1, 0, -l.height - 2]), 1, camera)
           }
           break
         }
         if (s.kind === 'counter') {
           const l = counterLabel(s)
           // the number sits on the pin, so a filled pin keeps the picked colour as is
-          const lc = s.style.fillColor ? s.style.strokeColor : adaptColor(s.style.strokeColor, bgc)
+          const lc = s.style.fillColor ? s.style.strokeColor : shown(s.style.strokeColor)
           if (l) {
             this.drawText(
-              cache ? s.id + '#label' : null, `${s.label}|${lc}|${s.width}x${s.height}|${s.fontFamily ?? ''}`, l.layout, lc, 'center', null,
+              cache ? s.id + '#label' : null, `${s.label}|${lc}|${theme.key}|${s.width}x${s.height}|${s.fontFamily ?? ''}`, l.layout, lc, 'center', null,
               multiply(m, [1, 0, 0, 1, l.x, l.y]), Math.max(Math.abs(s.transform.scaleX), Math.abs(s.transform.scaleY)), camera, s.style.opacity,
             )
           }
           break
         }
         if (s.label) {
-          const l = labelLayout(s.label, s.width, clean, false, s.labelSize)
-          const lc = adaptColor(s.style.strokeColor, bgc)
+          const l = labelLayout(s.label, s.width, false, s.labelSize)
+          const behind = labelBackdrop(s.style, theme, bgc)
+          const lc = behind ? legibleOn(shown(s.style.strokeColor), behind) : shown(s.style.strokeColor)
           this.drawText(
             cache ? s.id + '#label' : null,
-            `${s.label}|${lc}|${theme}|${s.labelSize ?? ''}`,
+            `${s.label}|${lc}|${theme.key}|${s.labelSize ?? ''}`,
             l, lc, 'center', null,
             multiply(m, [1, 0, 0, 1, (s.width - l.width) / 2, (s.height - l.height) / 2]),
             Math.max(Math.abs(s.transform.scaleX), Math.abs(s.transform.scaleY)), camera,
@@ -844,14 +874,15 @@ export class WebGLRenderer implements Renderer {
       case 'arrow': {
         const a = obj as ArrowObject
         const path = arrowPath(a, scene.resolve)
+        this.grain = theme.texture === 'chalk' ? 1 : 0
         this.drawCachedMesh(a.id, arrowKey(a, path, theme, bgc), IDENTITY, camera, (mb) => buildArrowMesh(mb, a, path, theme, bgc), cache)
         if (a.label) {
-          const l = labelLayout(a.label, ARROW_LABEL_WIDTH, clean, true, a.labelSize)
-          const lc = adaptColor(a.style.strokeColor, bgc)
+          const l = labelLayout(a.label, ARROW_LABEL_WIDTH, true, a.labelSize)
+          const lc = shown(a.style.strokeColor)
           const mid = pathMidpoint(path)
           this.drawText(
             cache ? a.id + '#label' : null,
-            `${a.label}|${lc}|${theme}|${bgc}|${a.labelSize ?? ''}`,
+            `${a.label}|${lc}|${theme.key}|${bgc}|${a.labelSize ?? ''}`,
             l, lc, 'center', bgc,
             [1, 0, 0, 1, mid.x - l.width / 2, mid.y - l.height / 2],
             1, camera,
@@ -862,15 +893,25 @@ export class WebGLRenderer implements Renderer {
       case 'text': {
         const t = obj as TextObject
         const l = layoutText(t)
-        // a note's text sits on its box, so it keeps the picked colour as is
-        const tc = t.background ? t.color : adaptColor(t.color, bgc)
-        if (t.background) {
+        const m = transformMatrix(t.transform)
+        const bg = t.background ? shown(t.background) : null
+        // a note's text sits on its box, so it keeps the picked colour unless that would not read
+        const tc = bg ? legibleOn(t.color, bg) : shown(t.color)
+        if (bg) {
           const box = noteBox(t)
-          const fill = premultiplied(adaptColor(t.background, bgc), t.opacity ?? 1)
+          const fill = premultiplied(bg, t.opacity ?? 1)
           const tailPoint = noteTailPoint(t, scene.resolve)
+          const key = `${t.updatedAt}|${theme.key}|${bgc}|${t.background}|${t.opacity ?? 1}|${box.width}x${box.height}|${tailPoint?.x},${tailPoint?.y}`
+          if (castsShadow(t, theme)) {
+            const shadow = premultiplied(themeVariant(theme, bgc).shadow, t.opacity ?? 1)
+            this.drawCachedMesh(t.id + '#shadow', key, m, camera, (mb) => {
+              for (const poly of noteShadow(t, tailPoint, shadowOffset(t.transform, 2)).fills) addPolygon(mb, poly, shadow)
+            }, cache)
+          }
+          // softer grain under note text keeps it legible
+          this.grain = theme.texture === 'chalk' ? 0.5 : 0
           this.drawCachedMesh(
-            t.id, `${t.updatedAt}|${bgc}|${t.background}|${t.opacity ?? 1}|${box.width}x${box.height}|${tailPoint?.x},${tailPoint?.y}`,
-            transformMatrix(t.transform), camera,
+            t.id, key, m, camera,
             (mb) => {
               addPolygon(mb, noteOutline(box), fill)
               const tail = noteTail(box, tailPoint)
@@ -879,9 +920,10 @@ export class WebGLRenderer implements Renderer {
             cache,
           )
         }
+        this.grain = theme.texture === 'chalk' ? 1 : 0
         this.drawText(
-          cache ? t.id : null, `${t.updatedAt}|${t.text}|${tc}|${t.fontSize}|${t.fontFamily}|${t.width ?? ''}|${t.align ?? ''}`,
-          l, tc, t.align, null, transformMatrix(t.transform),
+          cache ? t.id : null, `${t.updatedAt}|${t.text}|${tc}|${theme.key}|${t.fontSize}|${t.fontFamily}|${t.width ?? ''}|${t.align ?? ''}`,
+          l, tc, t.align, null, m,
           Math.max(Math.abs(t.transform.scaleX), Math.abs(t.transform.scaleY)), camera, t.opacity ?? 1,
         )
         break
@@ -987,7 +1029,7 @@ export class WebGLRenderer implements Renderer {
         ctx.fillRect(0, 0, lw, lh)
         ctx.globalAlpha = 1
       }
-      drawTextLayout(ctx, layout, color, align, pad, pad)
+      drawTextLayout(ctx, layout, this.grain ? chalkPaint(ctx, color, this.grain) : color, align, pad, pad)
       const tex = this.uploadTexture(surf.canvas as TexImageSource, false, entry?.tex)
       if (!tex) return
       entry = { key: version, tex, scale, width: lw, height: lh, pad, used: this.frame }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-  DRAWABLE_SHAPE_KINDS,
+  DRAWABLE_SHAPE_KINDS, honoursSloppiness,
   type Arrowhead, type ArrowType, type BlurMode, type CounterStyle, type FillStyle, type FontFamily, type HighlighterCap, type Roundness, type StrokeLineStyle,
 } from '@folio/document'
 import { FONT_SIZE_PRESETS, STROKE_WIDTH_PRESETS, type AlignMode, type DistributeAxis, type StyleProp } from '@folio/editor'
@@ -51,6 +51,8 @@ const visible = computed(() => {
 /** Zen mode only ever shows the quick bar for ink tools. */
 const compact = computed(() => collapsed.value || props.hudHidden || (!!props.zen && !hasSel.value))
 const has = (p: StyleProp) => !!ctx.value?.applicable.includes(p)
+/** Themes that draw every shape alike (Clean, a fixed sketchiness) ignore the shape's own sloppiness. */
+const sloppinessApplies = computed(() => honoursSloppiness(ctl.theme.value))
 const val = <P extends StyleProp>(p: P) => ctx.value?.values[p]
 const bg = computed(() => ctx.value?.canvasBackground ?? '#ffffff')
 const str = (p: StyleProp) => val(p) as string | undefined
@@ -162,7 +164,7 @@ const title = computed(() => (hasSel.value ? `${sel.value.count} selected` : TOO
   >
     <!-- quick bar: colours and widths in one row -->
     <div v-if="compact" class="quick" data-testid="props-quick">
-      <ColorRow v-if="has('strokeColor')" label="Stroke" name="stroke" compact :quick="strokeQuick" :model-value="str('strokeColor')" :canvas-background="bg" :allow-transparent="false"
+      <ColorRow v-if="has('strokeColor')" label="Stroke" name="stroke" compact :quick="strokeQuick" :model-value="str('strokeColor')" :canvas-background="bg" :theme="ctl.theme.value" :allow-transparent="false"
                 @pick="(c) => ctl.setStyle({ strokeColor: c })" @edit-swatch="(i, c) => ctl.setQuickColor(strokeSet, i, c)"
                 @add-swatch="(c) => ctl.addQuickColor(strokeSet, c)" @remove-swatch="(i) => ctl.removeQuickColor(strokeSet, i)" />
       <span v-if="has('strokeColor') && has('strokeWidth')" class="vsep" />
@@ -209,13 +211,13 @@ const title = computed(() => (hasSel.value ? `${sel.value.count} selected` : TOO
         </section>
         <section v-if="has('strokeColor')">
           <label>Stroke</label>
-          <ColorRow label="Stroke" name="stroke" :quick="strokeQuick" :model-value="str('strokeColor')" :canvas-background="bg" :allow-transparent="false"
+          <ColorRow label="Stroke" name="stroke" :quick="strokeQuick" :model-value="str('strokeColor')" :canvas-background="bg" :theme="ctl.theme.value" :allow-transparent="false"
                     @pick="(c) => ctl.setStyle({ strokeColor: c })" @edit-swatch="(i, c) => ctl.setQuickColor(strokeSet, i, c)"
                 @add-swatch="(c) => ctl.addQuickColor(strokeSet, c)" @remove-swatch="(i) => ctl.removeQuickColor(strokeSet, i)" />
         </section>
         <section v-if="has('backgroundColor')">
           <label>Background</label>
-          <ColorRow label="Background" name="background" :quick="quick.background" :model-value="str('backgroundColor')" :canvas-background="bg"
+          <ColorRow label="Background" name="background" :quick="quick.background" :model-value="str('backgroundColor')" :canvas-background="bg" :theme="ctl.theme.value"
                     @pick="(c) => ctl.setStyle({ backgroundColor: c })" @edit-swatch="(i, c) => ctl.setQuickColor('background', i, c)"
                     @add-swatch="(c) => ctl.addQuickColor('background', c)" @remove-swatch="(i) => ctl.removeQuickColor('background', i)" />
         </section>
@@ -239,7 +241,7 @@ const title = computed(() => (hasSel.value ? `${sel.value.count} selected` : TOO
           <label>Corners</label>
           <OptionRow name="Corners" :options="CORNERS" :model-value="val('roundness')" @pick="(v) => ctl.setStyle({ roundness: v })" />
         </section>
-        <section v-if="has('roughness')" data-testid="sec-roughness">
+        <section v-if="has('roughness') && sloppinessApplies" data-testid="sec-roughness">
           <label>Sloppiness</label>
           <OptionRow name="Sloppiness" :options="ROUGH" :model-value="val('roughness')" @pick="(v) => ctl.setStyle({ roughness: v })" />
         </section>

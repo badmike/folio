@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { BackgroundPattern, NotebookEntry } from '@folio/document'
+import type { BackgroundPattern, NotebookEntry, ThemeId } from '@folio/document'
 import type { SearchHit } from '@folio/persistence'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -98,7 +98,7 @@ function openHit(h: SearchHit) {
 // ---- actions ----------------------------------------------------------------------
 const open = (id: string) => router.push({ name: 'notebook', params: { id } })
 
-async function createNotebook(o: { title: string; pageType: DefaultPageType; pattern: BackgroundPattern }) {
+async function createNotebook(o: { title: string; pageType: DefaultPageType; pattern: BackgroundPattern; theme: ThemeId }) {
   showNew.value = false
   try {
     const id = await ws.createNotebook({ ...o, folderId: selected.value === 'all' ? null : selected.value })

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { ThemeId } from '@folio/document'
 import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { requireServices } from '../app'
@@ -10,6 +11,7 @@ import PagePanel from '../components/PagePanel.vue'
 import PropertiesPanel from '../components/PropertiesPanel.vue'
 import SettingsDialog from '../components/SettingsDialog.vue'
 import ShortcutsDialog from '../components/ShortcutsDialog.vue'
+import ThemeDialog from '../components/ThemeDialog.vue'
 import Toolbar from '../components/Toolbar.vue'
 import { NOTEBOOK_KEY, type NotebookController } from '../notebook'
 import { promptDialog } from '../services/dialogs'
@@ -100,6 +102,11 @@ watch(zen, (on) => {
   if (on) { panel.value = null; showSettings.value = false; ctl.showToolOptions.value = false }
 })
 const showSettings = ref(false)
+const showTheme = ref(false)
+function applyTheme(o: { theme: ThemeId; repaint: boolean }) {
+  ctl.setTheme(o.theme, o.repaint)
+  showTheme.value = false
+}
 const showShortcuts = ref(false)
 const excalInput = ref<HTMLInputElement | null>(null)
 
@@ -180,7 +187,6 @@ onMounted(async () => {
   applyRouteFocus()
 })
 watch(() => [route.query.page, route.query.obj], applyRouteFocus)
-watch(() => settings.theme, (t) => ctl.editor.value?.setTheme(t))
 watch(() => settings.penMode, (m) => ctl.editor.value?.setPenMode(m))
 watch(() => settings.scribbleErase, (v) => ctl.editor.value?.setScribbleErase(v))
 watch(() => settings.selectionMode, (m) => ctl.editor.value?.setSelectionMode(m))
@@ -203,6 +209,7 @@ async function run(fn: () => Promise<unknown>) {
 const mainItems = computed((): MenuItem[] => [
   { label: 'Library', icon: 'library', action: () => void back() },
   { label: 'Rename notebook…', icon: 'edit', action: () => void rename() },
+  { label: 'Theme…', icon: 'palette', action: () => { showTheme.value = true } },
   { divider: true },
   { label: 'Lock notebook', icon: 'lock', checked: ctl.locked.value, action: () => ctl.setLocked(!ctl.locked.value) },
   { label: 'Show grid', icon: 'grid', checked: ctl.gridShown, action: () => ctl.toggleGrid() },
@@ -212,8 +219,8 @@ const mainItems = computed((): MenuItem[] => [
   { label: 'Import from Excalidraw…', icon: 'upload', action: () => excalInput.value?.click() },
   { label: 'Export', icon: 'download', children: [
     { label: 'Markdown (.md)', action: () => void run(async () => exportMarkdownFile(ctl.title.value, await ws.exportMarkdownText(ctl.id))) },
-    { label: 'Page as image (.png)', action: () => void run(() => exportPng(ctl.doc, ctl.pageId.value, settings.theme, ctl.editor.value)) },
-    { label: 'PDF', action: () => void run(() => exportPdf(ctl.doc, settings.theme, assetImageResolver(ctl.ws))) },
+    { label: 'Page as image (.png)', action: () => void run(() => exportPng(ctl.doc, ctl.pageId.value, ctl.theme.value, ctl.editor.value)) },
+    { label: 'PDF', action: () => void run(() => exportPdf(ctl.doc, ctl.theme.value, assetImageResolver(ctl.ws))) },
     { label: 'folio file (.folio)', action: () => void run(() => exportFolioFile(ws, ctl.id, ctl.title.value)) },
   ] },
   { divider: true },
@@ -290,6 +297,7 @@ const zoomPct = computed(() => Math.round(ctl.zoom.value * 100))
       <AiPanel v-else-if="panel === 'ai'" @close="panel = null" />
     </template>
     <SettingsDialog v-if="showSettings" @close="showSettings = false" />
+    <ThemeDialog v-if="showTheme" :current="ctl.theme.value.id" @close="showTheme = false" @apply="applyTheme" />
     <ShortcutsDialog v-if="showShortcuts" @close="showShortcuts = false" />
   </div>
 </template>

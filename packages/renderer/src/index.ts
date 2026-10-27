@@ -3,7 +3,7 @@ export { createLiveInkLayer, pressureFactor } from './live-ink'
 export { strokeOutline, strokeFill, triangulate, freehandOptions, highlighterOutline, highlighterParts, highlighterPasses, highlighterBlend, type StrokeFill } from './geometry/ink'
 export {
   buildShapeGeometry, buildArrowGeometry, opsetToPolylines, arrowHeadPoints, arrowHeadLength, effectiveRoughness,
-  arrowheadParts, pathEndTangent, wobblePath, type HeadParts,
+  arrowheadParts, pathEndTangent, wobblePath, themedStyle, type HeadParts,
   type PathGeometry,
 } from './geometry/rough'
 export { MeshBuilder, addPolyline, addPolygon, addGeometry, buildInkMesh, buildInkStencilMesh, type StencilFill, buildShapeMesh, buildArrowMesh, VERTEX_FLOATS } from './geometry/mesh'
@@ -14,7 +14,9 @@ export {
 export { catmullRom, orthogonalRoute, simplifyOrthogonal, dashPattern, dashPolyline, type FlatCurve } from './geometry/curves'
 export { hitTestObject, objectIntersectsRect, objectIntersectsLasso, pointInPolygon, frameLabelRect, FRAME_LABEL_SIZE } from './hit'
 export { localBounds, localOutline, worldCorners, objectWorldBounds, inkLocalPoints, anchorPoint, noteTailPoint, type Resolve } from './bounds'
-export { FONT_FAMILIES, FONT_LABELS, WEB_FONT_NAMES, fontString, measureText, layoutText, labelLayout, ARROW_LABEL_WIDTH, setTextMeasurer, resetTextMetrics, type TextLayout, type TextLike } from './text'
+export { FONT_FAMILIES, FONT_LABELS, WEB_FONT_NAMES, fontString, measureText, layoutText, labelLayout, ARROW_LABEL_WIDTH, setTextMeasurer, resetTextMetrics,
+  setTypography, typography, withTypography, displayFamily, displayUppercase, type Typography, type TextLayout, type TextLike,
+} from './text'
 export { noteBox, noteOutline, noteTail, counterTail, counterTip, counterOutline, counterLabel } from './callouts'
 export { shapeOutline, shapeVertices, roundedPolygon, cornerRadius } from './shapes'
 export {
@@ -26,6 +28,8 @@ export {
   type HandleId, type OverlayPoly,
 } from './overlay'
 export { WebGLRenderer, scaleBucket } from './webgl'
+export { castsShadow, shadowOffset, shapeShadow, noteShadow, convexDifference } from './shadow'
+export { chalkPaint, grainAt, GRAIN_CELL, GRAIN_TILE } from './grain'
 export { Canvas2DRenderer, renderToCanvas, renderPageToImage, paintScene, pathMidpoint, GeometryStore, type PageImageOptions, type PaintOptions } from './canvas2d'
 export { ImageCache, type ImageResolver, type ImageSource } from './images'
 export { createRenderer, type CreateRendererOptions } from './factory'

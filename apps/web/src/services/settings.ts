@@ -1,7 +1,6 @@
-import type { BackgroundPattern } from '@folio/document'
+import { DEFAULT_THEME, isThemeId, type BackgroundPattern, type ThemeId } from '@folio/document'
 import type { Storage } from '@folio/persistence'
 import type { PenMode, SelectionMode } from '@folio/editor'
-import type { VisualTheme } from '@folio/renderer'
 import { reactive, watch } from 'vue'
 
 export type CleanupMode = 'keep' | 'auto' | 'ask'
@@ -11,7 +10,8 @@ export interface AppSettings {
   cleanupMode: CleanupMode
   languages: string[]
   cloudRefinement: boolean
-  theme: VisualTheme
+  /** Theme of new notebooks, and of notebooks that never picked one. */
+  defaultTheme: ThemeId
   penMode: PenMode
   defaultPageType: DefaultPageType
   defaultPattern: BackgroundPattern
@@ -35,7 +35,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   cleanupMode: 'keep',
   languages: ['en', 'de'],
   cloudRefinement: false,
-  theme: 'rough',
+  defaultTheme: DEFAULT_THEME,
   penMode: 'auto',
   defaultPageType: 'infinite',
   defaultPattern: 'blank',
@@ -61,7 +61,8 @@ export function sanitizeSettings(raw: unknown): AppSettings {
   const r = raw as Record<string, unknown>
   const oneOf = <T extends string>(v: unknown, opts: readonly T[], d: T): T => (opts.includes(v as T) ? (v as T) : d)
   out.cleanupMode = oneOf(r.cleanupMode, ['keep', 'auto', 'ask'], out.cleanupMode)
-  out.theme = oneOf(r.theme, ['rough', 'clean'], out.theme)
+  // `theme` is the pre-notebook-themes name of the setting
+  out.defaultTheme = isThemeId(r.defaultTheme) ? r.defaultTheme : isThemeId(r.theme) ? r.theme : out.defaultTheme
   out.penMode = oneOf(r.penMode, ['auto', 'pen-only', 'any'], out.penMode)
   out.defaultPageType = oneOf(r.defaultPageType, ['infinite', 'A4', 'Letter', 'iPad'], out.defaultPageType)
   out.defaultPattern = oneOf(r.defaultPattern, ['blank', 'ruled', 'grid', 'dot', 'music', 'isometric', 'hex', 'cornell', 'handwriting', 'engineering', 'isodot', 'tablature', 'polar'], out.defaultPattern)

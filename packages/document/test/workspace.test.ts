@@ -62,4 +62,17 @@ describe('WorkspaceDocument', () => {
     expect(b.notebooks()).toHaveLength(1)
     expect(seen).toEqual(['remote'])
   })
+
+  it('syncs theme customisations and merges them per option', () => {
+    const a = new WorkspaceDocument({ peerId: 1 })
+    const b = new WorkspaceDocument({ peerId: 2 })
+    a.setThemeOverrides('sketchnote', { shadow: false, uppercase: false })
+    b.setThemeOverrides('sketchnote', { strokeScale: 2 })
+    a.importUpdates(b.exportUpdates())
+    b.importUpdates(a.exportUpdates())
+    expect(a.themeOverrides()).toEqual({ sketchnote: { shadow: false, uppercase: false, strokeScale: 2 } })
+    expect(b.themeOverrides()).toEqual(a.themeOverrides())
+    a.setThemeOverrides('sketchnote', null)
+    expect(a.themeOverrides()).toEqual({})
+  })
 })

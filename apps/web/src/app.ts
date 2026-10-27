@@ -8,6 +8,7 @@ import { bindHandwriting } from './services/handwriting'
 import { bindSettings, settings } from './services/settings'
 import { loadRuntimeConfig, runtimeConfig } from './services/runtime-config'
 import { SyncService } from './services/sync'
+import { bindThemes, notebookThemeId, themeFor } from './services/themes'
 import { Workspace } from './services/workspace'
 
 export type BootState = 'booting' | 'ready' | 'locked' | 'error'
@@ -37,6 +38,7 @@ export async function createServices(storage: Storage): Promise<AppServices> {
   await bindSettings(storage)
   await bindHandwriting(storage)
   const workspace = await Workspace.open(storage, diagnostics)
+  bindThemes(workspace.doc)
   const auth = new AuthService()
   const sync = new SyncService(workspace, auth)
   const { apiBase } = runtimeConfig
@@ -49,7 +51,7 @@ export async function createServices(storage: Storage): Promise<AppServices> {
 async function makeWelcomeThumbnail(ws: Workspace, id: string): Promise<void> {
   try {
     const session = await ws.openNotebook(id)
-    const url = await thumbnailDataUrl(session.doc, settings.theme)
+    const url = await thumbnailDataUrl(session.doc, themeFor(notebookThemeId(session.doc.meta())))
     if (url) await ws.setThumbnail(id, url)
     await ws.release(id)
   } catch (e) {

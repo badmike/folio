@@ -2,7 +2,8 @@ import type {
   ArrowObject, CanvasObject, DocChangeEvent, GroupObject, ImageObject, InkStroke, NotebookDocumentApi, ObjectId, ObjectPatch,
   Operation, Page, PageId, Rect, ShapeObject, TextObject, Vec2,
 } from '@folio/document'
-import { anchorPoint, arrowHandleSpecs, backgroundLevels, counterTip, lineHandleSpecs, localBounds as rendererLocalBounds, noteBox, noteTail, noteTailPoint } from '@folio/renderer'
+import { resolveTheme } from '@folio/document'
+import { anchorPoint, arrowHandleSpecs, backgroundLevels, counterTip, lineHandleSpecs, localBounds as rendererLocalBounds, noteBox, noteTail, noteTailPoint, setTypography } from '@folio/renderer'
 import type { ArrowHandleSpec, Camera, LiveInkLayer, Renderer, Scene, SelectionOverlay, Size, VisualTheme } from '@folio/renderer'
 import {
   MAX_ZOOM, MIN_ZOOM, cameraForRect, clampCameraToPage, clampZoom, screenToWorld as s2w, worldToScreen as w2s, zoomCameraAt,
@@ -145,7 +146,9 @@ export class Editor {
     this.document = opts.document
     this._pageId = opts.pageId
     this._tool = opts.initialTool ?? 'pen'
-    this._theme = opts.theme ?? 'rough'
+    this._theme = opts.theme ?? resolveTheme('rough')
+    // text bounds, hit testing and the text editor lay out with the theme's font
+    setTypography(this._theme)
     this._readOnly = !!opts.readOnly
     this._penMode = opts.penMode ?? 'auto'
     this._toolLock = !!opts.toolLock
@@ -180,6 +183,7 @@ export class Editor {
       : createDefaultRenderer({ canvas: this.sceneCanvas, kind: opts.renderer, theme: this._theme })
     this.live = opts.liveLayerFactory ? opts.liveLayerFactory(this.liveCanvas) : createDefaultLiveLayer(this.liveCanvas)
     this.renderer.onDirty = () => this.requestRender()
+    this.live.setTheme?.(this._theme)
     this.renderer.setImageSource?.(opts.resolveImage ?? null)
 
     this.textEditor = new TextEditor(this)
@@ -303,7 +307,13 @@ export class Editor {
   }
 
   setTheme(theme: VisualTheme): void {
+    const relayout = theme.font !== this._theme.font || theme.uppercase !== this._theme.uppercase
     this._theme = theme
+    setTypography(theme)
+    this.live.setTheme?.(theme)
+    // a different font or case changes text bounds
+    if (relayout) this.rebuild()
+    this.textEditor.reposition()
     this.renderer.invalidate()
     this.requestRender()
   }

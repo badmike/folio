@@ -98,6 +98,7 @@
 @font-face { font-family: 'Gloria Hallelujah'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/gloria-hallelujah-latin-400.woff2') format('woff2'); }
 @font-face { font-family: 'Permanent Marker'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/permanent-marker-latin-400.woff2') format('woff2'); }
 @font-face { font-family: 'Playpen Sans'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/playpen-sans-latin-400.woff2') format('woff2'); }
+@font-face { font-family: 'Gochi Hand'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/gochi-hand-latin-400.woff2') format('woff2'); }
 @font-face { font-family: 'Fira Code'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/fira-code-latin-400.woff2') format('woff2'); }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }

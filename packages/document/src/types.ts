@@ -5,6 +5,7 @@
  * The visible canvas is NOT the database. These types describe semantic objects
  * independently of how they are rendered.
  */
+import type { ThemeId } from './themes'
 
 export type ObjectId = string
 export type PageId = string
@@ -129,7 +130,7 @@ export interface InkStroke extends BaseObject {
  */
 export type FontFamily =
   | 'hand' | 'sans' | 'mono'
-  | 'caveat' | 'kalam' | 'patrick' | 'indie' | 'architect' | 'shadows' | 'gloria' | 'marker' | 'playpen'
+  | 'caveat' | 'kalam' | 'patrick' | 'indie' | 'architect' | 'shadows' | 'gloria' | 'marker' | 'playpen' | 'gochi'
 export type SemanticTextType = 'heading' | 'paragraph' | 'list-item' | 'label' | 'equation'
 
 export interface TextObject extends BaseObject {
@@ -423,6 +424,8 @@ export interface NotebookMeta {
   createdAt: Timestamp
   updatedAt: Timestamp
   toolSettings?: ToolSettings
+  /** Visual theme (unset = the device's default theme). Untrusted: resolve with resolveTheme(). */
+  theme?: ThemeId
 }
 
 /** Look of a folder or tag in the library: a Lucide icon name and a CSS colour; null = none. */

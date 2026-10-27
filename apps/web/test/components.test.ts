@@ -14,14 +14,15 @@ afterEach(() => { while (dialog.value) closeDialog() })
 const folder = (id: string, name: string, parentId: string | null = null): FolderEntry => ({ id, name, parentId, createdAt: 1, updatedAt: 1 })
 
 describe('NewNotebookDialog', () => {
-  it('emits the chosen page type, pattern and title', async () => {
+  it('emits the chosen page type, pattern, theme and title', async () => {
     const w = mount(NewNotebookDialog, teleportStub)
     await w.get('[data-testid="new-title"]').setValue('Physics')
     await w.get('[data-testid="type-A4"]').trigger('click')
     const grid = w.findAll('button').find((b) => b.text() === 'Grid')!
     await grid.trigger('click')
+    await w.get('[data-testid="theme-sketchnote"]').trigger('click')
     await w.get('form').trigger('submit')
-    expect(w.emitted('create')![0][0]).toEqual({ title: 'Physics', pageType: 'A4', pattern: 'grid' })
+    expect(w.emitted('create')![0][0]).toEqual({ title: 'Physics', pageType: 'A4', pattern: 'grid', theme: 'sketchnote' })
   })
 
   it('closes on Cancel', async () => {

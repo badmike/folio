@@ -18,10 +18,15 @@ describe('settings', () => {
     expect(sanitizeSettings(null)).toEqual(DEFAULT_SETTINGS)
     const s = sanitizeSettings({ cleanupMode: 'auto', theme: 'weird', languages: ['de', 'x', 5], cloudRefinement: 'yes', defaultPageType: 'A4' })
     expect(s.cleanupMode).toBe('auto')
-    expect(s.theme).toBe('rough')
+    expect(s.defaultTheme).toBe('rough')
     expect(s.languages).toEqual(['de'])
     expect(s.cloudRefinement).toBe(false)
     expect(s.defaultPageType).toBe('A4')
+  })
+
+  it('migrates the pre-notebook-themes theme setting', () => {
+    expect(sanitizeSettings({ theme: 'clean' }).defaultTheme).toBe('clean')
+    expect(sanitizeSettings({ theme: 'clean', defaultTheme: 'blueprint' }).defaultTheme).toBe('blueprint')
   })
 
   it('persists changes through storage', async () => {

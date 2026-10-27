@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-  CANVAS_BACKGROUNDS_DARK, CANVAS_BACKGROUNDS_LIGHT, defaultLineColor, type BackgroundPattern, type Page,
+  CANVAS_BACKGROUNDS_DARK, CANVAS_BACKGROUNDS_LIGHT, defaultLineColor, themeLineColor, type BackgroundPattern, type Page,
 } from '@folio/document'
 import { computed, inject, ref } from 'vue'
 import { sameColor } from '../color-ui'
@@ -22,11 +22,19 @@ const patterned = computed(() => bg.value.pattern !== 'blank')
 const fixedOnly = computed(() => isFixedOnlyPattern(bg.value.pattern))
 const hasMajor = computed(() => bg.value.pattern === 'grid' || bg.value.pattern === 'ruled')
 
-/** The line colour is "auto" while it equals the scheme default for the paper (or the legacy default). */
-const lineAuto = computed(() => sameColor(bg.value.lineColor, defaultLineColor(bg.value.color)) || sameColor(bg.value.lineColor, '#d0d4da'))
+/** The notebook theme's papers, unless they are presets anyway. */
+const themePapers = computed(() => {
+  const t = ctl.theme.value
+  return [t.paperLight, t.paperDark].filter((c) => ![...CANVAS_BACKGROUNDS_LIGHT, ...CANVAS_BACKGROUNDS_DARK].some((p) => sameColor(p, c)))
+})
+/** The line colour is "auto" while it equals the default for the paper (scheme, theme or legacy default). */
+const lineAuto = computed(() => {
+  const lc = bg.value.lineColor
+  return sameColor(lc, defaultLineColor(bg.value.color)) || sameColor(lc, themeLineColor(ctl.theme.value, bg.value.color)) || sameColor(lc, '#d0d4da')
+})
 function setPaper(color: string) {
   // automatic line colour follows the paper; a customised one is left alone
-  ctl.setBackground(lineAuto.value ? { color, lineColor: defaultLineColor(color) } : { color })
+  ctl.setBackground(lineAuto.value ? { color, lineColor: themeLineColor(ctl.theme.value, color) } : { color })
 }
 const pickPaper = ref(false)
 const pickLine = ref(false)
@@ -40,6 +48,11 @@ const num = (e: Event) => Number((e.target as HTMLInputElement).value)
     <div class="setting stack">
       <span class="name">Paper</span>
       <div class="swatches" role="group" aria-label="Paper colour">
+        <template v-if="themePapers.length">
+          <button v-for="c in themePapers" :key="c" type="button" class="sw" :class="{ on: sameColor(c, bg.color) }" :style="{ background: c }"
+                  :aria-label="`Theme paper ${c}`" :aria-pressed="sameColor(c, bg.color)" :data-testid="`paper-theme-${c}`" @click="setPaper(c)" />
+          <span class="div" aria-hidden="true" />
+        </template>
         <button v-for="c in CANVAS_BACKGROUNDS_LIGHT" :key="c" type="button" class="sw" :class="{ on: sameColor(c, bg.color) }" :style="{ background: c }"
                 :aria-label="`Light paper ${c}`" :aria-pressed="sameColor(c, bg.color)" :data-testid="`paper-${c}`" @click="setPaper(c)" />
         <span class="div" aria-hidden="true" />

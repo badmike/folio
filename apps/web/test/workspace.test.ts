@@ -2,6 +2,7 @@ import { objectsOfType } from './util'
 import { MemoryStorage, createMemoryState } from '@folio/persistence'
 import { createId, exportMarkdown, type TextObject } from '@folio/document'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { bindThemes, repaintedBackground, themeFor } from '../src/services/themes'
 import { Workspace } from '../src/services/workspace'
 
 let ws: Workspace
@@ -60,6 +61,17 @@ describe('notebook CRUD', () => {
     expect(sb.doc.pages()[0]).toMatchObject({ kind: 'fixed', format: 'A4', width: 794, height: 1123 })
     expect(sb.doc.pages()[0].background.pattern).toBe('ruled')
     expect(ws.entry(b)?.title).toBe('Paper')
+  })
+
+  it('creates a notebook in a theme, on its paper; customisations from the workspace apply', async () => {
+    const stop = bindThemes(ws.doc)
+    ws.doc.setThemeOverrides('blueprint', { paperLight: '#eef4ff' })
+    const id = await ws.createNotebook({ title: 'Plan', pattern: 'grid', theme: 'blueprint' })
+    const s = await ws.openNotebook(id)
+    expect(s.doc.meta().theme).toBe('blueprint')
+    expect(s.doc.pages()[0].background).toMatchObject({ pattern: 'grid', color: '#eef4ff' })
+    expect(repaintedBackground({ ...s.doc.pages()[0].background, color: '#121212' }, themeFor('blueprint')).color).toBe('#1d4f8c')
+    stop()
   })
 
   it('renames in both the workspace entry and the notebook meta', async () => {

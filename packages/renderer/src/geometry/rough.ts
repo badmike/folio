@@ -1,7 +1,8 @@
 import rough from 'roughjs'
 import type { Options, OpSet } from 'roughjs/bin/core'
-import type { ArrowObject, Arrowhead, ShapeObject, ShapeStyle, Vec2 } from '@folio/document'
+import { handFor, mixColors, themeColor, type ArrowObject, type FillLook, type Arrowhead, type HandProfile, type ShapeObject, type ShapeStyle, type Vec2 } from '@folio/document'
 import { catmullRomSvg, dashPattern, dashPolyline } from './curves'
+import { drawsEdges, handPolygon, markerOutline } from './hand'
 import { roundedPolygon, roundedShape, shapeVertices } from '../shapes'
 import { counterOutline } from '../callouts'
 import type { VisualTheme } from '../contract'
@@ -18,6 +19,8 @@ export interface PathGeometry {
   solids: Vec2[][]
   strokeWidth: number
   hatchWidth: number
+  /** Opacity of `fills` and `hatch` (default 1); overlapping hatch strokes build up darker. */
+  fillOpacity?: number
 }
 
 const generator = rough.generator()
@@ -69,7 +72,51 @@ function stableSeed(seed: number): number {
 }
 
 export function effectiveRoughness(style: ShapeStyle, theme: VisualTheme): number {
-  return theme === 'clean' ? 0 : Math.max(0, style.roughness)
+  const hand = handFor(theme, style.roughness)
+  return Math.max(0, hand ? hand.roughness : (theme.roughness ?? style.roughness))
+}
+
+/** A shape style as the theme draws it: the stroke width scaled by the theme's weight and the hand's pen. */
+export function themedStyle(style: ShapeStyle, theme: VisualTheme): ShapeStyle {
+  const scale = theme.strokeScale * (handFor(theme, style.roughness)?.weight ?? 1)
+  return scale === 1 ? style : { ...style, strokeWidth: style.strokeWidth * scale }
+}
+
+/**
+ * The colour a label sits on, when the theme paints the fill flat (hatching and scribbles leave
+ * the paper showing): the displayed fill, blended with the page for translucent washes.
+ */
+export function labelBackdrop(style: ShapeStyle, theme: VisualTheme, background: string): string | undefined {
+  if (!style.fillColor || style.fillColor === 'transparent') return undefined
+  const s = themedStyle(style, theme)
+  const roughness = effectiveRoughness(s, theme)
+  const look = fillLook(s, theme, roughness)
+  const pattern = look?.pattern ?? s.fillStyle ?? (roughness === 0 ? 'solid' : 'hachure')
+  if (pattern !== 'solid') return undefined
+  const fill = themeColor(theme, style.fillColor, background)
+  return look?.opacity !== undefined ? mixColors(background, fill, look.opacity) : fill
+}
+
+/** The theme's look for the shape's fill style (as the theme draws it, see themedStyle). */
+function fillLook(style: ShapeStyle, theme: VisualTheme, roughness: number): FillLook | undefined {
+  return theme.fills[style.fillStyle ?? (roughness === 0 ? 'solid' : 'hachure')]
+}
+
+function fillOptions(style: ShapeStyle, theme: VisualTheme, roughness: number): Options {
+  const fs = style.fillStyle ?? (roughness === 0 ? 'solid' : 'hachure')
+  const look = fillLook(style, theme, roughness)
+  if (!look) return { fillStyle: fs, hachureGap: Math.max(6, style.strokeWidth * 4), fillWeight: Math.max(1, style.strokeWidth * 0.5) }
+  return {
+    fillStyle: look.pattern,
+    hachureGap: Math.max(4, style.strokeWidth * look.gap),
+    fillWeight: Math.max(0.5, style.strokeWidth * look.weight),
+    hachureAngle: look.angle ?? -41,
+  }
+}
+
+/** Rough strokes retrace themselves (Excalidraw's double stroke) for this object under the theme. */
+function retraces(style: ShapeStyle, theme: VisualTheme): boolean {
+  return handFor(theme, style.roughness)?.multiStroke ?? theme.multiStroke
 }
 
 function baseOptions(style: ShapeStyle, theme: VisualTheme, seedOffset = 0): Options {
@@ -80,12 +127,10 @@ function baseOptions(style: ShapeStyle, theme: VisualTheme, seedOffset = 0): Opt
     seed: stableSeed(style.seed + seedOffset),
     strokeWidth: style.strokeWidth,
     stroke: style.strokeColor,
-    disableMultiStroke: roughness === 0,
+    disableMultiStroke: roughness === 0 || !retraces(style, theme),
     disableMultiStrokeFill: true,
     fill: hasFill ? style.fillColor : undefined,
-    fillStyle: style.fillStyle ?? (roughness === 0 ? 'solid' : 'hachure'),
-    hachureGap: Math.max(6, style.strokeWidth * 4),
-    fillWeight: Math.max(1, style.strokeWidth * 0.5),
+    ...fillOptions(style, theme, roughness),
     preserveVertices: roughness === 0,
   }
 }
@@ -100,18 +145,31 @@ function collect(drawable: { sets: OpSet[] }, geo: PathGeometry): void {
 }
 
 export function buildShapeGeometry(shape: ShapeObject, theme: VisualTheme): PathGeometry {
-  const { width: w, height: h, style } = shape
+  const { width: w, height: h } = shape
+  // frames and counters keep their own fixed look
+  const style = shape.kind === 'frame' || shape.kind === 'counter' ? shape.style : themedStyle(shape.style, theme)
   const o = baseOptions(style, theme)
   const geo: PathGeometry = {
     strokes: [], fills: [], hatch: [], solids: [],
     strokeWidth: style.strokeWidth,
     hatchWidth: Math.max(1, style.strokeWidth * 0.5),
   }
+  const look = fillLook(style, theme, effectiveRoughness(style, theme))
+  if (look) {
+    if (look.pattern !== 'solid') geo.hatchWidth = Math.max(0.5, style.strokeWidth * look.weight)
+    if (look.opacity !== undefined) geo.fillOpacity = look.opacity
+  }
+  // the object's own sloppiness picks the theme's hand level
+  const hand = handFor(theme, style.roughness)
   const rounded = roundedShape(shape.kind, w, h, style.roundness)
   switch (shape.kind) {
     case 'rectangle':
     case 'triangle':
     case 'diamond':
+      if (!rounded && drawsEdges(hand)) {
+        handEdges(shapeVertices(shape.kind, w, h)!, style, o, hand, geo)
+        break
+      }
       // like Excalidraw, a rounded outline keeps its joins so arcs meet the edges
       if (rounded) collect(generator.path(rounded.d, { ...o, preserveVertices: true }), geo)
       else if (shape.kind === 'rectangle') collect(generator.rectangle(0, 0, w, h, o), geo)
@@ -141,7 +199,29 @@ export function buildShapeGeometry(shape: ShapeObject, theme: VisualTheme): Path
     }
   }
   applyDashes(geo, style)
+  markerStrokes(geo, hand, style.seed)
   return geo
+}
+
+/** Polygon drawn edge by edge by the theme's hand: the fill follows its moved corners. */
+function handEdges(vertices: Vec2[], style: ShapeStyle, o: Options, profile: HandProfile, geo: PathGeometry): void {
+  const { corners, edges } = handPolygon(vertices, profile, style.seed)
+  if (style.fillColor) {
+    const fill = generator.polygon(corners.map((p) => [p.x, p.y] as [number, number]), o)
+    for (const set of fill.sets) if (set.type !== 'path') collect({ sets: [set] }, geo)
+  }
+  // a little roughjs-style tremble on top of the bow
+  const tremble = (lines: Vec2[][], seed: number) => lines.map((e, i) => (o.roughness ? wobblePath(e, seed + i * 7, o.roughness * 0.6) : e))
+  geo.strokes.push(...tremble(edges, style.seed))
+  // a retracing pen goes over every edge a second time, never quite on the same line
+  if (profile.multiStroke) geo.strokes.push(...tremble(handPolygon(vertices, profile, style.seed + 97).edges, style.seed + 97))
+}
+
+/** Marker hands draw strokes as filled outlines whose width varies along the line. */
+function markerStrokes(geo: PathGeometry, p: HandProfile | null, seed: number): void {
+  if (!p || p.widthJitter <= 0 || !geo.strokes.length) return
+  geo.strokes.forEach((line, i) => geo.solids.push(...markerOutline(line, geo.strokeWidth, p.widthJitter, seed + i * 13)))
+  geo.strokes = []
 }
 
 /**
@@ -354,7 +434,7 @@ export function trimPath(path: Vec2[], start: number, end: number): Vec2[] | nul
 
 /** Arrow shaft + heads in WORLD space (arrows carry an identity transform). `path` = arrowPath(). */
 export function buildArrowGeometry(arrow: ArrowObject, path: Vec2[], theme: VisualTheme): PathGeometry {
-  const style = arrow.style
+  const style = themedStyle(arrow.style, theme)
   const geo: PathGeometry = {
     strokes: [], fills: [], hatch: [], solids: [],
     strokeWidth: style.strokeWidth,
@@ -376,7 +456,7 @@ export function buildArrowGeometry(arrow: ArrowObject, path: Vec2[], theme: Visu
     preserveVertices: true,
     bowing: 2.5,
     maxRandomnessOffset: 3,
-    disableMultiStroke: roughness === 0 || dashed,
+    disableMultiStroke: roughness === 0 || dashed || !retraces(style, theme),
   }
   if (dashed && roughness > 0) geo.strokeWidth += 0.5
   const rough = o.roughness ?? 0
@@ -399,7 +479,7 @@ export function buildArrowGeometry(arrow: ArrowObject, path: Vec2[], theme: Visu
     const ho: Options = {
       ...o, seed: stableSeed(style.seed + seedOffset),
       roughness: kind === 'dot' || kind === 'dot-outline' ? Math.min(0.5, rough) : rough,
-      disableMultiStroke: rough === 0,
+      disableMultiStroke: rough === 0 || !retraces(style, theme),
     }
     if (kind === 'dot-outline' && rough > 0) {
       const r = dotRadius(style, arrowHeadLength(style, len))
@@ -427,5 +507,6 @@ export function buildArrowGeometry(arrow: ArrowObject, path: Vec2[], theme: Visu
   }
   head(arrow.endHead, true, 1)
   head(arrow.startHead, false, 2)
+  markerStrokes(geo, handFor(theme, style.roughness), style.seed)
   return geo
 }

@@ -1,4 +1,4 @@
-import type { ArrowObject, CanvasObject, InkPoint, ObjectId, Page, Rect, StrokeStyle, Vec2 } from '@folio/document'
+import type { ArrowObject, CanvasObject, InkPoint, ObjectId, Page, Rect, ResolvedTheme, StrokeStyle, Vec2 } from '@folio/document'
 import type { ImageResolver } from './images'
 
 /** Camera: screen = (world - (x,y)) * zoom. (x,y) is the world point at the viewport's top-left. */
@@ -15,7 +15,8 @@ export interface Size {
   dpr: number
 }
 
-export type VisualTheme = 'rough' | 'clean'
+/** A scene's visual theme with the user's customisations applied (see resolveTheme in @folio/document). */
+export type VisualTheme = ResolvedTheme
 
 export interface SelectionOverlay {
   ids: ObjectId[]
@@ -92,6 +93,8 @@ export interface LiveInkLayer {
   dispose(): void
   /** Page colour: stroke colours are adapted to it (adaptColor). Optional, default white. */
   setBackground?(color: string): void
+  /** Visual theme: stroke colours follow its palette. Optional, default Hand-drawn. */
+  setTheme?(theme: VisualTheme): void
 }
 
 export interface ArrowGeometry {

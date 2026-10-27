@@ -544,15 +544,25 @@ not:
 ExcalidrawRectangle
 ```
 
-A visual theme determines whether that rectangle appears:
+A visual theme determines how that rectangle appears. Themes are render-time only and never rewrite stored objects.
 
-- hand-drawn
-- clean/geometric
-- another future style
+Rough.js generates the rough geometry behind the renderer abstraction. It can later be replaced without migrating notebook data.
 
-Rough.js or similar technology may initially generate rough geometry behind the renderer abstraction.
+## Themes
 
-It can later be replaced without migrating notebook data.
+Six presets live in `packages/document/src/themes.ts`: Hand-drawn (default), Clean, Sketchnote, Blueprint, Chalkboard and Whiteboard.
+
+- **Choice:** each notebook stores its theme in `NotebookMeta.theme` (synced). Unset means the device setting `defaultTheme`, which is also what new notebooks get.
+- **Knobs:** every preset has the same customisable options: base font, capitals, offset shadow, stroke weight, light and dark paper. Hand-drawn and Clean add sketchiness (`null` = each object's own roughness; a fixed value hides the per-shape Sloppiness control).
+- **Hand levels:** Sketchnote, Blueprint, Chalkboard and Whiteboard draw with two layers. The theme's Overdraw (Settings > Themes, Refined / Artist / Sloppy) sets the pen: how far edges run past their corners, retracing, pressure (width jitter) and weight. Each shape's own Sloppiness (Architect / Artist / Cartoonist) sets its wiggle on top: roughness, bow and corner skew. `handFor()` combines both into a `HandProfile`. With overshoot, bow or skew set, polygon outlines are drawn edge by edge, each edge bowed and running past one end of each corner (a retracing pen draws every edge twice); width jitter turns strokes into marker outlines whose width wanders like pen pressure (`packages/renderer/src/geometry/hand.ts`). Blueprint rules an Architect's shapes exactly and an Artist's gently by hand.
+- **Light and dark:** each theme has a light and a dark variant. The page's stored background colour picks the variant (`isDarkColor`), so dark pages stay dark under any theme.
+- **Paper:** a theme sets the paper of new pages. Switching a notebook's theme can repaint existing pages (on by default), keeping their pattern and light/dark scheme.
+- **Colours:** Hand-drawn and Clean adapt colours with `adaptColor` as before. The other themes remap every palette swatch through a per-variant table; the darkest shade of every hue keeps 3:1 contrast with the paper. Custom colours fall back to `adaptColor`. Labels and note text switch to near-black or near-white below 4.5:1 against a solid fill.
+- **Fonts:** only text in the base `hand` family (and shape/arrow labels) takes the theme font and capitals. Explicitly picked fonts keep their face and case. Layout goes through a renderer-level typography (`setTypography` / `withTypography`) so bounds, hit testing, the DOM text editor and both renderers agree.
+- **Ink:** pen and highlighter strokes keep their shape under every theme; only their colour follows the palette.
+- **Fills:** each shape's fill style always applies; each theme maps the fill styles to its own look (`ThemePreset.fills`, roughjs underneath; spacing and weight scale with the stroke width). Sketchnote fills flat and hatches with the bold marker; Blueprint hatches finely at 45° and paints solids as a translucent wash; Chalkboard shades solids with a dense chalk scribble; Whiteboard shades solids with broad translucent marker strokes that darken where they overlap. Labels pick their colour against what is visible behind them (the wash blended with the paper; hatching counts as paper). Hand-drawn and Clean fill as Excalidraw does.
+- **Shadows:** closed shapes (rectangle, ellipse, triangle, diamond) and notes cast a hard shadow offset down-right on the page. An unfilled or hatched shape only shows the part of its shadow outside itself.
+- **Chalk:** Chalkboard's grain is one deterministic function in object space (`packages/renderer/src/grain.ts`), used as a pattern tile in Canvas2D and mirrored in the WebGL mesh shader. Note fills get half strength so their text stays readable. Ink is not textured.
 
 ---
 
