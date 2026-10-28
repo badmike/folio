@@ -1,7 +1,8 @@
 import {
-  createId, createPage, defaultShapeStyle, encodeInkPoints, identityTransform, rectContains, worldBounds,
+  createId, createPage, defaultShapeStyle, encodeInkPoints, identityTransform, rectContains, rectIntersects, worldBounds,
   type InkStroke, type ShapeObject, type TextObject,
 } from '@folio/document'
+import { frameLabelRect } from '@folio/renderer'
 import { describe, expect, it } from 'vitest'
 import tools from '../../server/tools/folio-tools.json'
 import { TOOL_NAMES } from '../src/ai/protocol'
@@ -106,6 +107,55 @@ describe('AI tools', () => {
     expect(outline).toContain(`${shape.id} rectangle "Start" [100,50 160x80]`)
     expect(outline).toContain(`${rec.id} handwriting "mitosis" [399,299 42x2] (1 stroke)`)
     expect(outline).not.toContain(`${ink.id} ink`)
+  })
+
+  it('lowers a new frame\'s top edge so its title clears the text above', async () => {
+    const doc = notebook('Notes')
+    const pageId = doc.pages()[0].id
+    const runner = createToolRunner(fakeHost([doc]).host)
+    const text = await runner.run(call('create_text', { markdown: 'Above', x: 100, y: 100 }), 't1')
+    const box = await runner.run(call('create_shapes', { shapes: [{ kind: 'rectangle', x: 100, y: 170, width: 200, height: 80 }] }), 't1')
+    const ids = (box.output as { ids: string[] }).ids
+    const res = await runner.run(call('group_objects', { ids, as: 'frame', title: 'Section' }), 't1')
+
+    const frame = doc.object(pageId, (res.output as { id: string }).id) as ShapeObject
+    const above = worldBounds(doc.object(pageId, (text.output as { ids: string[] }).ids[0])!)
+    expect(frame.transform.y - frameLabelRect(frame).height).toBeGreaterThanOrEqual(above.y + above.height)
+    expect(frame.transform.y).toBeLessThan(170)
+    expect((res.output as { titleOverlaps?: string[] }).titleOverlaps).toBeUndefined()
+  })
+
+  it('places new content clear of the titles of frames', async () => {
+    const doc = notebook('Notes')
+    const pageId = doc.pages()[0].id
+    const frame: ShapeObject = {
+      id: createId(), type: 'shape', kind: 'frame', transform: { ...identityTransform(), x: 0, y: 150 },
+      z: 1, createdAt: 1, updatedAt: 1, width: VIEWPORT.width, height: 300, style: defaultShapeStyle(), label: 'Section',
+    }
+    doc.apply([{ type: 'addObjects', pageId, objects: [frame] }])
+    const res = await createToolRunner(fakeHost([doc]).host).run(call('create_shapes', { shapes: [{ kind: 'rectangle', width: 100, height: 60 }] }), 't1')
+
+    const b = worldBounds(doc.object(pageId, (res.output as { ids: string[] }).ids[0])!)
+    const h = frameLabelRect(frame).height
+    const title = { x: 0, y: 150 - h, width: VIEWPORT.width, height: h }
+    expect(rectIntersects({ x: b.x - 24, y: b.y - 24, width: b.width + 48, height: b.height + 48 }, title)).toBe(false)
+  })
+
+  it('moves objects into and out of frames', async () => {
+    const doc = notebook('Notes')
+    const pageId = doc.pages()[0].id
+    const runner = createToolRunner(fakeHost([doc]).host)
+    const made = await runner.run(call('create_shapes', { shapes: [
+      { kind: 'rectangle', x: 100, y: 100, width: 80, height: 80 },
+      { kind: 'ellipse', x: 600, y: 100, width: 80, height: 80 },
+    ] }), 't1')
+    const [inside, outside] = (made.output as { ids: string[] }).ids
+    const framed = await runner.run(call('group_objects', { ids: [inside], as: 'frame', padding: 100 }), 't1')
+    const frameId = (framed.output as { id: string }).id
+
+    await runner.run(call('move_objects', { moves: [{ id: outside, x: 150, y: 150 }, { id: inside, dx: 1000, dy: 0 }] }), 't1')
+    expect(doc.object(pageId, outside)!.frameId).toBe(frameId)
+    expect(doc.object(pageId, inside)!.frameId).toBeUndefined()
   })
 
   it('declares exactly TOOL_NAMES, in order, in folio-tools.json', () => {
