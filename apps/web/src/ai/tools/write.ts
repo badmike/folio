@@ -1,9 +1,10 @@
 import {
-  DEFAULT_LABEL_SIZE, boundsUnion, createId, estimateTextSize, resolveArrowEndpoints, worldBounds,
-  type CanvasObject, type GroupObject, type ImageObject, type NotebookDocumentApi, type ObjectId, type ObjectPatch,
+  DEFAULT_LABEL_SIZE, boundsUnion, createId, estimateTextSize, rectIntersects, resolveArrowEndpoints, worldBounds,
+  type CanvasObject, type GroupObject, type ImageObject, type NotebookDocumentApi, type ObjectId, type ObjectPatch, type ObjectResolver,
   type Operation, type PageId, type Rect, type ShapeObject, type TextObject,
 } from '@folio/document'
-import { patchForObject, type StylePatch } from '@folio/editor'
+import { patchForObject, withFrameMembership, type StylePatch } from '@folio/editor'
+import { frameLabelRect } from '@folio/renderer'
 import type { ToolEffect } from '../protocol'
 import { mutate, notebookOf, pageOf, tool, type Executor, type ToolOutcome } from './kit'
 import { parseMarkdown, type MdBlock } from './markdown'
@@ -12,7 +13,7 @@ import {
   expandIds, makeArrow, makeShape, makeText, objectOn, resolverWith, shapeStyle, shapeStyleInput, styleFields, withDescendants, zAbove,
 } from './objects'
 import { roundRect } from './outline'
-import { freeSpot } from './place'
+import { footprint, freeSpot } from './place'
 import { ToolError, arr, coord, hex, id, num, obj, oneOf, opt, size, str, where } from './validate'
 
 const GAP = 24
@@ -295,11 +296,14 @@ export const move_objects: Executor = tool(obj({ ...where, moves: arr(moveInput,
       const dy = to ? to.y - b.y : (m.dy ?? 0)
       for (const o of members) {
         const p = !patches.has(o.id) && shifted(o, dx, dy)
-        if (p) patches.set(o.id, { ...p, updatedAt: now })
+        if (p) patches.set(o.id, p)
       }
     })
     const ids = [...patches.keys()]
-    const ops: Operation[] = ids.length ? [{ type: 'updateObjects', pageId: page.id, patches: ids.map((oid) => ({ id: oid, patch: patches.get(oid)! })) }] : []
+    // objects that end up inside a frame join it, ones moved out leave theirs
+    const entries = withFrameMembership([...patches].map(([id, patch]) => ({ id, patch })), doc.objects(page.id), resolve)
+      .map((e) => ({ id: e.id, patch: { ...e.patch, updatedAt: now } }))
+    const ops: Operation[] = entries.length ? [{ type: 'updateObjects', pageId: page.id, patches: entries }] : []
     return { ops, pageId: page.id, ids }
   })
   return { output: { moved: result.ids }, effects }
@@ -354,6 +358,24 @@ export const delete_objects: Executor = tool(obj({ ...where, ids: arr(id, { min:
 
 const FRAME_STYLE: ShapeObject['style'] = { strokeColor: '#9aa0a8', strokeWidth: 1, opacity: 1, roughness: 0, seed: 1 }
 
+/** Least room a frame keeps between its top edge and its content when the title needs space. */
+const MIN_FRAME_PAD = 8
+
+/**
+ * The frame with its top edge lowered (down to MIN_FRAME_PAD above the content) so the title drawn
+ * above it clears the objects right above, plus the ids the title still overlaps.
+ */
+function clearTitle(frame: ShapeObject, content: Rect, others: CanvasObject[], resolve: ObjectResolver): { frame: ShapeObject; overlaps: ObjectId[] } {
+  const title = frameLabelRect(frame)
+  const band = (top: number): Rect => ({ x: frame.transform.x, y: top - title.height, width: title.width, height: title.height })
+  const hits = (top: number) => others.filter((o) => rectIntersects(footprint(o, resolve), band(top)))
+  const above = hits(frame.transform.y).map((o) => footprint(o, resolve)).filter((r) => r.y + r.height <= content.y)
+  if (!above.length) return { frame, overlaps: hits(frame.transform.y).map((o) => o.id) }
+  const top = Math.min(content.y - MIN_FRAME_PAD, Math.max(...above.map((r) => r.y + r.height)) + title.height + 4)
+  const lowered = { ...frame, transform: { ...frame.transform, y: top }, height: frame.height + frame.transform.y - top }
+  return { frame: lowered, overlaps: hits(top).map((o) => o.id) }
+}
+
 function topGroupOf(doc: NotebookDocumentApi, pageId: PageId, oid: ObjectId): ObjectId {
   let cur = oid
   for (let depth = 0; depth < 32; depth++) {
@@ -397,17 +419,20 @@ export const group_objects: Executor = tool(
       if (leaves.some((o) => o.type === 'shape' && o.kind === 'frame')) throw new ToolError('frames cannot contain other frames')
       const b = boundsOf(doc, page.id, leaves)!
       const pad = input.padding ?? 32
-      const frame = makeShape({
+      const padded = makeShape({
         kind: 'frame', x: b.x - pad, y: b.y - pad, width: b.width + 2 * pad, height: b.height + 2 * pad,
         label: input.title, style: FRAME_STYLE,
       }, { z: Math.min(...leaves.map((o) => o.z)) - 1, now })
+      const inside = new Set(leaves.map((o) => o.id))
+      const others = doc.objects(page.id).filter((o) => !inside.has(o.id) && !o.supersededBy && o.type !== 'group' && o.type !== 'arrow')
+      const { frame, overlaps } = input.title ? clearTitle(padded, b, others, resolverWith(doc, page.id)) : { frame: padded, overlaps: [] }
       const ops: Operation[] = [
         { type: 'addObjects', pageId: page.id, objects: [frame] },
         { type: 'updateObjects', pageId: page.id, patches: leaves.map((o) => ({ id: o.id, patch: { frameId: frame.id, updatedAt: now } })) },
       ]
-      return { ops, pageId: page.id, ids: [frame.id], id: frame.id }
+      return { ops, pageId: page.id, ids: [frame.id], id: frame.id, overlaps }
     })
-    return { output: { id: result.id }, effects }
+    return { output: { id: result.id, titleOverlaps: result.overlaps?.length ? result.overlaps : undefined }, effects }
   },
 )
 

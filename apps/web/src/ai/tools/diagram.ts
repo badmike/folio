@@ -1,4 +1,8 @@
-import { DEFAULT_LABEL_SIZE, estimateTextSize, worldBounds, boundsUnion, type ArrowObject, type Operation, type ShapeKind } from '@folio/document'
+import {
+  DEFAULT_LABEL_SIZE, estimateTextSize, worldBounds, boundsUnion, rectIntersects,
+  type ArrowObject, type ObjectId, type ObjectResolver, type Operation, type Rect, type ShapeKind, type Vec2,
+} from '@folio/document'
+import { arrowPath } from '@folio/renderer'
 import { mutate, notebookOf, pageOf, tool, type Executor } from './kit'
 import { DIRECTIONS, LAYOUTS, layoutGraph } from './layout'
 import { ARROWHEADS, makeArrow, makeShape, resolverWith, shapeStyle, shapeStyleInput, zAbove } from './objects'
@@ -12,6 +16,10 @@ const INSET: Record<(typeof NODE_SHAPES)[number], number> = { rectangle: 1, elli
 const WRAP = 24
 /** How far each arrow of a two-way pair bows out at least, so the two don't overlap. */
 const PAIR_BEND = 36
+/** Room an arrow keeps from nodes it passes. */
+const NODE_CLEARANCE = 8
+/** Bows tried, nearest first, for an arrow whose path would cross a node. */
+const DETOURS = [40, 80, 120, 160, 240, 320, 480]
 
 /** Curve an arrow through a point beside its midpoint, on its left. Opposite arrows bow apart. */
 export function bend(a: ArrowObject, by: number): ArrowObject {
@@ -19,6 +27,47 @@ export function bend(a: ArrowObject, by: number): ArrowObject {
   const len = Math.hypot(dx, dy) || 1
   const mid = { x: (a.start.x + a.end.x) / 2 + (dy / len) * by, y: (a.start.y + a.end.y) / 2 - (dx / len) * by }
   return { ...a, arrowType: 'curved', waypoints: [mid] }
+}
+
+/** Whether the segment a→b touches the rectangle (Liang-Barsky clipping). */
+function segmentHitsRect(a: Vec2, b: Vec2, r: Rect): boolean {
+  const dx = b.x - a.x, dy = b.y - a.y
+  let t0 = 0, t1 = 1
+  for (const [p, q] of [[-dx, a.x - r.x], [dx, r.x + r.width - a.x], [-dy, a.y - r.y], [dy, r.y + r.height - a.y]]) {
+    if (p === 0) {
+      if (q < 0) return false
+    } else if (p < 0) t0 = Math.max(t0, q / p)
+    else t1 = Math.min(t1, q / p)
+  }
+  return t0 <= t1
+}
+
+interface Box { id: ObjectId; rect: Rect }
+
+/** Whether the arrow as drawn crosses a node other than its own ends. */
+function crosses(a: ArrowObject, boxes: Box[], resolve: ObjectResolver): boolean {
+  const path = arrowPath(a, resolve)
+  const xs = path.map((p) => p.x), ys = path.map((p) => p.y)
+  const x = Math.min(...xs), y = Math.min(...ys)
+  const span = { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y }
+  const ends = [a.startBinding?.objectId, a.endBinding?.objectId]
+  return boxes.some(({ id, rect }) => !ends.includes(id) && rectIntersects(span, rect)
+    && path.some((p, i) => i > 0 && segmentHitsRect(path[i - 1], p, rect)))
+}
+
+/**
+ * The arrow, or the nearest bow of it that clears every node it would cross. `left` (the bow of a
+ * two-way pair) keeps it bowing to its left by at least that much, away from its partner.
+ */
+function around(a: ArrowObject, boxes: Box[], resolve: ObjectResolver, left?: number): ArrowObject {
+  if (!crosses(a, boxes, resolve)) return a
+  for (const by of DETOURS) {
+    for (const side of left ? [1] : [1, -1]) {
+      const bowed = bend(a, side * Math.max(by, left ?? 0))
+      if (!crosses(bowed, boxes, resolve)) return bowed
+    }
+  }
+  return a
 }
 
 /** Greedy word wrap, so labels are measured as they render. */
@@ -84,9 +133,10 @@ export const draw_diagram: Executor = tool(
     const labelRoom = !longest ? 0
       : input.direction === 'right' ? Math.min(160, longest) + 16
       : Math.ceil(longest / 160) * DEFAULT_LABEL_SIZE * 1.3 + 16
-    const pos = layoutGraph(input.layout, sized, input.edges, input.direction, { rank: 80 + labelRoom, node: 48 })
-    const width = Math.max(...sized.map((n) => pos.get(n.key)!.x + n.width))
-    const height = Math.max(...sized.map((n) => pos.get(n.key)!.y + n.height))
+    const { positions: pos, routes } = layoutGraph(input.layout, sized, input.edges, input.direction, { rank: 80 + labelRoom, node: 48 })
+    const far = [...sized.map((n) => ({ x: pos.get(n.key)!.x + n.width, y: pos.get(n.key)!.y + n.height })), ...[...routes.values()].flat()]
+    const width = Math.max(...far.map((p) => p.x))
+    const height = Math.max(...far.map((p) => p.y))
 
     const notebookId = notebookOf(ctx.host, input.notebookId)
     const { result, effects } = await mutate(ctx, notebookId, (doc) => {
@@ -104,12 +154,21 @@ export const draw_diagram: Executor = tool(
       const byKey = new Map(sized.map((n, i) => [n.key, shapes[i]]))
       const resolve = resolverWith(doc, page.id, shapes)
       const pairs = new Set(input.edges.map((e) => `${e.from}\n${e.to}`))
+      const boxes = shapes.map((s) => {
+        const b = worldBounds(s)
+        return { id: s.id, rect: { x: b.x - NODE_CLEARANCE, y: b.y - NODE_CLEARANCE, width: b.width + 2 * NODE_CLEARANCE, height: b.height + 2 * NODE_CLEARANCE } }
+      })
       const arrows = input.edges.map((e) => {
         const a = makeArrow(byKey.get(e.from)!, byKey.get(e.to)!, { label: e.label, endHead: e.endHead, style: shapeStyle(e.style) }, resolve, { z: z(), now })
-        if (e.from === e.to || !pairs.has(`${e.to}\n${e.from}`)) return a
+        if (e.from === e.to) return a
+        const route = routes.get(e)
+        // a long layered edge passes through the gaps the layout kept for it
+        if (route) return around({ ...a, arrowType: 'curved', waypoints: route.map((p) => ({ x: origin.x + p.x, y: origin.y + p.y })) }, boxes, resolve)
+        if (!pairs.has(`${e.to}\n${e.from}`)) return around(a, boxes, resolve)
         // side by side (vertical arrows) the labels need half their width each
         const label = e.label ? estimateTextSize({ text: e.label, fontSize: DEFAULT_LABEL_SIZE }).width / 2 + 12 : 0
-        return bend(a, Math.max(PAIR_BEND, label))
+        const by = Math.max(PAIR_BEND, label)
+        return around(bend(a, by), boxes, resolve, by)
       })
       const all = [...shapes, ...arrows]
       const ops: Operation[] = [{ type: 'addObjects', pageId: page.id, objects: all }]

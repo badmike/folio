@@ -143,6 +143,26 @@ describe('frames', () => {
     expect(objs(h)).toHaveLength(0)
   })
 
+  it('nudging or aligning an object updates its frame in the same undo step', () => {
+    h = setup()
+    addRaw(h, [
+      { ...shape('f', 0, 0, 300, 300), kind: 'frame' as const, z: 1 },
+      { ...shape('a', 260, 50, 30, 30), z: 2, frameId: 'f' },
+      shape('b', 400, 200, 30, 30),
+    ])
+    h.editor.select(['a'])
+    h.editor.nudgeSelection(20, 0)
+    expect(obj('a').frameId).toBeUndefined()
+    h.editor.undo()
+    expect(obj('a').transform.x).toBe(260)
+    expect(obj('a').frameId).toBe('f')
+    h.editor.select(['a', 'b'])
+    h.editor.alignSelection('top')
+    expect(obj('b').frameId).toBeUndefined()
+    h.editor.alignSelection('left')
+    expect(obj('b').frameId).toBe('f')
+  })
+
   it('ink drawn inside a frame joins it', async () => {
     h = setup()
     addRaw(h, [{ ...shape('f', 0, 0, 400, 400), kind: 'frame' as const }])

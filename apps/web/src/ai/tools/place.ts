@@ -1,11 +1,20 @@
 import {
   boundsUnion, rectIntersects, worldBounds,
-  type NotebookDocumentApi, type Page, type Rect, type Vec2,
+  type CanvasObject, type NotebookDocumentApi, type ObjectResolver, type Page, type Rect, type Vec2,
 } from '@folio/document'
+import { frameLabelRect } from '@folio/renderer'
 
 /** Room inside the viewport's edges, clear of the floating menu button and toolbar. */
 const MARGIN = 64
 const CLEARANCE = 24
+
+/** World bounds plus, for a titled frame, the title the renderer draws above its top edge. */
+export function footprint(o: CanvasObject, resolve: ObjectResolver): Rect {
+  const b = worldBounds(o, resolve)
+  if (o.type !== 'shape' || o.kind !== 'frame' || !o.label) return b
+  const title = frameLabelRect(o).height
+  return { ...b, y: b.y - title, height: b.height + title }
+}
 
 /**
  * Top-left for a `width` × `height` block in free space: the first gap in the viewport (row by row),
@@ -17,7 +26,7 @@ export function freeSpot(doc: NotebookDocumentApi, page: Page, viewport: Rect | 
   const area = viewport ?? fixed
   const objs = doc.objects(page.id)
   const resolve = (id: string) => doc.object(page.id, id)
-  const taken = objs.filter((o) => !o.supersededBy && o.type !== 'group').map((o) => worldBounds(o, resolve))
+  const taken = objs.filter((o) => !o.supersededBy && o.type !== 'group').map((o) => footprint(o, resolve))
 
   if (area) {
     const near = taken.filter((b) => rectIntersects(b, area))
