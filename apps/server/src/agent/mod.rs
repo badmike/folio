@@ -67,6 +67,8 @@ pub struct ThreadSummary {
     pub notebook_id: Option<String>,
     pub title: String,
     pub pin_key: Option<String>,
+    /// Key of the prompt note that started the thread.
+    pub source_note: Option<String>,
     pub settled_at: Option<i64>,
     pub last_activity_at: i64,
     pub created_at: i64,
@@ -77,6 +79,7 @@ pub struct ThreadSummary {
 #[serde(rename_all = "camelCase")]
 pub struct CreateThreadReq {
     pub notebook_id: Option<String>,
+    pub source_note: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -278,6 +281,14 @@ pub struct StepReq {
     pub results: Vec<ToolResult>,
     pub environment: Environment,
     pub steer: Option<UserMessage>,
+}
+
+/// Body of POST /ai/turns/{id}/results.
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ResultsReq {
+    pub device_id: String,
+    pub results: Vec<ToolResult>,
 }
 
 /// Body of POST /ai/turns/{id}/continue (not in protocol.ts yet).

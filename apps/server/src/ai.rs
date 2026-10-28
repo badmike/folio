@@ -27,6 +27,8 @@ pub struct AiResponse {
     pub text: String,
     pub tokens_in: i64,
     pub tokens_out: i64,
+    /// USD charged, as OpenRouter reports it.
+    pub cost: Option<f64>,
 }
 
 /// Token counts of one model call. `prompt_tokens` includes `cached_tokens`.
@@ -35,6 +37,8 @@ pub struct Usage {
     pub prompt_tokens: i64,
     pub completion_tokens: i64,
     pub cached_tokens: i64,
+    /// USD charged, as OpenRouter reports it (`usage.cost`, in credits of one dollar).
+    pub cost: Option<f64>,
 }
 
 /// A streaming chat call with tools (the agent step).
@@ -125,6 +129,7 @@ pub const MOCK_USAGE: Usage = Usage {
     prompt_tokens: 1000,
     completion_tokens: 100,
     cached_tokens: 0,
+    cost: None,
 };
 
 /// A scripted chat response for [`MockProvider`].
@@ -215,6 +220,7 @@ impl AiProvider for MockProvider {
             text,
             tokens_in: 10,
             tokens_out: 5,
+            cost: None,
         })
     }
 
@@ -379,7 +385,6 @@ pub fn build_chat_body(req: &ChatRequest) -> Value {
         "model": req.model,
         "max_tokens": req.max_tokens,
         "stream": true,
-        "stream_options": {"include_usage": true},
         "messages": messages,
     });
     if !req.tools.is_empty() {
@@ -497,6 +502,7 @@ impl SseParser {
                 cached_tokens: u["prompt_tokens_details"]["cached_tokens"]
                     .as_i64()
                     .unwrap_or(0),
+                cost: u["cost"].as_f64(),
             }));
         }
         Ok(())
@@ -544,6 +550,7 @@ impl AiProvider for OpenRouterProvider {
                     text: text.to_string(),
                     tokens_in: v["usage"]["prompt_tokens"].as_i64().unwrap_or(0),
                     tokens_out: v["usage"]["completion_tokens"].as_i64().unwrap_or(0),
+                    cost: v["usage"]["cost"].as_f64(),
                 });
             }
             last_err = format!("provider returned HTTP {status}");
@@ -780,7 +787,7 @@ mod tests {
             ": OPENROUTER PROCESSING\n\n",
             "data: {\"choices\":[{\"delta\":{\"content\":\"Hi \"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"function\":{\"name\":\"look\",\"arguments\":\"{\\\"a\\\"\"}},{\"index\":1,\"id\":\"c2\",\"function\":{\"name\":\"list_pages\",\"arguments\":\"\"}}]}}]}\n",
             "\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\":1}\"}}]}}]}\n\n",
-            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":9,\"completion_tokens\":4,\"prompt_tokens_details\":{\"cached_tokens\":5}}}\n\ndata: [DONE]\n\n",
+            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":9,\"completion_tokens\":4,\"cost\":0.0042,\"prompt_tokens_details\":{\"cached_tokens\":5}}}\n\ndata: [DONE]\n\n",
         ];
         let mut out = Vec::new();
         for c in chunks {
@@ -805,7 +812,8 @@ mod tests {
                 ChatDelta::Usage(Usage {
                     prompt_tokens: 9,
                     completion_tokens: 4,
-                    cached_tokens: 5
+                    cached_tokens: 5,
+                    cost: Some(0.0042),
                 }),
             ]
         );

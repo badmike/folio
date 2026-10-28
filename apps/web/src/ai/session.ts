@@ -55,6 +55,8 @@ export class AiSession {
   readonly key = ++sessionSeq
   /** null while the thread is a draft (created on the first message). */
   readonly thread = shallowRef<ThreadSummary | null>(null)
+  /** Prompt note that starts this thread, sent with its creation. */
+  sourceNote: string | undefined
   readonly turns = shallowRef<TurnInfo[]>([])
   readonly items = shallowRef<ThreadItem[]>([])
   readonly phase = ref<Phase>('idle')
@@ -212,7 +214,7 @@ export class AiSession {
     let started = false
     try {
       if (!this.thread.value) {
-        this.thread.value = await this.deps.api.createThread({ notebookId: this.deps.notebookId })
+        this.thread.value = await this.deps.api.createThread({ notebookId: this.deps.notebookId, sourceNote: this.sourceNote })
         this.deps.onThread?.(this.thread.value)
       }
       const threadId = this.thread.value.id
@@ -244,12 +246,16 @@ export class AiSession {
         this.phase.value = 'tools'
         const results: ToolResult[] = []
         for (const call of this.stepCalls) {
-          if (this.cancelled) return
+          if (this.cancelled) break
           const result = await this.runner.run(call, id)
           results.push(result)
           this.addLocal(id, { kind: 'tool_result', payload: result })
         }
-        if (this.cancelled) return
+        if (this.cancelled) {
+          // the tools that ran keep their undo records, without a next step
+          if (results.length) await this.deps.api.postResults(id, { deviceId: this.deps.deviceId, results })
+          return
+        }
         const environment = await this.deps.environment(this.host)
         const steer = this.takeQueued()
         if (steer) this.addLocalUser(steer, id)

@@ -15,6 +15,7 @@ import {
   localToWorld, unionRects, worldBounds, worldToLocal,
 } from './geometry'
 import { InputController } from './input'
+import { frameContaining, frameMembershipPatches, withFrameMembership } from './frames'
 import { HANDLE_IDS, applyPatch, cloneObjects, computeFrame, computeMovePatches } from './manipulate'
 import type { ObjectPatchEntry, SelectionFrame } from './manipulate'
 import { scribbleCovers } from './scribble'
@@ -560,7 +561,7 @@ export class Editor {
 
   /** Resolve an object of the current page (live-preview overrides win). */
   readonly resolve = (id: ObjectId): CanvasObject | undefined =>
-    this.resolveOverride ? this.resolveOverride(id) : this.overrides.get(id) ?? this.objs.get(id)
+    this.overrides.get(id) ?? this.objs.get(id)
 
   private static indexable(o: CanvasObject): boolean {
     return o.type !== 'group' && !o.supersededBy
@@ -993,7 +994,7 @@ export class Editor {
     const pending = this.pendingStrokes
     this.pendingStrokes = []
     for (const p of pending) {
-      const frame = p.pageId === this._pageId ? this.frameContaining(p.stroke) : undefined
+      const frame = p.pageId === this._pageId ? frameContaining(p.stroke, this.frames(), this.resolve) : undefined
       if (frame) p.stroke.frameId = frame.id
       this.execute([{ type: 'addObjects', pageId: p.pageId, objects: [p.stroke] }])
       this.pendingLiveClear = true
@@ -1283,13 +1284,13 @@ export class Editor {
     if (!objects.length) return
     for (const o of objects) {
       if (o.type === 'group' || (o.type === 'shape' && o.kind === 'frame') || o.frameId) continue
-      const f = this.frameContaining(o)
+      const f = frameContaining(o, this.frames(), this.resolve)
       if (f) o.frameId = f.id
     }
     const ops: Operation[] = [{ type: 'addObjects', pageId: this._pageId, objects }]
     const frames = objects.filter((o): o is ShapeObject => o.type === 'shape' && o.kind === 'frame')
     if (frames.length) {
-      const adopt = this.frameMembershipPatches([...this.objs.values()], [...this.frames(), ...frames])
+      const adopt = frameMembershipPatches(this.objs.values(), [...this.frames(), ...frames], this.resolve)
       if (adopt.length) ops.push({ type: 'updateObjects', pageId: this._pageId, patches: adopt })
     }
     this.execute(ops)
@@ -1344,75 +1345,14 @@ export class Editor {
     return out
   }
 
-  /** Topmost frame whose bounds fully contain the object, if any. */
-  private frameContaining(o: CanvasObject, frames = this.frames()): ShapeObject | undefined {
-    if (!frames.length || o.type === 'group') return undefined
-    const b = worldBounds(o, this.resolve)
-    if (!b) return undefined
-    let best: ShapeObject | undefined
-    for (const f of frames) {
-      if (f.id === o.id) continue
-      const fb = worldBounds(f, this.resolve)
-      if (fb && rectContainsRect(fb, b) && (!best || f.z > best.z)) best = f
-    }
-    return best
-  }
-
   /**
-   * Membership patches for `objs` against `frames`: an object fully inside a frame joins it
-   * (and is raised above it when needed), one outside every frame leaves its frame.
+   * Commit geometry patches from a move (drag, nudge, align, resize, rotate, point edit) as ONE undo
+   * step, including the frame membership changes they cause.
    */
-  private frameMembershipPatches(objs: CanvasObject[], frames: ShapeObject[]): ObjectPatchEntry[] {
-    const out: ObjectPatchEntry[] = []
-    const byId = new Map(frames.map((f) => [f.id, f]))
-    for (const o of objs) {
-      if (o.type === 'group' || o.supersededBy || (o.type === 'shape' && o.kind === 'frame')) continue
-      const f = this.frameContaining(o, frames)
-      if (f) {
-        const patch: ObjectPatch = {}
-        if (o.frameId !== f.id) patch.frameId = f.id
-        if (o.z <= f.z) patch.z = f.z + 0.01
-        if (Object.keys(patch).length) out.push({ id: o.id, patch })
-      } else if (o.frameId && byId.has(o.frameId)) {
-        out.push({ id: o.id, patch: { $unset: ['frameId'] } })
-      } else if (o.frameId && !this.objs.has(o.frameId)) {
-        out.push({ id: o.id, patch: { $unset: ['frameId'] } })
-      }
-    }
-    return out
-  }
-
-  /**
-   * Commit geometry patches from a drag (move / resize / rotate / point edit) as ONE undo step,
-   * including the frame membership changes they cause.
-   */
-  commitTransform(entries: ObjectPatchEntry[]): void {
+  commitTransform(entries: ObjectPatchEntry[], o?: ExecuteOptions): void {
     if (!entries.length) return
-    const patched = new Map<ObjectId, CanvasObject>()
-    for (const e of entries) {
-      const o = this.objs.get(e.id)
-      if (o) patched.set(e.id, applyPatch(o, e.patch))
-    }
-    const framesAfter = this.frames().map((f) => (patched.get(f.id) as ShapeObject | undefined) ?? f)
-    const movedFrame = [...patched.values()].some((o) => o.type === 'shape' && o.kind === 'frame')
-    // a moved / resized frame re-evaluates every object; otherwise only the moved ones
-    const candidates = movedFrame ? [...this.objs.values()].map((o) => patched.get(o.id) ?? o) : [...patched.values()]
-    const resolvePatched = (id: ObjectId): CanvasObject | undefined => patched.get(id) ?? this.resolve(id)
-    const membership = this.frameMembershipPatchesWith(candidates, framesAfter, resolvePatched)
-    const merged = new Map<ObjectId, ObjectPatch>(entries.map((e) => [e.id, e.patch]))
-    for (const m of membership) {
-      const prev = merged.get(m.id)
-      merged.set(m.id, prev ? { ...prev, ...m.patch, $unset: [...(prev.$unset ?? []), ...(m.patch.$unset ?? [])] } : m.patch)
-    }
-    this.updateObjects([...merged].map(([id, patch]) => ({ id, patch })))
+    this.updateObjects(withFrameMembership(entries, this.objs.values(), this.resolve), o)
   }
-
-  private frameMembershipPatchesWith(objs: CanvasObject[], frames: ShapeObject[], resolve: (id: ObjectId) => CanvasObject | undefined): ObjectPatchEntry[] {
-    const saved = this.resolveOverride
-    this.resolveOverride = resolve
-    try { return this.frameMembershipPatches(objs, frames) } finally { this.resolveOverride = saved }
-  }
-  private resolveOverride: ((id: ObjectId) => CanvasObject | undefined) | null = null
 
   /** Copy the selection (leaves + nested groups) into a serialisable payload. */
   copySelection(): ClipboardPayload | undefined {
@@ -1591,7 +1531,7 @@ export class Editor {
   nudgeSelection(dx: number, dy: number): void {
     const leaves = this.withFrameContent(this.leavesOfSelection())
     if (!leaves.length) return
-    this.updateObjects(computeMovePatches(leaves, dx, dy, this.resolve), { coalesceKey: 'nudge' })
+    this.commitTransform(computeMovePatches(leaves, dx, dy, this.resolve), { coalesceKey: 'nudge' })
   }
 
   // ---------------------------------------------------------------------------
@@ -1633,7 +1573,7 @@ export class Editor {
       }
       if (Math.abs(dx) > 1e-9 || Math.abs(dy) > 1e-9) entries.push(...computeMovePatches(u.leaves, dx, dy, this.resolve))
     }
-    this.updateObjects(entries)
+    this.commitTransform(entries)
   }
 
   /** Space the selection units evenly between the outermost two (needs at least three units). */
@@ -1656,7 +1596,7 @@ export class Editor {
       if (Math.abs(d) > 1e-9) entries.push(...computeMovePatches(u.leaves, h ? d : 0, h ? 0 : d, this.resolve))
       cursor += len(u.bounds) + gap
     }
-    this.updateObjects(entries)
+    this.commitTransform(entries)
   }
 
   // ---------------------------------------------------------------------------

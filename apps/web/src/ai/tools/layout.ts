@@ -1,6 +1,7 @@
 /**
  * Graph layouts for draw_diagram, written by hand (no dependency). Every layout returns top-left
- * positions with the drawing's bounds starting at (0, 0), and never lets two nodes overlap.
+ * positions with the drawing's bounds starting at (0, 0), and never lets two nodes overlap. The
+ * layered layout also routes edges that span several layers through gaps it keeps free for them.
  */
 import type { Vec2 } from '@folio/document'
 
@@ -18,35 +19,42 @@ export interface Spacing {
   node: number
 }
 
+export interface Layout {
+  /** Top-left of every node. */
+  positions: Map<string, Vec2>
+  /** Waypoints, from `from` to `to`, of the edges that need a route around nodes. */
+  routes: Map<LayoutEdge, Vec2[]>
+}
+
 export function layoutGraph(
   kind: LayoutKind,
   nodes: LayoutNode[],
   edges: LayoutEdge[],
   direction: Direction = 'down',
   spacing: Spacing = { rank: 80, node: 48 },
-): Map<string, Vec2> {
+): Layout {
   const keys = new Set(nodes.map((n) => n.key))
   const links = edges.filter((e) => e.from !== e.to && keys.has(e.from) && keys.has(e.to))
   switch (kind) {
-    case 'layered': return normalize(nodes, fromAxes(nodes, layersOf(nodes, links), direction, spacing))
-    case 'tree': return normalize(nodes, tree(nodes, links, direction, spacing))
-    case 'grid': return normalize(nodes, grid(nodes, direction, spacing))
-    case 'radial': return normalize(nodes, radial(nodes, links, spacing))
+    case 'layered': return normalize(nodes, layered(nodes, links, direction, spacing))
+    case 'tree': return normalize(nodes, { positions: tree(nodes, links, direction, spacing), routes: new Map() })
+    case 'grid': return normalize(nodes, { positions: grid(nodes, direction, spacing), routes: new Map() })
+    case 'radial': return normalize(nodes, { positions: radial(nodes, links, spacing), routes: new Map() })
   }
 }
 
-/** Shift positions so the union of node boxes starts at (0, 0). */
-function normalize(nodes: LayoutNode[], pos: Map<string, Vec2>): Map<string, Vec2> {
+/** Shift positions and routes so the drawing starts at (0, 0). */
+function normalize(nodes: LayoutNode[], { positions, routes }: Layout): Layout {
   let x0 = Infinity, y0 = Infinity
-  for (const n of nodes) {
-    const p = pos.get(n.key)!
+  for (const p of [...nodes.map((n) => positions.get(n.key)!), ...[...routes.values()].flat()]) {
     x0 = Math.min(x0, p.x)
     y0 = Math.min(y0, p.y)
   }
-  return new Map(nodes.map((n) => {
-    const p = pos.get(n.key)!
-    return [n.key, { x: p.x - x0, y: p.y - y0 }]
-  }))
+  const shift = (p: Vec2) => ({ x: p.x - x0, y: p.y - y0 })
+  return {
+    positions: new Map(nodes.map((n) => [n.key, shift(positions.get(n.key)!)])),
+    routes: new Map([...routes].map(([e, r]) => [e, r.map(shift)])),
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -57,11 +65,16 @@ function normalize(nodes: LayoutNode[], pos: Map<string, Vec2>): Map<string, Vec
 const mainSize = (n: LayoutNode, d: Direction) => (d === 'down' ? n.height : n.width)
 const crossSize = (n: LayoutNode, d: Direction) => (d === 'down' ? n.width : n.height)
 
+/** A placeholder a long edge passes through in one layer it crosses. */
+interface Slot { key: string; layer: number }
+
 /**
  * Layers of keys: cycles broken by reversing DFS back edges, layers by longest path from the
- * sources, order inside layers by alternating barycentre sweeps.
+ * sources, order inside layers by alternating barycentre sweeps. An edge spanning several layers
+ * gets a slot in each layer between its ends (`chains`, ordered from `from` to `to`), so the
+ * ordering keeps a gap free for it.
  */
-function layersOf(nodes: LayoutNode[], edges: LayoutEdge[]): string[][] {
+function layersOf(nodes: LayoutNode[], edges: LayoutEdge[]): { layers: string[][]; chains: Map<LayoutEdge, Slot[]> } {
   const out = new Map(nodes.map((n) => [n.key, [] as string[]]))
   for (const e of edges) out.get(e.from)!.push(e.to)
 
@@ -82,7 +95,7 @@ function layersOf(nodes: LayoutNode[], edges: LayoutEdge[]): string[][] {
   }
   for (const n of nodes) if (!state.has(n.key)) visit(n.key)
 
-  // longest path layering in topological order
+  // longest path layering in topological order; every layer up to the deepest gets a node
   const indeg = new Map(nodes.map((n) => [n.key, 0]))
   for (const ts of dag.values()) for (const t of ts) indeg.set(t, indeg.get(t)! + 1)
   const rank = new Map(nodes.map((n) => [n.key, 0]))
@@ -96,48 +109,85 @@ function layersOf(nodes: LayoutNode[], edges: LayoutEdge[]): string[][] {
     }
   }
 
-  const layers: string[][] = []
-  for (const n of nodes) (layers[rank.get(n.key)!] ??= []).push(n.key)
-  const dense = layers.filter((l) => l?.length)
+  // neighbours one layer up and down, through the slots of long edges
+  const up = new Map(nodes.map((n) => [n.key, [] as string[]]))
+  const down = new Map(nodes.map((n) => [n.key, [] as string[]]))
+  const chains = new Map<LayoutEdge, Slot[]>()
+  edges.forEach((e, i) => {
+    const forward = rank.get(e.from)! < rank.get(e.to)!
+    const [a, b] = forward ? [e.from, e.to] : [e.to, e.from]
+    const slots: Slot[] = []
+    for (let r = rank.get(a)! + 1; r < rank.get(b)!; r++) {
+      const key = `\0${i}:${r}`
+      slots.push({ key, layer: r })
+      rank.set(key, r)
+      up.set(key, [])
+      down.set(key, [])
+    }
+    const path = [a, ...slots.map((s) => s.key), b]
+    for (let k = 0; k + 1 < path.length; k++) {
+      down.get(path[k])!.push(path[k + 1])
+      up.get(path[k + 1])!.push(path[k])
+    }
+    if (slots.length) chains.set(e, forward ? slots : slots.reverse())
+  })
 
-  const preds = new Map(nodes.map((n) => [n.key, [] as string[]]))
-  for (const [k, ts] of dag) for (const t of ts) preds.get(t)!.push(k)
+  const layers: string[][] = []
+  for (const [k, r] of rank) (layers[r] ??= []).push(k)
   const index = new Map<string, number>()
-  const reindex = () => dense.forEach((l) => l.forEach((k, i) => index.set(k, i)))
-  reindex()
-  const sweep = (layer: string[], neighbours: (k: string) => string[]) => {
+  layers.forEach((l) => l.forEach((k, i) => index.set(k, i)))
+  const sweep = (layer: string[], neighbours: Map<string, string[]>) => {
     const bary = new Map(layer.map((k, i) => {
-      const ns = neighbours(k).filter((n) => index.has(n))
+      const ns = neighbours.get(k)!
       return [k, ns.length ? ns.reduce((s, n) => s + index.get(n)!, 0) / ns.length : i]
     }))
     layer.sort((a, b) => bary.get(a)! - bary.get(b)!)
     layer.forEach((k, i) => index.set(k, i))
   }
   for (let iter = 0; iter < 4; iter++) {
-    for (let i = 1; i < dense.length; i++) sweep(dense[i], (k) => preds.get(k)!)
-    for (let i = dense.length - 2; i >= 0; i--) sweep(dense[i], (k) => dag.get(k)!)
+    for (let i = 1; i < layers.length; i++) sweep(layers[i], up)
+    for (let i = layers.length - 2; i >= 0; i--) sweep(layers[i], down)
   }
-  return dense
+  return { layers, chains }
 }
 
-/** Layers to positions: each layer one band along the main axis, centred on the cross axis. */
-function fromAxes(nodes: LayoutNode[], layers: string[][], d: Direction, sp: Spacing): Map<string, Vec2> {
+/**
+ * Layers to positions: each layer one band along the main axis, centred on the cross axis. Slots
+ * take no room besides the node spacing; a routed edge crosses each band straight along the main
+ * axis, at its slot.
+ */
+function layered(nodes: LayoutNode[], edges: LayoutEdge[], d: Direction, sp: Spacing): Layout {
+  const { layers, chains } = layersOf(nodes, edges)
   const byKey = new Map(nodes.map((n) => [n.key, n]))
-  const pos = new Map<string, Vec2>()
+  const sizeOf = (k: string) => byKey.get(k) ?? { key: k, width: 0, height: 0 }
+  const at = (main: number, cross: number): Vec2 => (d === 'down' ? { x: cross, y: main } : { x: main, y: cross })
+  const positions = new Map<string, Vec2>()
+  const bands: { start: number; end: number }[] = []
   let main = 0
   for (const layer of layers) {
-    const ns = layer.map((k) => byKey.get(k)!)
+    const ns = layer.map(sizeOf)
     const thick = Math.max(...ns.map((n) => mainSize(n, d)))
     const span = ns.reduce((s, n) => s + crossSize(n, d), 0) + sp.node * (ns.length - 1)
     let cross = -span / 2
     for (const n of ns) {
-      const m = main + (thick - mainSize(n, d)) / 2
-      pos.set(n.key, d === 'down' ? { x: cross, y: m } : { x: m, y: cross })
+      positions.set(n.key, at(main + (thick - mainSize(n, d)) / 2, cross))
       cross += crossSize(n, d) + sp.node
     }
+    bands.push({ start: main, end: main + thick })
     main += thick + sp.rank
   }
-  return pos
+  const mainOf = (p: Vec2) => (d === 'down' ? p.y : p.x)
+  const routes = new Map([...chains].map(([e, slots]) => {
+    // a backward edge enters each band from its far side
+    const forward = mainOf(positions.get(e.from)!) < bands[slots[0].layer].start
+    return [e, slots.flatMap((s) => {
+      const p = positions.get(s.key)!
+      const c = d === 'down' ? p.x : p.y
+      const { start, end } = bands[s.layer]
+      return forward ? [at(start, c), at(end, c)] : [at(end, c), at(start, c)]
+    })]
+  }))
+  return { positions, routes }
 }
 
 // ---------------------------------------------------------------------------

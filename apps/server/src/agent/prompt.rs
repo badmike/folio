@@ -160,6 +160,15 @@ fn chars(m: &ChatMessage) -> usize {
     }
 }
 
+/// Prompt size at about 4 characters per token, images not counted. Prices a step that was
+/// stopped before the provider reported its usage.
+pub fn estimate_tokens(req: &ChatRequest) -> i64 {
+    let system: usize = req.system.iter().map(String::len).sum();
+    let tools: usize = req.tools.iter().map(|t| t.to_string().len()).sum();
+    let messages: usize = req.messages.iter().map(chars).sum();
+    ((system + tools + messages) / 4) as i64
+}
+
 /// Fits older turns into `budget` characters: first drops old tool results, then whole turns,
 /// oldest first. The last turn (the current one) is always kept.
 pub fn fit_history(turns: &mut Vec<Vec<ChatMessage>>, budget: usize) {

@@ -10,4 +10,5 @@ export {
   handlePosition, rotationHandlePosition, HANDLE_IDS,
 } from './manipulate'
 export type { ObjectPatchEntry, SelectionFrame, ScaleSpec, HandleId, CloneResult } from './manipulate'
+export { frameContaining, frameMembershipPatches, withFrameMembership, isFrame } from './frames'
 export { defaultItemStyle, applicableFor, selectionContext, patchForObject } from './style'

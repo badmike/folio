@@ -50,7 +50,7 @@ Change a contract file only together with every side that uses it.
 ### Models and cost
 
 20. **Presets** come from the server config as OpenRouter slugs: Fast is Haiku 5.5, Smart is Sonnet 5.5 and the default, Deep is Opus 5.5. A cheap model writes the titles.
-21. **Daily credit** per user in USD (`FOLIO_AI_DAILY_CREDIT_USD`, default 1.00), from tokens × preset price, including cache reads. Per-turn caps are 25 steps and 2M tokens. Hitting a cap ends the turn as `partial` and keeps its edits. A provider call with an ambiguous outcome is never retried automatically.
+21. **Daily credit** per user in USD (`FOLIO_AI_DAILY_CREDIT_USD`, default 1.00), charged with the cost OpenRouter reports for each call (`usage.cost`), so cache reads and writes are priced right. A step the user stops never gets that report: it is estimated from its tokens at the preset prices. Per-turn caps are 25 steps and 2M tokens. Hitting a cap ends the turn as `partial` and keeps its edits. A provider call with an ambiguous outcome is never retried automatically.
 22. **Prompt order** puts the stable parts first so the cache hits: base instructions, tool guide, user instructions, notebook instructions, then history, then this step's environment. Use `cache_control` breakpoints for Anthropic models through OpenRouter. Notebook content goes inside a random-suffix fence and is treated as untrusted data.
 23. **History** replays the non-reverted turns up to a token budget, dropping old tool results first. There is no compaction in V2.
 24. **Custom instructions** come at two levels, per user and per (user, notebook), both stored on the server and capped at 4000 characters.

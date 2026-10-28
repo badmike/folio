@@ -99,6 +99,10 @@ pub fn build_router(state: AppState) -> Router {
             "/ai/turns/{id}/step",
             post(agent::step).layer(DefaultBodyLimit::max(AGENT_BODY_LIMIT)),
         )
+        .route(
+            "/ai/turns/{id}/results",
+            post(agent::post_results).layer(DefaultBodyLimit::max(AGENT_BODY_LIMIT)),
+        )
         .route("/ai/turns/{id}/cancel", post(agent::cancel))
         .route("/ai/turns/{id}/revert", post(agent::revert))
         .route(

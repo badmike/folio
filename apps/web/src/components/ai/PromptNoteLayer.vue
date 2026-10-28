@@ -5,14 +5,14 @@ import { AI_DOCK_KEY } from '../../ai/dock'
 import type { AiSession } from '../../ai/session'
 import { NOTEBOOK_KEY, type NotebookController } from '../../notebook'
 import { diagnostics } from '../../services/diagnostics'
-import { findPromptNotes, promptNoteThreads, savePromptNoteThread, type PromptNote } from '../../services/prompt-notes'
+import { findPromptNotes, type PromptNote } from '../../services/prompt-notes'
 import { toastError } from '../../services/toast'
 import Icon from '../Icon.vue'
 
 /**
  * "Run" pills beside `@ai` handwriting on the current page, following the camera. They show only once the
  * pen has been idle and recognition has settled, so they never get in the way of writing. Nothing runs
- * without a tap; afterwards the pill becomes a badge that opens the thread.
+ * without a tap; afterwards the pill becomes a badge that opens the thread (the link is the thread's source note).
  */
 const ctl = inject<NotebookController>(NOTEBOOK_KEY)!
 const dock = inject(AI_DOCK_KEY)!
@@ -24,7 +24,6 @@ const SETTLE_MS = 1500
 const notes = shallowRef<PromptNote[]>([])
 const settled = ref(false)
 const cameraTick = ref(0)
-const threads = ref(promptNoteThreads(ctl.id))
 /** Notes tapped in this visit, with the session that runs them. */
 const runs = shallowRef(new Map<string, AiSession>())
 
@@ -60,13 +59,16 @@ watch(() => ctl.editor.value, (e, _old, onCleanup) => {
   })
 }, { immediate: true })
 watch(ctl.pageId, () => { notes.value = []; arm() })
+watch(dock.disabledReason, () => {
+  dock.loadNoteThreads().catch((err) => diagnostics.log('ai.promptNote', err))
+}, { immediate: true })
 onBeforeUnmount(() => clearTimeout(timer))
 
 type PillState = 'run' | 'running' | 'done'
 function stateOf(key: string): PillState {
   const s = runs.value.get(key)
   if (s?.busy.value) return 'running'
-  if (threads.value[key]) return 'done'
+  if (dock.noteThreads.value.has(key)) return 'done'
   // between the tap and the first request; a failure before the thread existed offers Run again
   return s && !s.failure.value ? 'running' : 'run'
 }
@@ -91,10 +93,8 @@ async function run(note: PromptNote) {
   try {
     const target = { notebookId: ctl.id, pageId: ctl.pageId.value, objectIds: note.strokeIds }
     const chip = await dock.tools.contextBuilder.mentionChip(dock.session.value.host, target, 'prompt_note')
-    const s = await dock.compose({ fresh: true, text: note.text, chips: [chip], send: true })
-    if (!s) return
-    runs.value = new Map(runs.value).set(note.key, s)
-    watch(() => s.id, (id) => { if (id) threads.value = savePromptNoteThread(ctl.id, note.key, id) }, { once: true })
+    const s = await dock.compose({ fresh: true, text: note.text, chips: [chip], send: true, sourceNote: note.key })
+    if (s) runs.value = new Map(runs.value).set(note.key, s)
   } catch (err) {
     diagnostics.log('ai.promptNote', err)
     toastError('Could not send the note to the AI.')
@@ -102,7 +102,7 @@ async function run(note: PromptNote) {
 }
 
 async function open(note: PromptNote) {
-  const id = threads.value[note.key]
+  const id = dock.noteThreads.value.get(note.key)
   if (!id) return
   dock.setOpen(true)
   try {

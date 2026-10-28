@@ -30,6 +30,7 @@ async fn run(st: &AppState, user: &AuthUser, req: AiRequest) -> AppResult<AiResp
         prompt_tokens: res.tokens_in,
         completion_tokens: res.tokens_out,
         cached_tokens: 0,
+        cost: res.cost,
     };
     let cost = st.config.default_preset().cost(&usage);
     store::record_usage(&st.db, &user.user_id, cost, res.tokens_in + res.tokens_out).await?;

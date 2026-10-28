@@ -10,13 +10,15 @@ import type {
 const DEVICE = 'dev-a'
 const env: Environment = { notebookId: 'nb', notebookTitle: 'N', pageId: 'p1', viewport: null, outline: '' }
 const msg = (text: string): UserMessage => ({ text, attachments: [], context: [] })
-const thread: ThreadSummary = { id: 't1', notebookId: 'nb', title: 'T', pinKey: null, settledAt: null, lastActivityAt: 1, createdAt: 1, status: 'idle' }
+const thread: ThreadSummary = { id: 't1', notebookId: 'nb', title: 'T', pinKey: null, sourceNote: null, settledAt: null, lastActivityAt: 1, createdAt: 1, status: 'idle' }
 const turn = (p: Partial<TurnInfo> = {}): TurnInfo => ({
   id: 'u1', threadId: 't1', seq: 1, status: 'running', presetId: 'smart', deviceId: DEVICE, steps: 0, tokensIn: 0, tokensOut: 0,
   cachedTokens: 0, costUsd: 0, error: null, createdAt: 1, updatedAt: 1, ...p,
 })
 const call: ToolCall = { toolCallId: 'c1', name: 'create_shapes', input: {} }
-const callItem = (turnId = 'u1', seq = 2): ThreadItem => ({ id: `i-${turnId}-call`, threadId: 't1', turnId, seq, kind: 'tool_call', payload: call, createdAt: 1 })
+const callItem = (turnId = 'u1', seq = 2, payload = call): ThreadItem => ({
+  id: `i-${turnId}-${payload.toolCallId}`, threadId: 't1', turnId, seq, kind: 'tool_call', payload, createdAt: 1,
+})
 const result: ToolResult = { toolCallId: 'c1', output: { ok: true }, isError: false, effects: [] }
 
 async function* events(...list: StepEvent[]): AsyncGenerator<StepEvent> { for (const e of list) yield e }
@@ -28,6 +30,7 @@ function setup(opts: { api?: Partial<TurnApi>; run?: (c: ToolCall, turnId: strin
     startTurn: vi.fn<TurnApi['startTurn']>(o.startTurn ?? (() => events())),
     step: vi.fn<TurnApi['step']>(o.step ?? (() => events())),
     continueTurn: vi.fn<TurnApi['continueTurn']>(o.continueTurn ?? (() => events())),
+    postResults: vi.fn<TurnApi['postResults']>(o.postResults ?? (async () => {})),
     cancel: vi.fn<TurnApi['cancel']>(o.cancel ?? (async (id) => turn({ id, status: 'cancelled' }))),
     revert: vi.fn<TurnApi['revert']>(o.revert ?? (async () => ({ thread, turns: [], items: [] }))),
     thread: vi.fn<TurnApi['thread']>(o.thread ?? (async () => { if (opts.detail) return opts.detail; throw new Error('offline') })),
@@ -118,6 +121,28 @@ describe('AiSession turn loop', () => {
     expect(api.cancel).toHaveBeenCalledWith('u1')
     expect(api.step).not.toHaveBeenCalled()
     expect(session.turns.value[0].status).toBe('cancelled')
+  })
+
+  it('a stop during a tool posts its finished result without starting a step', async () => {
+    let release!: () => void
+    const { session, api, run } = setup({
+      run: () => new Promise((r) => { release = () => r(result) }),
+      api: {
+        startTurn: () => events(
+          { type: 'turn', turn: turn() }, { type: 'item', item: callItem() },
+          { type: 'item', item: callItem('u1', 3, { ...call, toolCallId: 'c2' }) }, { type: 'step_end', status: 'tool_calls' },
+        ),
+      },
+    })
+    session.send(msg('draw'))
+    await until(() => session.phase.value === 'tools')
+    const stopped = session.cancel()
+    release()
+    await stopped
+    await until(() => !session.busy.value)
+    expect(run).toHaveBeenCalledTimes(1)
+    expect(api.postResults).toHaveBeenCalledWith('u1', { deviceId: DEVICE, results: [result] })
+    expect(api.step).not.toHaveBeenCalled()
   })
 
   it('shows the settled turn after a stop, even when the earlier refresh answers last', async () => {

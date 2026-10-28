@@ -7,7 +7,7 @@ import type { AuthService } from '../services/auth'
 import { runtimeConfig } from '../services/runtime-config'
 import type {
   ContinueReq,
-  AiConfigRes, AiErrorCode, CreateThreadReq, Instructions, StartTurnReq, StepEvent, StepReq, ThreadDetailRes,
+  AiConfigRes, AiErrorCode, CreateThreadReq, Instructions, ResultsReq, StartTurnReq, StepEvent, StepReq, ThreadDetailRes,
   ThreadListRes, ThreadSummary, TurnInfo, UpdateThreadReq,
 } from './protocol'
 
@@ -176,8 +176,9 @@ export class AiApi {
 
   config(): Promise<AiConfigRes> { return this.json('GET', '/ai/config') }
 
-  threads(q: { notebookId: NotebookId | null; search?: string; settled: boolean }): Promise<ThreadListRes> {
-    const p = new URLSearchParams({ notebookId: q.notebookId ?? 'library', settled: q.settled ? '1' : '0' })
+  threads(q: { notebookId: NotebookId | null; search?: string; settled?: boolean }): Promise<ThreadListRes> {
+    const p = new URLSearchParams({ notebookId: q.notebookId ?? 'library' })
+    if (q.settled !== undefined) p.set('settled', q.settled ? '1' : '0')
     if (q.search?.trim()) p.set('search', q.search.trim())
     return this.json('GET', `/ai/threads?${p}`)
   }
@@ -195,6 +196,7 @@ export class AiApi {
   continueTurn(turnId: string, req: ContinueReq, signal?: AbortSignal): AsyncGenerator<StepEvent> {
     return this.stream(`/ai/turns/${enc(turnId)}/continue`, req, signal)
   }
+  async postResults(turnId: string, req: ResultsReq): Promise<void> { await this.send('POST', `/ai/turns/${enc(turnId)}/results`, req) }
   cancel(turnId: string): Promise<TurnInfo> { return this.json('POST', `/ai/turns/${enc(turnId)}/cancel`) }
   revert(turnId: string): Promise<ThreadDetailRes> { return this.json('POST', `/ai/turns/${enc(turnId)}/revert`) }
 
@@ -212,4 +214,4 @@ export class AiApi {
 const enc = encodeURIComponent
 
 /** The parts of AiApi the turn driver uses (tests pass a fake). */
-export type TurnApi = Pick<AiApi, 'startTurn' | 'step' | 'continueTurn' | 'cancel' | 'revert' | 'thread' | 'createThread'>
+export type TurnApi = Pick<AiApi, 'startTurn' | 'step' | 'continueTurn' | 'postResults' | 'cancel' | 'revert' | 'thread' | 'createThread'>

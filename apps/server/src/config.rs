@@ -24,8 +24,12 @@ pub struct AiPreset {
 }
 
 impl AiPreset {
-    /// USD cost of one call. `prompt_tokens` includes the cached tokens.
+    /// USD cost of one call: the provider's reported cost, else tokens × preset prices.
+    /// `prompt_tokens` includes the cached tokens.
     pub fn cost(&self, u: &Usage) -> f64 {
+        if let Some(cost) = u.cost {
+            return cost;
+        }
         let fresh = (u.prompt_tokens - u.cached_tokens).max(0) as f64;
         (fresh * self.input_price
             + u.cached_tokens as f64 * self.cached_input_price
@@ -297,8 +301,14 @@ mod tests {
             prompt_tokens: 1_000_000,
             completion_tokens: 500_000,
             cached_tokens: 400_000,
+            cost: None,
         };
         assert!((c.default_preset().cost(&usage) - (0.6 + 0.04 + 2.0)).abs() < 1e-9);
+        let reported = Usage {
+            cost: Some(0.25),
+            ..usage
+        };
+        assert_eq!(c.default_preset().cost(&reported), 0.25);
 
         let mut bad = m.clone();
         bad.insert("FOLIO_AI_DEFAULT_PRESET".into(), "smart".into());
