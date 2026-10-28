@@ -13,8 +13,9 @@ services:
       # Accounts and sync (Clerk). Leave empty to run the app local-only.
       CLERK_ISSUER: ${CLERK_ISSUER:-}
       FOLIO_CLERK_PUBLISHABLE_KEY: ${FOLIO_CLERK_PUBLISHABLE_KEY:-}
-      # AI features (summaries, outline, ask my notes) through OpenRouter.
+      # AI chat dock through OpenRouter. Per-user daily limit in USD (default 1.00).
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      FOLIO_AI_DAILY_CREDIT_USD: ${FOLIO_AI_DAILY_CREDIT_USD:-1.00}
       # Optional S3-compatible storage for snapshots and assets (default: the data volume).
       FOLIO_S3_BUCKET: ${FOLIO_S3_BUCKET:-}
       FOLIO_S3_ENDPOINT: ${FOLIO_S3_ENDPOINT:-}
