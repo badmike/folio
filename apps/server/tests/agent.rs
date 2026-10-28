@@ -513,7 +513,12 @@ async fn threads_remember_the_prompt_note_that_started_them() {
     let (_, v) = app
         .json("GET", "/api/ai/threads?notebookId=nb1", Some(&alice), None)
         .await;
-    let notes: Vec<&Value> = v.as_array().unwrap().iter().map(|t| &t["sourceNote"]).collect();
+    let notes: Vec<&Value> = v
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| &t["sourceNote"])
+        .collect();
     assert!(notes.contains(&&json!("stroke-a")) && notes.contains(&&Value::Null));
 
     let (s, _) = app

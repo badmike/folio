@@ -199,7 +199,8 @@ pub async fn create_thread(
         validate_id("notebookId", nb)?;
     }
     if let Some(k) = &req.source_note {
-        if k.is_empty() || k.len() > MAX_SOURCE_NOTE_LEN || !k.bytes().all(|b| b.is_ascii_graphic()) {
+        if k.is_empty() || k.len() > MAX_SOURCE_NOTE_LEN || !k.bytes().all(|b| b.is_ascii_graphic())
+        {
             return Err(bad("invalid sourceNote"));
         }
     }
