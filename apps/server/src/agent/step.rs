@@ -158,6 +158,9 @@ impl Step {
         let mut text = String::new();
         let mut calls: Vec<ToolCall> = Vec::new();
         let mut usage: Option<Usage> = None;
+        let prompt_tokens = prompt::estimate_tokens(&req);
+        // Characters of text and tool calls received, for the estimate.
+        let mut streamed = 0;
         let text_id = uuid::Uuid::new_v4().to_string();
         let outcome = match st.ai.chat(req).await {
             Err(e) => Outcome::Failed(e),
@@ -170,19 +173,23 @@ impl Step {
                     tokio::select! {
                         d = deltas.next() => match d {
                             Some(Ok(ChatDelta::Text(delta))) => {
+                                streamed += delta.len();
                                 text.push_str(&delta);
                                 out.send(StepEvent::TextDelta { item_id: text_id.clone(), delta }).await;
                             }
-                            Some(Ok(ChatDelta::ToolCall(c))) => calls.push(ToolCall {
-                                input: if c.arguments.trim().is_empty() {
-                                    serde_json::json!({})
-                                } else {
-                                    serde_json::from_str(&c.arguments)
-                                        .unwrap_or(serde_json::Value::String(c.arguments))
-                                },
-                                tool_call_id: c.id,
-                                name: c.name,
-                            }),
+                            Some(Ok(ChatDelta::ToolCall(c))) => {
+                                streamed += c.name.len() + c.arguments.len();
+                                calls.push(ToolCall {
+                                    input: if c.arguments.trim().is_empty() {
+                                        serde_json::json!({})
+                                    } else {
+                                        serde_json::from_str(&c.arguments)
+                                            .unwrap_or(serde_json::Value::String(c.arguments))
+                                    },
+                                    tool_call_id: c.id,
+                                    name: c.name,
+                                });
+                            }
                             Some(Ok(ChatDelta::Usage(u))) => usage = Some(u),
                             Some(Err(e)) => break Outcome::Failed(e),
                             None => break Outcome::Completed,
@@ -208,6 +215,16 @@ impl Step {
             )
             .await?;
             out.send(StepEvent::Item { item }).await;
+        }
+        // A stopped stream never gets the usage chunk, but the provider still bills it: estimate
+        // with the preset prices, the prompt as uncached.
+        if usage.is_none() && matches!(outcome, Outcome::Cancelled) {
+            usage = Some(Usage {
+                prompt_tokens,
+                completion_tokens: (streamed / 4) as i64,
+                cached_tokens: 0,
+                cost: None,
+            });
         }
         if let Some(u) = usage {
             let turn = store::record_step(

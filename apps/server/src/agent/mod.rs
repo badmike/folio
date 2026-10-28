@@ -280,6 +280,14 @@ pub struct StepReq {
     pub steer: Option<UserMessage>,
 }
 
+/// Body of POST /ai/turns/{id}/results.
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ResultsReq {
+    pub device_id: String,
+    pub results: Vec<ToolResult>,
+}
+
 /// Body of POST /ai/turns/{id}/continue (not in protocol.ts yet).
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]

@@ -244,12 +244,16 @@ export class AiSession {
         this.phase.value = 'tools'
         const results: ToolResult[] = []
         for (const call of this.stepCalls) {
-          if (this.cancelled) return
+          if (this.cancelled) break
           const result = await this.runner.run(call, id)
           results.push(result)
           this.addLocal(id, { kind: 'tool_result', payload: result })
         }
-        if (this.cancelled) return
+        if (this.cancelled) {
+          // the tools that ran keep their undo records, without a next step
+          if (results.length) await this.deps.api.postResults(id, { deviceId: this.deps.deviceId, results })
+          return
+        }
         const environment = await this.deps.environment(this.host)
         const steer = this.takeQueued()
         if (steer) this.addLocalUser(steer, id)

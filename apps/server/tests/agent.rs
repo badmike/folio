@@ -366,6 +366,49 @@ async fn cancel_aborts_a_streaming_step() {
     let d = detail(&app, &thread).await;
     assert_eq!(d["turns"][0]["status"], "cancelled");
     assert_eq!(d["items"][1]["payload"]["text"], "Half an ans");
+    // No usage chunk arrived: the step is charged an estimate from the prompt and the text.
+    assert!(d["turns"][0]["tokensIn"].as_i64().unwrap() > 1000);
+    assert_eq!(d["turns"][0]["tokensOut"], 2);
+    assert!(d["turns"][0]["costUsd"].as_f64().unwrap() > 0.0);
+}
+
+#[tokio::test]
+async fn results_of_a_stopped_turn_are_kept_without_a_step() {
+    let app = TestApp::new().await;
+    let thread = new_thread(&app, "alice", Some("nb1")).await;
+    app.mock.push_chat(MockChat::tools(&[
+        ("c1", "create_text", json!({"text": "Hi"})),
+        ("c2", "create_text", json!({"text": "Ho"})),
+    ]));
+    let turn = turn_id(&start(&app, "alice", &thread, "Write").await);
+    let (s, _) = app
+        .json(
+            "POST",
+            &format!("/api/ai/turns/{turn}/cancel"),
+            Some(&dev("alice")),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+
+    let effects = json!([{"notebookId": "nb1", "ops": [], "inverse": []}]);
+    let mut res = result("c1", json!({"ids": ["o9"]}));
+    res["effects"] = effects.clone();
+    let uri = format!("/api/ai/turns/{turn}/results");
+    let alice = dev("alice");
+    let post = |device: &str| {
+        let body = json!({"deviceId": device, "results": [res.clone()]});
+        app.json("POST", &uri, Some(&alice), Some(body))
+    };
+    assert_eq!(post("d2").await.0, StatusCode::FORBIDDEN);
+    assert_eq!(post("d1").await.0, StatusCode::NO_CONTENT);
+    assert_eq!(post("d1").await.0, StatusCode::BAD_REQUEST);
+
+    let d = detail(&app, &thread).await;
+    assert_eq!(d["turns"][0]["status"], "cancelled");
+    assert_eq!(d["items"][3]["kind"], "tool_result");
+    assert_eq!(d["items"][3]["payload"]["effects"], effects);
+    assert_eq!(app.mock.chat_requests.lock().unwrap().len(), 1);
 }
 
 #[tokio::test]

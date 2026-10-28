@@ -109,7 +109,7 @@ async fn stream_completions(State(f): State<Fake>, Json(body): Json<Value>) -> S
         r#"{"choices":[{"delta":{"content":"Hal"}}]}"#,
         r#"{"choices":[{"delta":{"content":"lo","tool_calls":[{"index":0,"id":"c1","function":{"name":"look","arguments":"{\"x\""}}]}}]}"#,
         r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":":1}"}}]},"finish_reason":"tool_calls"}]}"#,
-        r#"{"choices":[],"usage":{"prompt_tokens":20,"completion_tokens":6}}"#,
+        r#"{"choices":[],"usage":{"prompt_tokens":20,"completion_tokens":6,"cost":0.0031}}"#,
         "[DONE]",
     ]
     .map(|d| format!("data: {d}\n\n"))
@@ -153,7 +153,9 @@ async fn chat_streams_text_and_tool_calls_without_retrying_failures() {
     assert!(deltas.iter().any(
         |d| matches!(d, ChatDelta::ToolCall(c) if c.id == "c1" && c.arguments == r#"{"x":1}"#)
     ));
-    assert!(matches!(deltas.last(), Some(ChatDelta::Usage(u)) if u.prompt_tokens == 20));
+    assert!(
+        matches!(deltas.last(), Some(ChatDelta::Usage(u)) if u.prompt_tokens == 20 && u.cost == Some(0.0031))
+    );
     assert_eq!(f.seen.lock().unwrap()[0].1["stream"], true);
 
     // A 503 may have reached the model: it is reported, never retried.

@@ -208,6 +208,15 @@ export interface StepReq {
   steer?: UserMessage
 }
 
+/**
+ * POST /ai/turns/{id}/results -> 204. Stores results for pending calls without running a step, so a turn
+ * stopped while its tools ran ('awaiting_tools' or 'cancelled') keeps their effects. Only the turn's device may call this.
+ */
+export interface ResultsReq {
+  deviceId: string
+  results: ToolResult[]
+}
+
 /** POST /ai/turns/{id}/cancel -> TurnInfo */
 
 /**

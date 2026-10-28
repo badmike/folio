@@ -15,8 +15,9 @@ use crate::agent::step::{self, Step};
 use crate::agent::store::{self, ListFilter};
 use crate::agent::{
     prompt, AiConfigRes, AiLimits, AiPreset, ContinueReq, CreateThreadReq, Environment,
-    Instructions, ItemBody, StartTurnReq, StepEvent, StepReq, ThreadDetailRes, ThreadSummary,
-    ToolResult, TurnInfo, TurnStatus, UpdateThreadReq, UserMessage, NEW_THREAD_TITLE,
+    Instructions, ItemBody, ResultsReq, StartTurnReq, StepEvent, StepReq, ThreadDetailRes,
+    ThreadSummary, ToolCall, ToolResult, TurnInfo, TurnStatus, UpdateThreadReq, UserMessage,
+    NEW_THREAD_TITLE,
 };
 use crate::auth::AuthUser;
 use crate::config::AiPreset as PresetConfig;
@@ -95,6 +96,24 @@ fn validate_result(r: &ToolResult) -> AppResult<()> {
     if r.image.as_ref().is_some_and(|i| i.len() > MAX_IMAGE_B64) {
         return Err(bad("tool result image is too large"));
     }
+    Ok(())
+}
+
+/// Checks that `results` answer distinct pending calls (`all`: every one of them) and sorts
+/// them in call order.
+fn match_pending(pending: &[ToolCall], results: &mut [ToolResult], all: bool) -> AppResult<()> {
+    let ids: HashSet<&str> = results.iter().map(|r| r.tool_call_id.as_str()).collect();
+    let position = |id: &str| pending.iter().position(|c| c.tool_call_id == id);
+    if ids.len() != results.len()
+        || (all && ids.len() != pending.len())
+        || ids.iter().any(|id| position(id).is_none())
+    {
+        return Err(bad("results must answer pending tool calls once"));
+    }
+    for r in results.iter() {
+        validate_result(r)?;
+    }
+    results.sort_by_key(|r| position(&r.tool_call_id));
     Ok(())
 }
 
@@ -379,28 +398,39 @@ pub async fn step(
         prompt::check_attachments(&st, &user.user_id, &m.attachments, &claim.preset).await?;
     }
 
-    // The results must answer exactly the pending calls; they are stored in call order.
     let pending = store::pending_calls(&st.db, &claim.turn.id).await?;
     let mut results = req.results;
-    let ids: HashSet<&str> = results.iter().map(|r| r.tool_call_id.as_str()).collect();
-    if ids.len() != results.len()
-        || ids.len() != pending.len()
-        || pending
-            .iter()
-            .any(|c| !ids.contains(c.tool_call_id.as_str()))
-    {
-        return Err(bad("results must answer each pending tool call once"));
-    }
-    for r in &results {
-        validate_result(r)?;
-    }
-    results.sort_by_key(|r| {
-        pending
-            .iter()
-            .position(|c| c.tool_call_id == r.tool_call_id)
-    });
+    match_pending(&pending, &mut results, true)?;
     let counted = req.steer.is_some() || pending.iter().any(|c| c.name != "ask_user");
     next_step(st, claim, results, req.steer, req.environment, counted).await
+}
+
+/// POST /ai/turns/{id}/results. Stores finished results without running a step, so a turn
+/// stopped while its tools ran keeps their effects (the undo records).
+pub async fn post_results(
+    State(st): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<String>,
+    ApiJson(req): ApiJson<ResultsReq>,
+) -> AppResult<StatusCode> {
+    let (turn, thread) = store::user_turn(&st.db, &user.user_id, &id).await?;
+    if req.device_id != turn.device_id {
+        return Err(AppError::NotTurnDevice);
+    }
+    if !matches!(
+        turn.status,
+        TurnStatus::AwaitingTools | TurnStatus::Cancelled
+    ) {
+        return Err(AppError::TurnNotAwaiting);
+    }
+    let pending = store::pending_calls(&st.db, &turn.id).await?;
+    let mut results = req.results;
+    match_pending(&pending, &mut results, false)?;
+    for r in results {
+        store::insert_item(&st.db, &thread.id, &turn.id, None, ItemBody::ToolResult(r)).await?;
+    }
+    store::touch_thread(&st.db, &thread.id, false).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// POST /ai/turns/{id}/continue -> SSE. Answers the lost calls with an error and runs the next step.
