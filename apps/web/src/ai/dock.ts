@@ -77,11 +77,15 @@ export class AiDock {
   readonly showSettled = ref(false)
   readonly search = ref('')
   readonly listLoading = ref(false)
+  /** Prompt note key -> id of the thread it started, from the thread list so every device agrees. */
+  readonly noteThreads = shallowRef(new Map<string, string>())
   /** A request from an entry point, taken by the composer of the shown thread. */
   readonly request = shallowRef<ComposeRequest | null>(null)
   /** The thread shown in the dock; a draft until its first message. */
   readonly session: ShallowRef<AiSession>
 
+  /** Pinned threads in their fractional key order. */
+  readonly pinned = computed(() => this.threads.value.filter((t) => t.pinKey).sort((a, b) => (a.pinKey! < b.pinKey! ? -1 : 1)))
   readonly disabledReason = computed(() => aiDisabledReason(this.auth) ?? this.configError.value)
   readonly preset = computed<AiPreset | null>(() => {
     const c = this.config.value
@@ -138,12 +142,13 @@ export class AiDock {
    * focused, or sent right away with `send`. Resolves with the session that takes the request, or null
    * when AI is unavailable (the dock then shows why).
    */
-  async compose(req: Partial<ComposeRequest> & { fresh?: boolean }): Promise<AiSession | null> {
+  async compose(req: Partial<ComposeRequest> & { fresh?: boolean; sourceNote?: string }): Promise<AiSession | null> {
     if (req.fresh) this.newThread()
     this.view.value = 'thread'
     this.open.value = true
     await this.activate()
     if (this.disabledReason.value) return null
+    this.session.value.sourceNote = req.sourceNote
     this.request.value = { chips: req.chips ?? [], text: req.text ?? '', send: req.send ?? false }
     return this.session.value
   }
@@ -186,6 +191,7 @@ export class AiDock {
     const s = this.session.value
     if (s.id === t.id && !this.sessions.has(t.id)) this.sessions.set(t.id, s)
     lsSet(this.lastKey, t.id)
+    if (t.sourceNote) this.noteThreads.value = new Map(this.noteThreads.value).set(t.sourceNote, t.id)
     const known = this.threads.value.some((x) => x.id === t.id)
     this.threads.value = known ? this.threads.value.map((x) => (x.id === t.id ? t : x)) : [t, ...this.threads.value]
   }
@@ -204,7 +210,7 @@ export class AiDock {
     let s = this.sessions.get(id)
     if (!s) {
       const known = [...this.threads.value, ...this.settled.value].find((t) => t.id === id)
-      s = this.draft(known ?? { id, notebookId: this.notebookId, title: '', pinKey: null, settledAt: null, lastActivityAt: 0, createdAt: 0, status: 'idle' })
+      s = this.draft(known ?? { id, notebookId: this.notebookId, title: '', pinKey: null, sourceNote: null, settledAt: null, lastActivityAt: 0, createdAt: 0, status: 'idle' })
       this.sessions.set(id, s)
     }
     this.session.value = s
@@ -238,13 +244,26 @@ export class AiDock {
     }
   }
 
+  /** Learn which prompt notes of this notebook already have a thread, settled ones included. */
+  async loadNoteThreads(): Promise<void> {
+    if (this.disabledReason.value || !this.notebookId) return
+    const all = await this.api.threads({ notebookId: this.notebookId })
+    this.noteThreads.value = new Map(all.flatMap((t) => (t.sourceNote ? [[t.sourceNote, t.id] as const] : [])))
+  }
+
   async rename(t: ThreadSummary, title: string): Promise<void> {
     this.replace(await this.api.updateThread(t.id, { title }))
   }
 
   async togglePin(t: ThreadSummary): Promise<void> {
-    const firstKey = this.threads.value.map((x) => x.pinKey).filter((k): k is string => !!k).sort()[0] ?? null
-    this.replace(await this.api.updateThread(t.id, { pinKey: t.pinKey ? null : keyBetween(null, firstKey) }))
+    this.replace(await this.api.updateThread(t.id, { pinKey: t.pinKey ? null : keyBetween(null, this.pinned.value[0]?.pinKey ?? null) }))
+    await this.refreshThreads()
+  }
+
+  /** Move a pinned thread so that `index` other pinned threads come before it. */
+  async movePin(t: ThreadSummary, index: number): Promise<void> {
+    const others = this.pinned.value.filter((x) => x.id !== t.id)
+    this.replace(await this.api.updateThread(t.id, { pinKey: keyBetween(others[index - 1]?.pinKey ?? null, others[index]?.pinKey ?? null) }))
     await this.refreshThreads()
   }
 
@@ -259,6 +278,7 @@ export class AiDock {
     this.sessions.delete(t.id)
     this.threads.value = this.threads.value.filter((x) => x.id !== t.id)
     this.settled.value = this.settled.value.filter((x) => x.id !== t.id)
+    this.noteThreads.value = new Map([...this.noteThreads.value].filter(([, id]) => id !== t.id))
     if (this.session.value.id === t.id) this.newThread()
   }
 

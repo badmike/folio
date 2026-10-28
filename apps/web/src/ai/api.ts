@@ -176,8 +176,9 @@ export class AiApi {
 
   config(): Promise<AiConfigRes> { return this.json('GET', '/ai/config') }
 
-  threads(q: { notebookId: NotebookId | null; search?: string; settled: boolean }): Promise<ThreadListRes> {
-    const p = new URLSearchParams({ notebookId: q.notebookId ?? 'library', settled: q.settled ? '1' : '0' })
+  threads(q: { notebookId: NotebookId | null; search?: string; settled?: boolean }): Promise<ThreadListRes> {
+    const p = new URLSearchParams({ notebookId: q.notebookId ?? 'library' })
+    if (q.settled !== undefined) p.set('settled', q.settled ? '1' : '0')
     if (q.search?.trim()) p.set('search', q.search.trim())
     return this.json('GET', `/ai/threads?${p}`)
   }

@@ -453,6 +453,38 @@ async fn thread_list_search_pin_and_settle() {
 }
 
 #[tokio::test]
+async fn threads_remember_the_prompt_note_that_started_them() {
+    let app = TestApp::new().await;
+    let alice = dev("alice");
+    let (s, v) = app
+        .json(
+            "POST",
+            "/api/ai/threads",
+            Some(&alice),
+            Some(json!({"notebookId": "nb1", "sourceNote": "stroke-a"})),
+        )
+        .await;
+    assert_eq!((s, &v["sourceNote"]), (StatusCode::OK, &json!("stroke-a")));
+    new_thread(&app, "alice", Some("nb1")).await;
+
+    let (_, v) = app
+        .json("GET", "/api/ai/threads?notebookId=nb1", Some(&alice), None)
+        .await;
+    let notes: Vec<&Value> = v.as_array().unwrap().iter().map(|t| &t["sourceNote"]).collect();
+    assert!(notes.contains(&&json!("stroke-a")) && notes.contains(&&Value::Null));
+
+    let (s, _) = app
+        .json(
+            "POST",
+            "/api/ai/threads",
+            Some(&alice),
+            Some(json!({"notebookId": "nb1", "sourceNote": "has space"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn instructions_reach_the_system_prompt() {
     let app = TestApp::new().await;
     let t = dev("alice");

@@ -24,6 +24,7 @@ pub struct ThreadRow {
     pub title: String,
     pub title_locked: bool,
     pub pin_key: Option<String>,
+    pub source_note: Option<String>,
     pub settled_at: Option<i64>,
     /// Suffix of the untrusted-data fence in prompts.
     pub fence: String,
@@ -64,16 +65,18 @@ pub async fn create_thread(
     db: &SqlitePool,
     user_id: &str,
     notebook_id: Option<&str>,
+    source_note: Option<&str>,
 ) -> AppResult<ThreadSummary> {
     let id = uuid::Uuid::new_v4().to_string();
     let now = now_ms();
     sqlx::query(
-        "INSERT INTO ai_threads (id, user_id, notebook_id, title, fence, last_activity_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO ai_threads (id, user_id, notebook_id, source_note, title, fence, last_activity_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(user_id)
     .bind(notebook_id)
+    .bind(source_note)
     .bind(NEW_THREAD_TITLE)
     .bind(&uuid::Uuid::new_v4().simple().to_string()[..12])
     .bind(now)
@@ -189,6 +192,7 @@ async fn to_summary(db: &SqlitePool, row: ListedThread) -> AppResult<ThreadSumma
         notebook_id: t.notebook_id,
         title: t.title,
         pin_key: t.pin_key,
+        source_note: t.source_note,
         settled_at: t.settled_at,
         last_activity_at: t.last_activity_at,
         created_at: t.created_at,
