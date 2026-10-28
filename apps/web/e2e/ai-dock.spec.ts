@@ -10,7 +10,7 @@ import { newNotebook, objectsOf } from './helpers'
 test.use({ serviceWorkers: 'block' })
 
 const thread: ThreadSummary = {
-  id: 't1', notebookId: null, title: 'New thread', pinKey: null, settledAt: null, lastActivityAt: 1, createdAt: 1, status: 'idle',
+  id: 't1', notebookId: null, title: 'New thread', pinKey: null, sourceNote: null, settledAt: null, lastActivityAt: 1, createdAt: 1, status: 'idle',
 }
 const config: AiConfigRes = {
   presets: [{ id: 'fast', label: 'Fast', hint: 'Quick edits and answers', vision: true }],

@@ -10,7 +10,7 @@ import type {
 const DEVICE = 'dev-a'
 const env: Environment = { notebookId: 'nb', notebookTitle: 'N', pageId: 'p1', viewport: null, outline: '' }
 const msg = (text: string): UserMessage => ({ text, attachments: [], context: [] })
-const thread: ThreadSummary = { id: 't1', notebookId: 'nb', title: 'T', pinKey: null, settledAt: null, lastActivityAt: 1, createdAt: 1, status: 'idle' }
+const thread: ThreadSummary = { id: 't1', notebookId: 'nb', title: 'T', pinKey: null, sourceNote: null, settledAt: null, lastActivityAt: 1, createdAt: 1, status: 'idle' }
 const turn = (p: Partial<TurnInfo> = {}): TurnInfo => ({
   id: 'u1', threadId: 't1', seq: 1, status: 'running', presetId: 'smart', deviceId: DEVICE, steps: 0, tokensIn: 0, tokensOut: 0,
   cachedTokens: 0, costUsd: 0, error: null, createdAt: 1, updatedAt: 1, ...p,

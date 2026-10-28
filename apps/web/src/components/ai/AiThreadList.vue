@@ -9,7 +9,7 @@ import Icon from '../Icon.vue'
 import Menu, { type MenuItem } from '../Menu.vue'
 
 const dock = inject(AI_DOCK_KEY)!
-const pinned = computed(() => dock.threads.value.filter((t) => t.pinKey).sort((a, b) => (a.pinKey! < b.pinKey! ? -1 : 1)))
+const pinned = dock.pinned
 const active = computed(() => dock.threads.value.filter((t) => !t.pinKey))
 const settled = computed(() => dock.settled.value)
 const currentId = computed(() => dock.session.value.id)
@@ -18,7 +18,7 @@ const searching = computed(() => !!dock.search.value.trim())
 let timer: ReturnType<typeof setTimeout> | undefined
 const load = () => dock.refreshThreads().catch((e) => toastError(e instanceof Error ? e.message : 'Could not load the threads.'))
 onMounted(load)
-onBeforeUnmount(() => clearTimeout(timer))
+onBeforeUnmount(() => { clearTimeout(timer); clearTimeout(holdTimer) })
 watch(dock.search, () => {
   clearTimeout(timer)
   timer = setTimeout(load, 250)
@@ -48,7 +48,75 @@ function menu(t: ThreadSummary): MenuItem[] {
     }) },
   ]
 }
-function open(t: ThreadSummary) { void act(() => dock.openThread(t.id)) }
+function open(t: ThreadSummary) {
+  if (!justDragged) void act(() => dock.openThread(t.id))
+}
+
+/**
+ * Reordering pinned threads: a mouse drags after a few pixels, touch and pen after a short hold so that
+ * scrolling the list still works. The drop position is the number of other pinned threads above the pointer.
+ */
+const HOLD_MS = 280
+const rows = new Map<string, HTMLElement>()
+const drag = ref<{ id: string; dy: number; to: number } | null>(null)
+let press: { thread: ThreadSummary; x: number; y: number; touch: boolean; row: HTMLElement; pointerId: number } | null = null
+let holdTimer: ReturnType<typeof setTimeout> | undefined
+/** True until the click that ends a drag has passed. */
+let justDragged = false
+
+function pressRow(e: PointerEvent, thread: ThreadSummary) {
+  if (!e.isPrimary || (e.pointerType === 'mouse' && e.button !== 0) || (e.target as HTMLElement).closest('.more')) return
+  press = { thread, x: e.clientX, y: e.clientY, touch: e.pointerType !== 'mouse', row: e.currentTarget as HTMLElement, pointerId: e.pointerId }
+  if (press.touch) holdTimer = setTimeout(startDrag, HOLD_MS)
+}
+function startDrag() {
+  if (!press) return
+  press.row.setPointerCapture(press.pointerId)
+  drag.value = { id: press.thread.id, dy: 0, to: pinned.value.findIndex((t) => t.id === press!.thread.id) }
+}
+function dropIndex(y: number, id: string): number {
+  const i = pinned.value.filter((t) => t.id !== id).findIndex((t) => {
+    const r = rows.get(t.id)?.getBoundingClientRect()
+    return !!r && y < r.top + r.height / 2
+  })
+  return i < 0 ? pinned.value.length - 1 : i
+}
+function moveRow(e: PointerEvent) {
+  if (!press) return
+  if (!drag.value) {
+    const far = Math.hypot(e.clientX - press.x, e.clientY - press.y)
+    if (press.touch && far > 8) endPress()
+    else if (!press.touch && far > 4) startDrag()
+    return
+  }
+  drag.value = { id: press.thread.id, dy: e.clientY - press.y, to: dropIndex(e.clientY, press.thread.id) }
+}
+function releaseRow() {
+  const d = drag.value
+  const thread = press?.thread
+  endPress()
+  if (!d || !thread) return
+  justDragged = true
+  setTimeout(() => { justDragged = false })
+  if (d.to !== pinned.value.findIndex((t) => t.id === d.id)) void act(() => dock.movePin(thread, d.to))
+}
+function endPress() {
+  clearTimeout(holdTimer)
+  press = null
+  drag.value = null
+}
+function stopScroll(e: TouchEvent) {
+  if (drag.value) e.preventDefault()
+}
+const rowRef = (id: string) => (el: unknown) => { if (el instanceof HTMLElement) rows.set(id, el); else rows.delete(id) }
+/** Where the dragged thread would land: above this row, or below it when it is the last one. */
+function dropMark(t: ThreadSummary): 'above' | 'below' | undefined {
+  const d = drag.value
+  if (!d || d.id === t.id) return undefined
+  const others = pinned.value.filter((x) => x.id !== d.id)
+  if (others[d.to]?.id === t.id) return 'above'
+  return d.to === others.length && others[d.to - 1]?.id === t.id ? 'below' : undefined
+}
 const statusLabel: Partial<Record<ThreadSummary['status'], string>> = {
   running: 'Running', awaiting_tools: 'Interrupted', needs_input: 'Needs your answer', failed: 'Failed',
 }
@@ -72,7 +140,11 @@ const groups = computed(() => [
       <template v-for="g in groups" :key="g.key">
         <section v-if="g.list.length">
           <h4 v-if="g.title">{{ g.title }}</h4>
-          <div v-for="t in g.list" :key="t.id" class="row" :class="{ current: t.id === currentId }" data-testid="ai-thread-row">
+          <div v-for="t in g.list" :key="t.id" :ref="g.key === 'pinned' ? rowRef(t.id) : undefined" class="row"
+               :class="[{ current: t.id === currentId, pinned: t.pinKey, dragging: drag?.id === t.id }, t.pinKey && dropMark(t)]"
+               :style="drag?.id === t.id ? { transform: `translateY(${drag.dy}px)` } : undefined" data-testid="ai-thread-row"
+               @pointerdown="t.pinKey && pressRow($event, t)" @pointermove="moveRow" @pointerup="releaseRow" @pointercancel="endPress"
+               @touchmove="stopScroll" @contextmenu="drag && $event.preventDefault()">
             <button class="open" @click="open(t)">
               <span class="title"><Icon v-if="t.pinKey" name="pin" :size="12" />{{ t.title || 'New thread' }}</span>
               <span class="sub">
@@ -132,6 +204,11 @@ h4 { margin: 8px 8px 4px; font-size: 12px; font-weight: 600; color: var(--muted)
 .row { display: flex; align-items: center; border-radius: var(--radius); }
 .row:hover { background: var(--surface-2); }
 .row.current { background: var(--accent-soft); }
+.row.pinned { position: relative; user-select: none; -webkit-touch-callout: none; }
+.row.dragging { z-index: 1; background: var(--surface-2); box-shadow: var(--shadow-sm); cursor: grabbing; }
+.row.above::before, .row.below::after { content: ''; position: absolute; left: 8px; right: 8px; height: 2px; border-radius: 1px; background: var(--accent); }
+.row.above::before { top: -1px; }
+.row.below::after { bottom: -1px; }
 .open { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; padding: 6px 8px; border: 0; background: none; text-align: left; }
 .title { display: flex; align-items: center; gap: 5px; font-size: 13.5px; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .title :deep(svg) { flex: none; color: var(--muted); }

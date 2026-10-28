@@ -34,6 +34,7 @@ const MAX_RESULT_CHARS: usize = 400_000;
 const MAX_IMAGE_B64: usize = 14 * 1024 * 1024;
 const MAX_TITLE_CHARS: usize = 200;
 const MAX_PIN_KEY_LEN: usize = 64;
+const MAX_SOURCE_NOTE_LEN: usize = 128;
 const MAX_INSTRUCTIONS_CHARS: usize = 4000;
 /// How long cancel waits for a streaming step to stop, in 100 ms polls.
 const CANCEL_WAIT_POLLS: usize = 30;
@@ -197,8 +198,19 @@ pub async fn create_thread(
     if let Some(nb) = &req.notebook_id {
         validate_id("notebookId", nb)?;
     }
+    if let Some(k) = &req.source_note {
+        if k.is_empty() || k.len() > MAX_SOURCE_NOTE_LEN || !k.bytes().all(|b| b.is_ascii_graphic()) {
+            return Err(bad("invalid sourceNote"));
+        }
+    }
     Ok(Json(
-        store::create_thread(&st.db, &user.user_id, req.notebook_id.as_deref()).await?,
+        store::create_thread(
+            &st.db,
+            &user.user_id,
+            req.notebook_id.as_deref(),
+            req.source_note.as_deref(),
+        )
+        .await?,
     ))
 }
 

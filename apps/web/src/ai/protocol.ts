@@ -55,17 +55,23 @@ export interface ThreadSummary {
   title: string
   /** Fractional order key while pinned, null when not pinned. */
   pinKey: string | null
+  /** Key of the prompt note that started the thread, null otherwise. */
+  sourceNote: string | null
   settledAt: number | null
   lastActivityAt: number
   createdAt: number
   status: ThreadStatus
 }
 
-/** GET /ai/threads?notebookId=<id>|library&search=<q>&settled=0|1 -> ThreadSummary[] (pinned first, then lastActivityAt desc) */
+/** GET /ai/threads?notebookId=<id>|library&search=<q>&settled=0|1 (both when omitted) -> ThreadSummary[] (pinned first, then lastActivityAt desc) */
 export type ThreadListRes = ThreadSummary[]
 
 /** POST /ai/threads -> ThreadSummary. Title starts as "New thread" and is replaced by the auto title. */
-export interface CreateThreadReq { notebookId: NotebookId | null }
+export interface CreateThreadReq {
+  notebookId: NotebookId | null
+  /** Key of the prompt note this thread answers; the thread list returns it so every device shows the note as done. */
+  sourceNote?: string
+}
 
 /** PATCH /ai/threads/{id} -> ThreadSummary. Renaming locks the title against auto titling. */
 export interface UpdateThreadReq {

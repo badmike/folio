@@ -55,6 +55,8 @@ export class AiSession {
   readonly key = ++sessionSeq
   /** null while the thread is a draft (created on the first message). */
   readonly thread = shallowRef<ThreadSummary | null>(null)
+  /** Prompt note that starts this thread, sent with its creation. */
+  sourceNote: string | undefined
   readonly turns = shallowRef<TurnInfo[]>([])
   readonly items = shallowRef<ThreadItem[]>([])
   readonly phase = ref<Phase>('idle')
@@ -212,7 +214,7 @@ export class AiSession {
     let started = false
     try {
       if (!this.thread.value) {
-        this.thread.value = await this.deps.api.createThread({ notebookId: this.deps.notebookId })
+        this.thread.value = await this.deps.api.createThread({ notebookId: this.deps.notebookId, sourceNote: this.sourceNote })
         this.deps.onThread?.(this.thread.value)
       }
       const threadId = this.thread.value.id
