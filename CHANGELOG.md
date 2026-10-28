@@ -3,6 +3,39 @@
 All notable changes to folio are documented here.
 Commits follow the [Gitmoji](https://gitmoji.dev/) convention.
 
+## [v26.10.28-62f10fe] — 2026-10-28
+
+- 🎨 server: cargo fmt
+- 📝 docker: describe the V2 AI settings in the compose file
+- 🐛 ai: route diagram edges around nodes, clear frame titles, update frame membership on move
+- 🐛 ai: multi-line prompt notes, synced done badges, image-only messages, pin reordering
+- 🐛 ai: charge OpenRouter's reported cost and keep tool results on Stop
+- 📝 ai: document the V2 assistant and the end-to-end status
+- ✅ e2e: AI dock against a scripted server
+- 💬 ai: tool guide on placement, diagram direction and auto zoom
+- 🐛 ai: two-way diagram edges no longer draw on top of each other
+- 🐛 ai: bring AI content into view when it lands outside it
+- 🐛 ai: timeline rows that misdescribed a turn
+- 🐛 ai: show the stopped turn right away
+- 🐛 ai: tell the model the asset ids of attached images
+- 🐛 ai: auto titles that never arrived
+- ✨ ai: entry points (selection Ask AI, Cmd+K palette, @ai prompt notes, library dock, custom instructions)
+- 🔧 ai: adapt the dock to the final contract (device id, continue body, echoed tool results)
+- ✨ ai: chat dock with threads, streaming turns and client-run tools
+- 🍱 web: add the icons the AI dock uses
+- 🏷️ ai: fold the server and tools contract notes into protocol.ts and host.ts
+- ✨ server: AI V2 agent with threads, streamed tool steps and a daily credit
+- ✨ ai: tool executors, diagram layout, revert and context for AI V2
+- ✨ editor: group option merges an AI turn into one undo step; stub the AI tools seam
+- 📝 ai: brief AI V2 and add the client/server contract
+- ✨ themes: add Fineliner, Comic, Watercolour and Crayon
+- ✨ themes: per-notebook visual themes with Sketchnote, Blueprint, Chalkboard and Whiteboard
+- 🍱 web: add the palette icon
+- 🙈 ignore the local demo folder
+- ⬆️ server: update Rust dependencies within their semver ranges
+- ✨ library: give folders and tags an icon and a colour
+- ✨ web: vendor a grouped Lucide icon library for the icon picker
+
 ## [v26.10.5-b18a90c] — 2026-10-5
 
 - ✨ web: reload button to update the installed app
