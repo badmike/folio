@@ -6,30 +6,23 @@
 export interface RuntimeConfig {
   /** Base URL of folio-server (e.g. `/api`). Empty = local only. */
   apiBase: string
-  /** Clerk publishable key. Empty = no accounts. */
-  clerkPublishableKey: string
 }
 
 const CACHE_KEY = 'folio.runtimeConfig'
 
 const clean = (c: RuntimeConfig): RuntimeConfig => ({
   apiBase: c.apiBase.trim().replace(/\/+$/, ''),
-  clerkPublishableKey: c.clerkPublishableKey.trim(),
 })
 
 /** Current config. Read it at use time: `loadRuntimeConfig()` replaces the values during boot. */
 export const runtimeConfig: RuntimeConfig = clean({
   apiBase: import.meta.env.VITE_API_BASE ?? '',
-  clerkPublishableKey: import.meta.env.VITE_CLERK_PUBLISHABLE_KEY ?? '',
 })
 
 function parse(value: unknown): RuntimeConfig | null {
   if (typeof value !== 'object' || value === null) return null
-  const { apiBase, clerkPublishableKey } = value as Partial<Record<keyof RuntimeConfig, unknown>>
-  return clean({
-    apiBase: typeof apiBase === 'string' ? apiBase : '',
-    clerkPublishableKey: typeof clerkPublishableKey === 'string' ? clerkPublishableKey : '',
-  })
+  const { apiBase } = value as Partial<Record<keyof RuntimeConfig, unknown>>
+  return clean({ apiBase: typeof apiBase === 'string' ? apiBase : '' })
 }
 
 function readCache(): RuntimeConfig | null {

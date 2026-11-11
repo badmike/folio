@@ -17,17 +17,17 @@ describe('runtime config', () => {
   afterEach(() => vi.unstubAllGlobals())
 
   it('applies config.json and keeps it for offline boots', async () => {
-    expect(await load(json({ apiBase: '/api/', clerkPublishableKey: 'pk_test_x' }))).toEqual({ apiBase: '/api', clerkPublishableKey: 'pk_test_x' })
+    expect(await load(json({ apiBase: '/api/' }))).toEqual({ apiBase: '/api' })
 
     vi.resetModules()
     const offline = await load(async () => { throw new TypeError('Failed to fetch') })
-    expect(offline).toEqual({ apiBase: '/api', clerkPublishableKey: 'pk_test_x' })
+    expect(offline).toEqual({ apiBase: '/api' })
   })
 
   it('keeps the build-time values when the host has no config.json', async () => {
-    localStorage.setItem('folio.runtimeConfig', JSON.stringify({ apiBase: '/old', clerkPublishableKey: '' }))
+    localStorage.setItem('folio.runtimeConfig', JSON.stringify({ apiBase: '/old' }))
     const cfg = await load(async () => new Response('<!doctype html>', { headers: { 'content-type': 'text/html' } }))
-    expect(cfg).toEqual({ apiBase: '', clerkPublishableKey: '' })
+    expect(cfg).toEqual({ apiBase: '' })
     expect(localStorage.getItem('folio.runtimeConfig')).toBeNull()
   })
 })

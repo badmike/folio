@@ -43,7 +43,7 @@ export async function createServices(storage: Storage): Promise<AppServices> {
   const sync = new SyncService(workspace, auth)
   const { apiBase } = runtimeConfig
   const recognition = new RecognitionService(
-    apiBase ? { apiBase, getToken: () => auth.getToken(), isSignedIn: () => auth.signedIn.value } : undefined,
+    apiBase ? { apiBase, getToken: auth.bearer, isSignedIn: () => auth.signedIn.value } : undefined,
   )
   return { storage, storageKind: storage.kind, workspace, auth, sync, recognition }
 }

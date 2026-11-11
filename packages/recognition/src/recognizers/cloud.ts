@@ -7,7 +7,8 @@ import type { HandwritingResultEx, LocalRecognizer, RecognizeOpts } from './type
 export interface CloudRecognizerConfig {
   /** e.g. https://api.folio.example/v1 (no trailing slash needed) */
   apiBase: string
-  getToken: () => string | null | undefined | Promise<string | null | undefined>
+  /** Bearer token; none = not signed in. Omit when a session cookie authenticates the request. */
+  getToken?: () => string | null | undefined | Promise<string | null | undefined>
   /** Also send a compact stroke encoding (x,y,t triples, world space). Default false. */
   includeStrokes?: boolean
   fetch?: typeof fetch
@@ -27,13 +28,17 @@ export class CloudRecognizer implements LocalRecognizer {
   async isAvailable(): Promise<boolean> {
     const online = (globalThis as { navigator?: { onLine?: boolean } }).navigator?.onLine
     if (online === false || !this.cfg.apiBase) return false
-    return !!(await this.cfg.getToken())
+    return !this.cfg.getToken || !!(await this.cfg.getToken())
   }
 
   async recognize(strokes: InkStroke[], opts: RecognizeOpts): Promise<HandwritingResultEx | null> {
     if (strokes.length === 0) return null
-    const token = await this.cfg.getToken()
-    if (!token) return null
+    const headers: Record<string, string> = { 'content-type': 'application/json' }
+    if (this.cfg.getToken) {
+      const token = await this.cfg.getToken()
+      if (!token) return null
+      headers.authorization = `Bearer ${token}`
+    }
     const { png } = await rasterizeToPng(strokes)
     const body: Record<string, unknown> = {
       image: bytesToBase64(png),
@@ -46,7 +51,7 @@ export class CloudRecognizer implements LocalRecognizer {
     try {
       const res = await f(`${this.cfg.apiBase.replace(/\/+$/, '')}/ai/recognize`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+        headers,
         body: JSON.stringify(body),
         signal: ctrl?.signal,
       })

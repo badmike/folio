@@ -9,7 +9,7 @@ export type SyncUiState = SyncStatus['state'] | 'local'
 
 /**
  * Wires the sync engine to the workspace: only runs when a server is configured and the
- * user is signed in (Clerk, or a dev token for local testing).
+ * user is signed in.
  */
 export class SyncService {
   readonly status = shallowRef<SyncStatus>({ state: 'idle', lastSyncedAt: null, pending: 0 })
@@ -36,7 +36,7 @@ export class SyncService {
     const apiBase = runtimeConfig.apiBase
     if (!apiBase || this.engine) return
     const ws = this.ws
-    const api = new SyncApi({ baseUrl: apiBase, getToken: () => this.auth.getToken() })
+    const api = new SyncApi({ baseUrl: apiBase, getToken: this.auth.bearer })
     const engine = new SyncEngine({
       api,
       storage: ws.storage,

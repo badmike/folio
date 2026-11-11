@@ -25,7 +25,7 @@ export interface CleanupPrompt {
 
 export interface CloudHooks {
   apiBase: string
-  getToken: () => Promise<string | null>
+  getToken?: () => Promise<string | null>
   isSignedIn: () => boolean
 }
 

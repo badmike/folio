@@ -5,7 +5,7 @@ import Icon from './Icon.vue'
 
 const { auth, sync } = requireServices()
 const user = auth.user
-const accountsAvailable = auth.configured && sync.available
+const accountsAvailable = computed(() => auth.available.value && sync.available)
 const status = computed(() => sync.status.value)
 const label = computed(() => {
   switch (sync.uiState.value) {

@@ -39,7 +39,7 @@ async function scriptedServer(page: Page) {
   const item = (seq: number, entry: Entry): ThreadItem => ({ id: `i${seq}`, threadId: 't1', turnId: 'u1', seq, createdAt: 1, ...entry })
   const detail = (): ThreadDetailRes => ({ thread, turns: [turn], items })
 
-  await page.route('**/config.json', (r) => r.fulfill({ json: { apiBase: '/api', clerkPublishableKey: '' } }))
+  await page.route('**/config.json', (r) => r.fulfill({ json: { apiBase: '/api' } }))
   // sync and device registration aren't part of this test
   await page.route('**/api/**', (r) => r.fulfill({ status: 404, json: { error: 'not_found', message: 'not scripted' } }))
   await page.route('**/api/ai/config', (r) => r.fulfill({ json: config }))

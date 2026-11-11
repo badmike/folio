@@ -1,10 +1,11 @@
 import { NotebookDocument, createId, type InkStroke, type Recognition } from '@folio/document'
 import { MemoryStorage } from '@folio/persistence'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Editor } from '@folio/editor'
 import { renderSnippet } from '../src/composables'
 import { aiDisabledReason } from '../src/ai/api'
-import { clerkFrontendApi } from '../src/services/auth'
+import { AuthService } from '../src/services/auth'
+import { runtimeConfig } from '../src/services/runtime-config'
 import { exportBounds, safeFilename } from '../src/services/export'
 import { handwriting, resetHandwriting } from '../src/services/handwriting'
 import { RecognitionService } from '../src/services/recognition'
@@ -41,12 +42,29 @@ describe('settings', () => {
   })
 })
 
-describe('auth helpers', () => {
-  it('derives the Clerk frontend API from the publishable key', () => {
-    const key = 'pk_test_' + btoa('clerk.example.accounts.dev$')
-    expect(clerkFrontendApi(key)).toBe('clerk.example.accounts.dev')
-    expect(clerkFrontendApi('pk_test_%%%')).toBeNull()
-    expect(clerkFrontendApi('garbage')).toBeNull()
+describe('auth', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    runtimeConfig.apiBase = ''
+  })
+
+  it('takes the signed-in user from the server session', async () => {
+    runtimeConfig.apiBase = '/api'
+    const session = { available: true, user: { id: 'u_1', name: null, email: 'ada@example.com', picture: null } }
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(session)))
+    vi.stubGlobal('fetch', fetchMock)
+    const auth = new AuthService()
+    await auth.load()
+    expect(fetchMock).toHaveBeenCalledWith('/api/auth/session', { cache: 'no-store' })
+    expect(auth.available.value).toBe(true)
+    expect(auth.user.value).toEqual({ id: 'u_1', name: 'ada@example.com', email: 'ada@example.com', imageUrl: undefined })
+    // the cookie authenticates API calls, so clients get no token source
+    expect(auth.bearer).toBeUndefined()
+
+    // offline: stay signed in
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    await auth.load()
+    expect(auth.signedIn.value).toBe(true)
   })
 })
 

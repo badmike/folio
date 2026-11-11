@@ -6,8 +6,6 @@ interface ImportMetaEnv {
   readonly VITE_FOLIO_VERSION?: string
   /** Fallback for config.json: base URL of folio-server (e.g. /api). Empty = local only. */
   readonly VITE_API_BASE?: string
-  /** Fallback for config.json: Clerk publishable key (pk_test_... / pk_live_...). Empty = no accounts. */
-  readonly VITE_CLERK_PUBLISHABLE_KEY?: string
 }
 interface ImportMeta {
   readonly env: ImportMetaEnv

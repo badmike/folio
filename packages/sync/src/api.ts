@@ -27,13 +27,14 @@ export class SyncHttpError extends Error {
 
 export interface SyncApiOptions {
   baseUrl: string
-  getToken: () => Promise<string | null>
+  /** Bearer token; null = not signed in. Omit when a session cookie authenticates the requests. */
+  getToken?: () => Promise<string | null>
   fetch?: typeof fetch
 }
 
 export class SyncApi {
   private readonly base: string
-  private readonly getToken: () => Promise<string | null>
+  private readonly getToken?: () => Promise<string | null>
   private readonly fetchFn: typeof fetch
 
   constructor(opts: SyncApiOptions) {
@@ -77,19 +78,20 @@ export class SyncApi {
   }
 
   private async req<T>(method: 'GET' | 'POST', path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
-    const token = await this.getToken()
-    // No token: behave like a 401 without touching the network.
-    if (!token) throw new SyncHttpError(401, 'unauthorized', 'not signed in')
+    const headers: Record<string, string> = body !== undefined ? { 'Content-Type': 'application/json' } : {}
+    if (this.getToken) {
+      const token = await this.getToken()
+      // No token: behave like a 401 without touching the network.
+      if (!token) throw new SyncHttpError(401, 'unauthorized', 'not signed in')
+      headers.Authorization = `Bearer ${token}`
+    }
     let res: Response
     try {
       res = await this.fetchFn(this.base + path, {
         method,
         signal,
         cache: 'no-store',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-        },
+        headers,
         body: body !== undefined ? JSON.stringify(body) : undefined,
       })
     } catch (e) {

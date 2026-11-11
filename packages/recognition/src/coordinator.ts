@@ -9,7 +9,8 @@ import { createDefaultWorker } from './worker-factory'
 
 export interface CloudConfig {
   apiBase: string
-  getToken: () => string | null | undefined | Promise<string | null | undefined>
+  /** See `CloudRecognizerConfig.getToken`. */
+  getToken?: () => string | null | undefined | Promise<string | null | undefined>
   /** Evaluated before each refinement (user opt-in, online state, ...). */
   enabled: () => boolean
   fetch?: typeof fetch

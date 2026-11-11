@@ -210,7 +210,7 @@ jobs:
           cid="$(docker create "${IMAGE}:${VERSION}")"
           docker cp "${cid}:/app/web/." "dist/${name}/"
           docker rm "$cid" >/dev/null
-          printf '{\n  "apiBase": "",\n  "clerkPublishableKey": ""\n}\n' > "dist/${name}/config.json"
+          printf '{\n  "apiBase": ""\n}\n' > "dist/${name}/config.json"
           tar -C dist -czf "dist/${name}.tar.gz" "$name"
           cp docker-compose.yml dist/docker-compose.yml
           cd dist && sha256sum "${name}.tar.gz" docker-compose.yml > SHA256SUMS
