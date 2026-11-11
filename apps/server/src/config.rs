@@ -92,17 +92,32 @@ pub enum StorageConfig {
     Local(PathBuf),
 }
 
+/// Sign-in through an OpenID Connect provider (Google, Keycloak, Authentik, ...).
+#[derive(Debug, Clone)]
+pub struct OidcConfig {
+    pub issuer: String,
+    pub client_id: String,
+    pub client_secret: String,
+    /// Origin the browser reaches the app on, e.g. `https://folio.example.com`.
+    pub public_origin: String,
+}
+
+impl OidcConfig {
+    /// Whether cookies can carry the `Secure` attribute.
+    pub fn secure(&self) -> bool {
+        self.public_origin.starts_with("https://")
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub bind: SocketAddr,
     pub database_url: String,
     pub cors_origins: Vec<String>,
-    pub clerk_jwks_url: Option<String>,
-    pub clerk_issuer: Option<String>,
-    /// Optional allow-list for the `azp` claim (comma separated origins).
-    pub clerk_authorized_parties: Vec<String>,
-    /// Handed to the web app via `/config.json` so it can load Clerk.
-    pub clerk_publishable_key: Option<String>,
+    /// `None` = no accounts: the app runs local-only.
+    pub oidc: Option<OidcConfig>,
+    /// A session ends after this many days without use.
+    pub session_days: i64,
     pub auth_dev: bool,
     /// Built web app to serve at `/` (with the API under `/api`). `None` = API only.
     pub web_dir: Option<PathBuf>,
@@ -193,14 +208,30 @@ impl Config {
                 })?,
             None => 1.0,
         };
-        let clerk_issuer = get("CLERK_ISSUER").or_else(|| get("FOLIO_CLERK_ISSUER"));
-        let clerk_jwks_url = get("CLERK_JWKS_URL")
-            .or_else(|| get("FOLIO_CLERK_JWKS_URL"))
-            .or_else(|| {
-                clerk_issuer
-                    .as_ref()
-                    .map(|i| format!("{}/.well-known/jwks.json", i.trim_end_matches('/')))
-            });
+        const OIDC_VARS: [&str; 4] = [
+            "FOLIO_OIDC_ISSUER",
+            "FOLIO_OIDC_CLIENT_ID",
+            "FOLIO_OIDC_CLIENT_SECRET",
+            "FOLIO_PUBLIC_URL",
+        ];
+        let oidc = match OIDC_VARS.map(get) {
+            [None, None, None, None] => None,
+            [Some(issuer), Some(client_id), Some(client_secret), Some(public_url)] => {
+                Some(OidcConfig {
+                    issuer,
+                    client_id,
+                    client_secret,
+                    public_origin: public_origin(&public_url)?,
+                })
+            }
+            _ => anyhow::bail!("accounts need all of {}", OIDC_VARS.join(", ")),
+        };
+        let session_days = parse_num("FOLIO_SESSION_DAYS", 90)?;
+        // Browsers cap cookie lifetimes at 400 days.
+        anyhow::ensure!(
+            (1..=400).contains(&session_days),
+            "FOLIO_SESSION_DAYS must be between 1 and 400"
+        );
 
         Ok(Self {
             bind,
@@ -208,10 +239,8 @@ impl Config {
                 .or_else(|| get("FOLIO_DATABASE_URL"))
                 .unwrap_or_else(|| "sqlite://data/folio.db".into()),
             cors_origins: list("FOLIO_CORS_ORIGINS"),
-            clerk_jwks_url,
-            clerk_issuer,
-            clerk_authorized_parties: list("FOLIO_CLERK_AUTHORIZED_PARTIES"),
-            clerk_publishable_key: get("FOLIO_CLERK_PUBLISHABLE_KEY"),
+            oidc,
+            session_days,
             web_dir: get("FOLIO_WEB_DIR").map(PathBuf::from),
             auth_dev: get("FOLIO_AUTH_DEV")
                 .map(|s| matches!(s.as_str(), "true" | "1" | "yes"))
@@ -240,6 +269,17 @@ impl Config {
         self.preset(&self.ai_default_preset)
             .expect("default preset is validated at startup")
     }
+}
+
+/// Reduces `FOLIO_PUBLIC_URL` to its origin, the form browsers send in the `Origin` header.
+fn public_origin(url: &str) -> anyhow::Result<String> {
+    let parsed = openidconnect::url::Url::parse(url)
+        .map_err(|e| anyhow::anyhow!("invalid FOLIO_PUBLIC_URL: {e}"))?;
+    anyhow::ensure!(
+        matches!(parsed.scheme(), "http" | "https") && parsed.path() == "/",
+        "FOLIO_PUBLIC_URL must be an http(s) URL without a path"
+    );
+    Ok(parsed.origin().ascii_serialization())
 }
 
 fn validate_presets(presets: &[AiPreset], default: &str) -> anyhow::Result<()> {
@@ -316,11 +356,14 @@ mod tests {
     }
 
     #[test]
-    fn s3_and_issuer() {
+    fn s3_and_accounts() {
         let m: HashMap<String, String> = [
             ("FOLIO_S3_BUCKET", "b"),
             ("FOLIO_S3_ENDPOINT", "http://minio:9000"),
-            ("CLERK_ISSUER", "https://x.clerk.accounts.dev/"),
+            ("FOLIO_OIDC_ISSUER", "https://accounts.google.com"),
+            ("FOLIO_OIDC_CLIENT_ID", "id"),
+            ("FOLIO_OIDC_CLIENT_SECRET", "secret"),
+            ("FOLIO_PUBLIC_URL", "https://folio.example.com/"),
             ("FOLIO_AUTH_DEV", "true"),
         ]
         .into_iter()
@@ -328,10 +371,13 @@ mod tests {
         .collect();
         let c = Config::from_map(&m).unwrap();
         assert!(matches!(c.storage, StorageConfig::S3(_)));
-        assert_eq!(
-            c.clerk_jwks_url.as_deref(),
-            Some("https://x.clerk.accounts.dev/.well-known/jwks.json")
-        );
+        let oidc = c.oidc.unwrap();
+        assert_eq!(oidc.public_origin, "https://folio.example.com");
+        assert!(oidc.secure());
         assert!(c.auth_dev);
+
+        let mut partial = m.clone();
+        partial.remove("FOLIO_OIDC_CLIENT_SECRET");
+        assert!(Config::from_map(&partial).is_err());
     }
 }

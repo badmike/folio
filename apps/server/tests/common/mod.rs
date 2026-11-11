@@ -6,7 +6,6 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::Router;
 use folio_server::ai::{AiProvider, MockProvider};
-use folio_server::auth::JwksCache;
 use folio_server::config::Config;
 use folio_server::{build_router, db, storage, AppState};
 use http_body_util::BodyExt;
@@ -43,17 +42,17 @@ impl TestApp {
         let dir = tempfile::tempdir().unwrap();
         let mut cfg = base_config(dir.path());
         tweak(&mut cfg);
-        Self::build(dir, cfg, JwksCache::new(None)).await
+        Self::build(dir, cfg).await
     }
 
-    pub async fn build(dir: tempfile::TempDir, cfg: Config, jwks: JwksCache) -> Self {
+    pub async fn build(dir: tempfile::TempDir, cfg: Config) -> Self {
         let pool = db::connect(&cfg.database_url).await.unwrap();
         let store = storage::build(&cfg.storage).unwrap();
         let mock = Arc::new(MockProvider::with_default(
             r#"{"text":"Hallo Welt","confidence":0.93}"#,
         ));
         let ai: Arc<dyn AiProvider> = mock.clone();
-        let state = AppState::new(pool, cfg, store, ai, jwks);
+        let state = AppState::new(pool, cfg, store, ai);
         Self {
             router: build_router(state.clone()),
             state,

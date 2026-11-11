@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod ai;
 pub mod assets;
+pub mod auth;
 pub mod devices;
 pub mod sync;
 

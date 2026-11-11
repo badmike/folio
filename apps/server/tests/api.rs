@@ -57,16 +57,11 @@ async fn serves_web_app_and_runtime_config() {
     std::fs::create_dir(web.path().join("assets")).unwrap();
     std::fs::write(web.path().join("assets/app-abc.js"), "1").unwrap();
     let dir = web.path().to_path_buf();
-    let app = TestApp::with(|c| {
-        c.web_dir = Some(dir);
-        c.clerk_publishable_key = Some("pk_test_x".into());
-    })
-    .await;
+    let app = TestApp::with(|c| c.web_dir = Some(dir)).await;
 
     let (s, v) = app.json("GET", "/config.json", None, None).await;
     assert_eq!(s, StatusCode::OK);
     assert_eq!(v["apiBase"], "/api");
-    assert_eq!(v["clerkPublishableKey"], "pk_test_x");
 
     let get = |uri: &str| Request::builder().uri(uri).body(Body::empty()).unwrap();
     let (s, h, body) = app.send(get("/notebook/123")).await;
@@ -549,7 +544,7 @@ async fn ai_disabled_returns_503() {
     use std::sync::Arc;
     let dir = tempfile::tempdir().unwrap();
     let cfg = common::base_config(dir.path());
-    let mut app = TestApp::build(dir, cfg, folio_server::auth::JwksCache::new(None)).await;
+    let mut app = TestApp::build(dir, cfg).await;
     app.state.ai = Arc::new(folio_server::ai::DisabledProvider);
     app.router = folio_server::build_router(app.state.clone());
     let (s, v) = app

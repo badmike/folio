@@ -6,6 +6,7 @@ pub mod auth;
 pub mod config;
 pub mod db;
 pub mod error;
+pub mod oidc;
 pub mod ratelimit;
 pub mod routes;
 pub mod state;
@@ -57,6 +58,10 @@ pub fn build_router(state: AppState) -> Router {
 
     let api = Router::new()
         .route("/health", get(health))
+        .route("/auth/login", get(routes::auth::login))
+        .route("/auth/callback", get(routes::auth::callback))
+        .route("/auth/session", get(routes::auth::session))
+        .route("/auth/logout", post(routes::auth::logout))
         .route(
             "/sync/push",
             post(routes::sync::push).layer(DefaultBodyLimit::max(
@@ -120,7 +125,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/health", get(health))
         .nest("/api", api);
     app = match &cfg.web_dir {
-        Some(dir) => app.fallback_service(web::router(state, dir)),
+        Some(dir) => app.fallback_service(web::router(dir)),
         None => app.fallback(fallback),
     };
 

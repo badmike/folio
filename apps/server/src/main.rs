@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use folio_server::ai::{AiProvider, DisabledProvider, OpenRouterProvider};
-use folio_server::auth::JwksCache;
 use folio_server::config::Config;
 use folio_server::{build_router, db, storage, AppState};
 use tracing_subscriber::EnvFilter;
@@ -36,11 +35,10 @@ async fn main() -> anyhow::Result<()> {
     if config.auth_dev {
         tracing::warn!("FOLIO_AUTH_DEV is enabled: `Bearer dev:<user-id>` tokens are accepted. NEVER use in production.");
     }
-    if config.clerk_jwks_url.is_none() && !config.auth_dev {
-        tracing::warn!("no CLERK_JWKS_URL / CLERK_ISSUER configured and dev auth is off: every request will be rejected");
-    }
-    if config.clerk_issuer.is_none() && config.clerk_jwks_url.is_some() {
-        tracing::warn!("CLERK_ISSUER not set: token issuer is not validated");
+    if config.oidc.is_none() && !config.auth_dev {
+        tracing::warn!(
+            "no FOLIO_OIDC_* sign-in provider configured: accounts, sync and AI are off"
+        );
     }
 
     if let Some(dir) = &config.web_dir {
@@ -65,9 +63,8 @@ async fn main() -> anyhow::Result<()> {
             Arc::new(DisabledProvider)
         }
     };
-    let jwks = JwksCache::new(config.clerk_jwks_url.clone());
     let bind = config.bind;
-    let state = AppState::new(pool, config, store, ai, jwks);
+    let state = AppState::new(pool, config, store, ai);
 
     let listener = tokio::net::TcpListener::bind(bind).await?;
     tracing::info!(addr = %bind, version = folio_server::VERSION, "folio-server listening");

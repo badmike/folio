@@ -17,11 +17,11 @@ cargo test && cargo clippy --all-targets
 | ----------------------------------------------------------------------------------------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | `FOLIO_BIND`                                                                                                      | `0.0.0.0:8989`           |                                                                                                                                                |
 | `FOLIO_WEB_DIR`                                                                                                   | unset                    | built web app to serve at `/` (with `/config.json`); unset = API only. The image sets `/app/web`                                               |
-| `FOLIO_CLERK_PUBLISHABLE_KEY`                                                                                     | unset                    | handed to the web app through `/config.json`                                                                                                   |
 | `DATABASE_URL`                                                                                                    | `sqlite://data/folio.db` | created (with parent dirs) on start; migrations run automatically                                                                              |
 | `FOLIO_CORS_ORIGINS`                                                                                              | empty                    | comma list or `*`; empty disables CORS headers                                                                                                 |
-| `CLERK_ISSUER` / `CLERK_JWKS_URL`                                                                                 | none                     | JWKS URL defaults to `<issuer>/.well-known/jwks.json`; issuer is validated when set                                                            |
-| `FOLIO_CLERK_AUTHORIZED_PARTIES`                                                                                  | empty                    | optional `azp` allow-list                                                                                                                      |
+| `FOLIO_PUBLIC_URL`                                                                                                | unset                    | URL people open folio on, e.g. `https://folio.example.com`. No path. Sign-in redirects to it and cookie-authenticated writes must come from it |
+| `FOLIO_OIDC_ISSUER`, `FOLIO_OIDC_CLIENT_ID`, `FOLIO_OIDC_CLIENT_SECRET`                                           | unset                    | OpenID Connect provider for sign-in (Google: `https://accounts.google.com`). Set all three plus `FOLIO_PUBLIC_URL`, or none for no accounts    |
+| `FOLIO_SESSION_DAYS`                                                                                              | `90`                     | a session ends after this many days without use (1 to 400)                                                                                     |
 | `FOLIO_AUTH_DEV`                                                                                                  | `false`                  | accepts `Bearer dev:<user-id>`; logs a warning. Never in production                                                                            |
 | `FOLIO_S3_BUCKET`, `FOLIO_S3_ENDPOINT`, `FOLIO_S3_REGION`, `FOLIO_S3_ACCESS_KEY_ID`, `FOLIO_S3_SECRET_ACCESS_KEY` | unset                    | any S3-compatible store (AWS, R2, B2, MinIO). Without a bucket, files go to `FOLIO_ASSETS_DIR` (`data/assets`). `AWS_*` key vars are also read |
 | `OPENROUTER_API_KEY`                                                                                              | unset                    | all AI goes through OpenRouter. Unset => `/api/ai/*` answers `503 AI not configured`                                                               |
@@ -36,10 +36,13 @@ cargo test && cargo clippy --all-targets
 
 ## API
 
-All routes live under `/api` (`/health` is also served at the root for probes). All except `/health` need `Authorization: Bearer <Clerk session JWT>`. Errors are `{ "error": code, "message": text }`.
+All routes live under `/api` (`/health` is also served at the root for probes). All except `/health` and `/auth/*` need a session: the `folio_session` cookie set by sign-in (`__Host-folio_session` on HTTPS), or `Authorization: Bearer dev:<user-id>` with `FOLIO_AUTH_DEV`. Cookie-authenticated writes must carry `Origin: <FOLIO_PUBLIC_URL>`, which browsers send on their own. Errors are `{ "error": code, "message": text }`.
 Binary values are base64 (standard alphabet) strings. Ids (`docId`, `deviceId`, asset id) match `[A-Za-z0-9_.:-]{1,128}`.
 
 - `GET /health` -> `{status:"ok", version}`
+- `GET /auth/login` redirects the browser to the sign-in provider (authorization code flow with PKCE). The provider returns to `GET /auth/callback`, which starts the session and redirects to the app, with `?signin=failed` when it did not complete. Register `<FOLIO_PUBLIC_URL>/api/auth/callback` as the redirect URI at the provider.
+- `GET /auth/session` -> `{available, user: {id, name, email, picture} | null}`. `available` says whether sign-in is set up. Renews the cookie.
+- `POST /auth/logout` ends this browser's session.
 - `POST /sync/push` `{docId, deviceId, update}` -> `{seq}` (413 over size limit, 429 rate limited). `seq` is strictly increasing per document.
 - `GET /sync/pull?docId=&since=<seq>&limit=` -> `{updates:[{seq, update}], latestSeq, hasMore, snapshot?:{uptoSeq, data}}`.
   If a snapshot newer than `since` exists it is returned and `updates` are those after it. When `hasMore`, pull again with `since` = last returned seq (or `snapshot.uptoSeq` if no updates were returned).
@@ -64,6 +67,18 @@ Binary values are base64 (standard alphabet) strings. Ids (`docId`, `deviceId`, 
 
 - Docker: the root `Dockerfile` builds web app + server into one image (`docker build -t folio .`, published as `ghcr.io/badmike/folio`). Run it with `docker run -p 8989:8989 -v folio-data:/app/data --env-file .env folio`. It runs as a non-root user and exposes a `--healthcheck` probe.
 - SQLite (WAL) is a single-node store: run one replica and back up the `data/` volume (or use Litestream). Snapshots and assets live in the object store, so use S3 for durability.
-- Terminate TLS in front (Caddy, nginx, a platform router). Set `CLERK_ISSUER`; `FOLIO_CORS_ORIGINS` is only needed when the web app is hosted on another origin; keep `FOLIO_AUTH_DEV` off.
+- Terminate TLS in front (Caddy, nginx, a platform router). Set `FOLIO_PUBLIC_URL` and the `FOLIO_OIDC_*` variables for accounts; keep `FOLIO_AUTH_DEV` off. Sign-in needs the web app on the server's own origin: the session cookie is not sent from other origins, so `FOLIO_CORS_ORIGINS` only serves dev tokens.
 - Logs are JSON on stdout. Failures carry a `counter` field (`auth_failure`, `sync_failure`, `storage_error`, `ai_failure`, `db_error`, `internal_error`) for log-based metrics; every request carries an `x-request-id`.
 - SIGTERM/SIGINT triggers graceful shutdown.
+
+## Accounts and sessions
+
+- Sign-in runs through the OpenID Connect provider. The server stores no passwords. An account is the provider's `(issuer, subject)` pair in `identities`, mapped to a folio user id.
+- A session is a random 256-bit token in an `HttpOnly`, `SameSite=Lax` cookie. The database holds only its SHA-256 (`sessions`). It lasts `FOLIO_SESSION_DAYS` from its last use. Deleting a row signs that browser out, `DELETE FROM sessions WHERE user_id = ?` signs a person out everywhere.
+- Moving from the Clerk-based releases: data is keyed by the old Clerk user id (`user_...`). Sign in once, then point your identity at the old id and sign in again:
+
+  ```sql
+  UPDATE identities SET user_id = 'user_OLD' WHERE user_id = (SELECT id FROM users WHERE email = 'you@example.com');
+  DELETE FROM users WHERE email = 'you@example.com';
+  DELETE FROM sessions;
+  ```

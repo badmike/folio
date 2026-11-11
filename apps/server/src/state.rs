@@ -8,9 +8,9 @@ use sqlx::SqlitePool;
 use tokio::sync::broadcast;
 
 use crate::ai::AiProvider;
-use crate::auth::JwksCache;
 use crate::config::Config;
 use crate::error::AppResult;
+use crate::oidc::Oidc;
 use crate::ratelimit::RateLimiter;
 use crate::util::now_ms;
 
@@ -20,7 +20,7 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub store: Arc<dyn ObjectStore>,
     pub ai: Arc<dyn AiProvider>,
-    pub jwks: Arc<JwksCache>,
+    pub oidc: Option<Arc<Oidc>>,
     pub push_limiter: Arc<RateLimiter>,
     seen_users: Arc<Mutex<HashSet<String>>>,
     pub sync_changes: broadcast::Sender<String>,
@@ -32,15 +32,15 @@ impl AppState {
         config: Config,
         store: Arc<dyn ObjectStore>,
         ai: Arc<dyn AiProvider>,
-        jwks: JwksCache,
     ) -> Self {
         let push_limiter = Arc::new(RateLimiter::new(config.push_rate_per_min));
+        let oidc = config.oidc.clone().map(|c| Arc::new(Oidc::new(c)));
         Self {
             db,
             config: Arc::new(config),
             store,
             ai,
-            jwks: Arc::new(jwks),
+            oidc,
             push_limiter,
             seen_users: Arc::new(Mutex::new(HashSet::new())),
             sync_changes: broadcast::channel(1024).0,
