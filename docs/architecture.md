@@ -1159,17 +1159,20 @@ Benefits include:
 
 # 38. Authentication
 
-Use managed authentication rather than building authentication infrastructure.
+Delegate proving who someone is to an OpenID Connect provider, and keep sessions in folio-server.
+
+The server stores no passwords. After the provider's sign-in it issues its own session: a random token in an HttpOnly cookie, stored hashed, valid for 90 days from its last use. Sessions are rows, so they can be revoked.
+
+Clerk was the first provider. Its sessions ended after a day in practice, so it was replaced in November 2026.
 
 Initial provider:
 
-Clerk
+Google, through the generic OpenID Connect flow. Any compliant provider works for self-hosters.
 
-Support should ultimately include combinations of:
+Possible later additions:
 
 - Apple
-- Google
-- email
+- more than one provider at a time
 - passkeys where appropriate
 
 The application should still support a completely local mode without an account.
@@ -1802,7 +1805,7 @@ This transforms the product from a drawing canvas into a machine-readable notebo
 
 Add:
 
-- Clerk authentication
+- sign-in through an OpenID Connect provider, sessions in folio-server
 - local → account migration
 - Rust/Axum backend
 - CRDT synchronization
@@ -1882,7 +1885,7 @@ The current working stack is therefore:
 | Async Runtime | Tokio |
 | SQL | SQLx |
 | Server Database | SQLite/libSQL-compatible |
-| Authentication | Clerk |
+| Authentication | OpenID Connect sign-in, server-side sessions |
 | Assets | S3-compatible object storage |
 | Local ML | Model-first evaluation |
 | Cloud AI | Provider-independent Rust gateway |

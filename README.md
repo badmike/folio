@@ -44,11 +44,11 @@ pnpm --filter @folio/web exec playwright test   # e2e against the preview build 
 
 **Keyboard shortcuts** follow Excalidraw (press `?` in a notebook for the full list): `V` select, `H` hand, `R` rectangle, `D` diamond, `O` ellipse, `A` arrow, `L` line, `P` pen, `T` text, `E` eraser, `F` frame, `M` highlighter, `X` blur, `Q` tool lock, `⌘Z`/`⌘⇧Z` undo/redo, `⌘D` or `Alt`+drag duplicate, `⌘G` group, `⌘[`/`⌘]` layer order, `⌘⇧arrows` align, `⌘+`/`⌘-`/`⌘0` zoom, `Shift+1` fit.
 
-**Runtime config:** at boot the app reads `config.json` next to `index.html` (`{"apiBase": "/api", "clerkPublishableKey": "pk_..."}`). folio-server generates it when it serves the app; empty values mean local only. During development, `apps/web/.env.local` provides the same values as `VITE_API_BASE` and `VITE_CLERK_PUBLISHABLE_KEY`.
+**Runtime config:** at boot the app reads `config.json` next to `index.html` (`{"apiBase": "/api"}`). folio-server generates it when it serves the app; an empty value means local only. During development, `apps/web/.env.local` provides the same value as `VITE_API_BASE`. Whether sign-in is offered comes from the server (`GET /api/auth/session`).
 
 **Icons and share card:** `node apps/web/scripts/gen-brand-assets.mjs` renders the favicon, app icons and the 1200x630 Open Graph image from `public/icons/icon.svg`. The share card URL is absolute: set `VITE_SITE_URL` (default `https://folio.coderscantina.com`) when building for another domain.
 
-**With a server:** `FOLIO_AUTH_DEV=true pnpm server` (port 8989), start the web app with `VITE_API_BASE=/api`, then in the browser console run `localStorage['folio.devToken']='dev:alice'` and reload to sync without Clerk. Set `OPENROUTER_API_KEY` on the server for the AI assistant (all AI requests go through OpenRouter). `localStorage['folio.debug']='1'` exposes `window.__folio` (used by the e2e tests).
+**With a server:** `FOLIO_AUTH_DEV=true pnpm server` (port 8989), start the web app with `VITE_API_BASE=/api`, then in the browser console run `localStorage['folio.devToken']='dev:alice'` and reload to sync without signing in. Set `OPENROUTER_API_KEY` on the server for the AI assistant (all AI requests go through OpenRouter). `localStorage['folio.debug']='1'` exposes `window.__folio` (used by the e2e tests).
 
 ### Live sync across devices
 
@@ -82,10 +82,12 @@ Or use [`docker-compose.yml`](docker-compose.yml) with a `.env` file next to it.
 
 | Variable                                     | Purpose                                                                     |
 | -------------------------------------------- | --------------------------------------------------------------------------- |
-| `CLERK_ISSUER`                               | Clerk instance URL; enables sign-in and sync (tokens are verified via JWKS) |
-| `FOLIO_CLERK_PUBLISHABLE_KEY`                | Clerk publishable key, handed to the app through `/config.json`             |
+| `FOLIO_PUBLIC_URL`                           | URL people open folio on, e.g. `https://folio.example.com`                  |
+| `FOLIO_OIDC_ISSUER` and `FOLIO_OIDC_CLIENT_*` | OpenID Connect provider for sign-in; together with the URL they enable accounts and sync |
 | `OPENROUTER_API_KEY`                         | enables the AI assistant; presets, credit and caps have their own variables |
 | `FOLIO_S3_BUCKET` and the other `FOLIO_S3_*` | S3-compatible storage for snapshots and assets instead of the data volume   |
+
+**Accounts:** folio signs people in through any OpenID Connect provider and keeps its own sessions, which last 90 days from their last use. For Google, create an OAuth client of type "Web application" in the Google Cloud console with the redirect URI `<FOLIO_PUBLIC_URL>/api/auth/callback`, then set `FOLIO_OIDC_ISSUER=https://accounts.google.com`, `FOLIO_OIDC_CLIENT_ID` and `FOLIO_OIDC_CLIENT_SECRET`.
 
 All server settings are listed in [`apps/server/README.md`](apps/server/README.md). Data lives in the `/app/data` volume (SQLite plus local assets): back it up, run a single replica.
 
