@@ -50,14 +50,14 @@ describe('auth', () => {
 
   it('takes the signed-in user from the server session', async () => {
     runtimeConfig.apiBase = '/api'
-    const session = { available: true, user: { id: 'u_1', name: null, email: 'ada@example.com', picture: null } }
+    const session = { available: true, user: { id: 'u_1', name: 'Ada' } }
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(session)))
     vi.stubGlobal('fetch', fetchMock)
     const auth = new AuthService()
     await auth.load()
     expect(fetchMock).toHaveBeenCalledWith('/api/auth/session', { cache: 'no-store' })
     expect(auth.available.value).toBe(true)
-    expect(auth.user.value).toEqual({ id: 'u_1', name: 'ada@example.com', email: 'ada@example.com', imageUrl: undefined })
+    expect(auth.user.value).toEqual({ id: 'u_1', name: 'Ada' })
     // the cookie authenticates API calls, so clients get no token source
     expect(auth.bearer).toBeUndefined()
 
@@ -65,6 +65,14 @@ describe('auth', () => {
     fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
     await auth.load()
     expect(auth.signedIn.value).toBe(true)
+  })
+
+  it('takes an invite link out of the URL', () => {
+    history.replaceState(null, '', '/library#invite=ab12')
+    const auth = new AuthService()
+    expect(auth.enrollment.value).toEqual({ kind: 'invite', token: 'ab12' })
+    expect(location.href).not.toContain('ab12')
+    expect(location.pathname).toBe('/library')
   })
 })
 

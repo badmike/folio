@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { bootError, bootState } from './app'
+import { bootError, bootState, services } from './app'
 import DialogHost from './components/DialogHost.vue'
+import EnrollDialog from './components/EnrollDialog.vue'
 import Icon from './components/Icon.vue'
 import Logo from './components/Logo.vue'
 import ToastHost from './components/ToastHost.vue'
@@ -33,6 +34,7 @@ const reload = () => window.location.reload()
   </div>
   <template v-else>
     <router-view />
+    <EnrollDialog v-if="services?.auth.enrollment.value" />
   </template>
   <DialogHost />
   <ToastHost />
