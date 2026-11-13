@@ -7,10 +7,10 @@ use object_store::ObjectStore;
 use sqlx::SqlitePool;
 use tokio::sync::broadcast;
 
+use crate::accounts::Accounts;
 use crate::ai::AiProvider;
 use crate::config::Config;
 use crate::error::AppResult;
-use crate::oidc::Oidc;
 use crate::ratelimit::RateLimiter;
 use crate::util::now_ms;
 
@@ -20,7 +20,8 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub store: Arc<dyn ObjectStore>,
     pub ai: Arc<dyn AiProvider>,
-    pub oidc: Option<Arc<Oidc>>,
+    /// Passkey sign-in, set when `FOLIO_PUBLIC_URL` is.
+    pub accounts: Option<Arc<Accounts>>,
     pub push_limiter: Arc<RateLimiter>,
     seen_users: Arc<Mutex<HashSet<String>>>,
     pub sync_changes: broadcast::Sender<String>,
@@ -34,13 +35,16 @@ impl AppState {
         ai: Arc<dyn AiProvider>,
     ) -> Self {
         let push_limiter = Arc::new(RateLimiter::new(config.push_rate_per_min));
-        let oidc = config.oidc.clone().map(|c| Arc::new(Oidc::new(c)));
+        let accounts = config
+            .accounts
+            .as_ref()
+            .map(|c| Arc::new(Accounts::new(c).expect("FOLIO_PUBLIC_URL is validated at startup")));
         Self {
             db,
             config: Arc::new(config),
             store,
             ai,
-            oidc,
+            accounts,
             push_limiter,
             seen_users: Arc::new(Mutex::new(HashSet::new())),
             sync_changes: broadcast::channel(1024).0,

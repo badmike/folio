@@ -92,17 +92,17 @@ pub enum StorageConfig {
     Local(PathBuf),
 }
 
-/// Sign-in through an OpenID Connect provider (Google, Keycloak, Authentik, ...).
+/// Accounts with passkey sign-in. Passkeys are bound to `rp_id`, so changing the host
+/// invalidates every passkey.
 #[derive(Debug, Clone)]
-pub struct OidcConfig {
-    pub issuer: String,
-    pub client_id: String,
-    pub client_secret: String,
+pub struct AccountsConfig {
     /// Origin the browser reaches the app on, e.g. `https://folio.example.com`.
     pub public_origin: String,
+    /// The WebAuthn relying party id: the host of `public_origin`.
+    pub rp_id: String,
 }
 
-impl OidcConfig {
+impl AccountsConfig {
     /// Whether cookies can carry the `Secure` attribute.
     pub fn secure(&self) -> bool {
         self.public_origin.starts_with("https://")
@@ -115,7 +115,7 @@ pub struct Config {
     pub database_url: String,
     pub cors_origins: Vec<String>,
     /// `None` = no accounts: the app runs local-only.
-    pub oidc: Option<OidcConfig>,
+    pub accounts: Option<AccountsConfig>,
     /// A session ends after this many days without use.
     pub session_days: i64,
     pub auth_dev: bool,
@@ -208,24 +208,9 @@ impl Config {
                 })?,
             None => 1.0,
         };
-        const OIDC_VARS: [&str; 4] = [
-            "FOLIO_OIDC_ISSUER",
-            "FOLIO_OIDC_CLIENT_ID",
-            "FOLIO_OIDC_CLIENT_SECRET",
-            "FOLIO_PUBLIC_URL",
-        ];
-        let oidc = match OIDC_VARS.map(get) {
-            [None, None, None, None] => None,
-            [Some(issuer), Some(client_id), Some(client_secret), Some(public_url)] => {
-                Some(OidcConfig {
-                    issuer,
-                    client_id,
-                    client_secret,
-                    public_origin: public_origin(&public_url)?,
-                })
-            }
-            _ => anyhow::bail!("accounts need all of {}", OIDC_VARS.join(", ")),
-        };
+        let accounts = get("FOLIO_PUBLIC_URL")
+            .map(|url| accounts_config(&url))
+            .transpose()?;
         let session_days = parse_num("FOLIO_SESSION_DAYS", 90)?;
         // Browsers cap cookie lifetimes at 400 days.
         anyhow::ensure!(
@@ -239,7 +224,7 @@ impl Config {
                 .or_else(|| get("FOLIO_DATABASE_URL"))
                 .unwrap_or_else(|| "sqlite://data/folio.db".into()),
             cors_origins: list("FOLIO_CORS_ORIGINS"),
-            oidc,
+            accounts,
             session_days,
             web_dir: get("FOLIO_WEB_DIR").map(PathBuf::from),
             auth_dev: get("FOLIO_AUTH_DEV")
@@ -271,15 +256,27 @@ impl Config {
     }
 }
 
-/// Reduces `FOLIO_PUBLIC_URL` to its origin, the form browsers send in the `Origin` header.
-fn public_origin(url: &str) -> anyhow::Result<String> {
-    let parsed = openidconnect::url::Url::parse(url)
+/// Reduces `FOLIO_PUBLIC_URL` to its origin, the form browsers send in the `Origin` header,
+/// and its host, the passkey relying party id.
+fn accounts_config(url: &str) -> anyhow::Result<AccountsConfig> {
+    let parsed = webauthn_rs::prelude::Url::parse(url)
         .map_err(|e| anyhow::anyhow!("invalid FOLIO_PUBLIC_URL: {e}"))?;
     anyhow::ensure!(
         matches!(parsed.scheme(), "http" | "https") && parsed.path() == "/",
         "FOLIO_PUBLIC_URL must be an http(s) URL without a path"
     );
-    Ok(parsed.origin().ascii_serialization())
+    let rp_id = parsed
+        .host_str()
+        .ok_or_else(|| anyhow::anyhow!("FOLIO_PUBLIC_URL needs a host"))?
+        .to_string();
+    let cfg = AccountsConfig {
+        public_origin: parsed.origin().ascii_serialization(),
+        rp_id,
+    };
+    // Passkeys need a domain name (or localhost), not an IP address.
+    crate::accounts::Accounts::new(&cfg)
+        .map_err(|e| anyhow::anyhow!("FOLIO_PUBLIC_URL can't carry passkeys: {e}"))?;
+    Ok(cfg)
 }
 
 fn validate_presets(presets: &[AiPreset], default: &str) -> anyhow::Result<()> {
@@ -360,9 +357,6 @@ mod tests {
         let m: HashMap<String, String> = [
             ("FOLIO_S3_BUCKET", "b"),
             ("FOLIO_S3_ENDPOINT", "http://minio:9000"),
-            ("FOLIO_OIDC_ISSUER", "https://accounts.google.com"),
-            ("FOLIO_OIDC_CLIENT_ID", "id"),
-            ("FOLIO_OIDC_CLIENT_SECRET", "secret"),
             ("FOLIO_PUBLIC_URL", "https://folio.example.com/"),
             ("FOLIO_AUTH_DEV", "true"),
         ]
@@ -371,13 +365,17 @@ mod tests {
         .collect();
         let c = Config::from_map(&m).unwrap();
         assert!(matches!(c.storage, StorageConfig::S3(_)));
-        let oidc = c.oidc.unwrap();
-        assert_eq!(oidc.public_origin, "https://folio.example.com");
-        assert!(oidc.secure());
+        let accounts = c.accounts.unwrap();
+        assert_eq!(accounts.public_origin, "https://folio.example.com");
+        assert_eq!(accounts.rp_id, "folio.example.com");
+        assert!(accounts.secure());
         assert!(c.auth_dev);
 
-        let mut partial = m.clone();
-        partial.remove("FOLIO_OIDC_CLIENT_SECRET");
-        assert!(Config::from_map(&partial).is_err());
+        let mut with_path = m.clone();
+        with_path.insert(
+            "FOLIO_PUBLIC_URL".into(),
+            "https://example.com/folio".into(),
+        );
+        assert!(Config::from_map(&with_path).is_err());
     }
 }

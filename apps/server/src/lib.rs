@@ -1,12 +1,13 @@
 //! folio-server: thin replication, asset and AI endpoint for the folio notebook.
 
+pub mod accounts;
+pub mod admin;
 pub mod agent;
 pub mod ai;
 pub mod auth;
 pub mod config;
 pub mod db;
 pub mod error;
-pub mod oidc;
 pub mod ratelimit;
 pub mod routes;
 pub mod state;
@@ -58,10 +59,28 @@ pub fn build_router(state: AppState) -> Router {
 
     let api = Router::new()
         .route("/health", get(health))
-        .route("/auth/login", get(routes::auth::login))
-        .route("/auth/callback", get(routes::auth::callback))
         .route("/auth/session", get(routes::auth::session))
         .route("/auth/logout", post(routes::auth::logout))
+        .route(
+            "/auth/passkey/register/start",
+            post(routes::auth::register_start),
+        )
+        .route(
+            "/auth/passkey/register/finish",
+            post(routes::auth::register_finish),
+        )
+        .route("/auth/passkey/login/start", post(routes::auth::login_start))
+        .route(
+            "/auth/passkey/login/finish",
+            post(routes::auth::login_finish),
+        )
+        .route("/auth/recover", post(routes::auth::recover))
+        .route("/auth/account", get(routes::auth::account))
+        .route(
+            "/auth/passkeys/{id}",
+            axum::routing::delete(routes::auth::delete_passkey),
+        )
+        .route("/auth/recovery-codes", post(routes::auth::recovery_codes))
         .route(
             "/sync/push",
             post(routes::sync::push).layer(DefaultBodyLimit::max(

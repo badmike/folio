@@ -1,5 +1,5 @@
-//! Authentication: server-side sessions carried in an HttpOnly cookie, started by the
-//! OpenID Connect sign-in in `oidc.rs`, plus an opt-in development token scheme
+//! Authentication: server-side sessions carried in an HttpOnly cookie, started by a passkey
+//! or recovery code sign-in (`accounts.rs`), plus an opt-in development token scheme
 //! (`Bearer dev:<user-id>`).
 
 use axum::extract::FromRequestParts;
@@ -9,9 +9,8 @@ use cookie::{Cookie, SameSite};
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 
-use crate::config::OidcConfig;
+use crate::config::AccountsConfig;
 use crate::error::{AppError, AppResult};
-use crate::oidc::Profile;
 use crate::state::AppState;
 use crate::util::now_ms;
 
@@ -26,8 +25,8 @@ pub struct AuthUser {
 }
 
 /// Cookie name as the browser sees it. On HTTPS the `__Host-` prefix pins the cookie to this origin.
-fn cookie_name(oidc: &OidcConfig, name: &str) -> String {
-    if oidc.secure() {
+fn cookie_name(cfg: &AccountsConfig, name: &str) -> String {
+    if cfg.secure() {
         format!("__Host-{name}")
     } else {
         name.to_string()
@@ -36,19 +35,19 @@ fn cookie_name(oidc: &OidcConfig, name: &str) -> String {
 
 /// `Set-Cookie` value for a first-party cookie that scripts can't read.
 /// An empty value with a zero `max_age` removes the cookie.
-pub fn set_cookie(oidc: &OidcConfig, name: &str, value: &str, max_age: Duration) -> HeaderValue {
-    let cookie = Cookie::build((cookie_name(oidc, name), value))
+pub fn set_cookie(cfg: &AccountsConfig, name: &str, value: &str, max_age: Duration) -> HeaderValue {
+    let cookie = Cookie::build((cookie_name(cfg, name), value))
         .path("/")
         .http_only(true)
-        .secure(oidc.secure())
+        .secure(cfg.secure())
         .same_site(SameSite::Lax)
         .max_age(max_age)
         .build();
     HeaderValue::from_str(&cookie.to_string()).expect("cookie names and values are ASCII")
 }
 
-pub fn read_cookie(oidc: &OidcConfig, headers: &HeaderMap, name: &str) -> Option<String> {
-    let name = cookie_name(oidc, name);
+pub fn read_cookie(cfg: &AccountsConfig, headers: &HeaderMap, name: &str) -> Option<String> {
+    let name = cookie_name(cfg, name);
     headers
         .get_all(header::COOKIE)
         .iter()
@@ -59,13 +58,19 @@ pub fn read_cookie(oidc: &OidcConfig, headers: &HeaderMap, name: &str) -> Option
         .map(|c| c.value().to_string())
 }
 
-fn token_hash(token: &str) -> String {
+/// Hex SHA-256, how tokens and recovery codes are stored.
+pub fn token_hash(token: &str) -> String {
     hex::encode(Sha256::digest(token.as_bytes()))
+}
+
+/// 256 random bits as hex.
+pub fn random_token() -> String {
+    hex::encode(rand::random::<[u8; 32]>())
 }
 
 /// Starts a session and returns its token, the cookie value.
 pub async fn create_session(db: &SqlitePool, user_id: &str, days: i64) -> AppResult<String> {
-    let token = hex::encode(rand::random::<[u8; 32]>());
+    let token = random_token();
     let now = now_ms();
     sqlx::query("DELETE FROM sessions WHERE expires_at <= ?")
         .bind(now)
@@ -120,47 +125,14 @@ pub async fn browser_session(
     state: &AppState,
     headers: &HeaderMap,
 ) -> AppResult<Option<(String, String)>> {
-    let Some(oidc) = &state.config.oidc else {
+    let Some(cfg) = &state.config.accounts else {
         return Ok(None);
     };
-    let Some(token) = read_cookie(oidc, headers, SESSION_COOKIE) else {
+    let Some(token) = read_cookie(cfg, headers, SESSION_COOKIE) else {
         return Ok(None);
     };
     let user_id = session_user(&state.db, &token, state.config.session_days).await?;
     Ok(user_id.map(|user_id| (token, user_id)))
-}
-
-/// Finds or creates the account behind a provider identity and stores its current profile.
-pub async fn user_for_identity(db: &SqlitePool, profile: &Profile) -> AppResult<String> {
-    let now = now_ms();
-    // Racing first sign-ins of one identity agree on whichever row landed first.
-    sqlx::query(
-        "INSERT OR IGNORE INTO identities (issuer, subject, user_id, created_at) VALUES (?, ?, ?, ?)",
-    )
-    .bind(&profile.issuer)
-    .bind(&profile.subject)
-    .bind(format!("u_{}", uuid::Uuid::new_v4().simple()))
-    .bind(now)
-    .execute(db)
-    .await?;
-    let (user_id,): (String,) =
-        sqlx::query_as("SELECT user_id FROM identities WHERE issuer = ? AND subject = ?")
-            .bind(&profile.issuer)
-            .bind(&profile.subject)
-            .fetch_one(db)
-            .await?;
-    sqlx::query(
-        "INSERT INTO users (id, created_at, email, name, picture) VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET email = excluded.email, name = excluded.name, picture = excluded.picture",
-    )
-    .bind(&user_id)
-    .bind(now)
-    .bind(&profile.email)
-    .bind(&profile.name)
-    .bind(&profile.picture)
-    .execute(db)
-    .await?;
-    Ok(user_id)
 }
 
 /// User ids end up in object keys / logs; keep them boring.
@@ -169,6 +141,25 @@ fn valid_user_id(s: &str) -> bool {
         && s.len() <= 128
         && s.bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"_-.:@".contains(&b))
+}
+
+/// Cookie-authenticated writes and sign-ins must come from the app's own origin.
+/// `SameSite=Lax` already keeps the cookie off cross-site writes; comparing the origin also
+/// stops other sites under the same registrable domain.
+pub fn require_own_origin(state: &AppState, headers: &HeaderMap) -> AppResult<()> {
+    let origin = headers.get(header::ORIGIN).and_then(|o| o.to_str().ok());
+    let own = state
+        .config
+        .accounts
+        .as_ref()
+        .map(|a| a.public_origin.as_str());
+    if origin.is_some() && origin == own {
+        Ok(())
+    } else {
+        Err(AppError::Unauthorized(
+            "request comes from another origin".into(),
+        ))
+    }
 }
 
 impl FromRequestParts<AppState> for AuthUser {
@@ -194,17 +185,8 @@ impl FromRequestParts<AppState> for AuthUser {
             });
         }
 
-        // `SameSite=Lax` already keeps the cookie off cross-site writes. Comparing the origin
-        // also stops other sites under the same registrable domain.
         if !parts.method.is_safe() {
-            let origin = parts
-                .headers
-                .get(header::ORIGIN)
-                .and_then(|o| o.to_str().ok());
-            let own = state.config.oidc.as_ref().map(|o| o.public_origin.as_str());
-            if origin.is_none() || origin != own {
-                return Err(bad("request comes from another origin"));
-            }
+            require_own_origin(state, &parts.headers)?;
         }
         match browser_session(state, &parts.headers).await? {
             Some((_, user_id)) => Ok(AuthUser { user_id }),

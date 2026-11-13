@@ -32,13 +32,15 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let config = Config::from_env()?;
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if !args.is_empty() {
+        return folio_server::admin::run(&config, &args).await;
+    }
     if config.auth_dev {
         tracing::warn!("FOLIO_AUTH_DEV is enabled: `Bearer dev:<user-id>` tokens are accepted. NEVER use in production.");
     }
-    if config.oidc.is_none() && !config.auth_dev {
-        tracing::warn!(
-            "no FOLIO_OIDC_* sign-in provider configured: accounts, sync and AI are off"
-        );
+    if config.accounts.is_none() && !config.auth_dev {
+        tracing::warn!("FOLIO_PUBLIC_URL not set: accounts, sync and AI are off");
     }
 
     if let Some(dir) = &config.web_dir {
