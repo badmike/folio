@@ -80,14 +80,13 @@ docker run -d -p 8989:8989 -v folio-data:/app/data ghcr.io/badmike/folio:latest
 
 Or use [`docker-compose.yml`](docker-compose.yml) with a `.env` file next to it. Without any variables folio runs local-only: the app works, sync and AI stay off. Put TLS in front of the container, the PWA needs HTTPS outside `localhost`.
 
-| Variable                                     | Purpose                                                                     |
-| -------------------------------------------- | --------------------------------------------------------------------------- |
-| `FOLIO_PUBLIC_URL`                           | URL people open folio on, e.g. `https://folio.example.com`                  |
-| `FOLIO_OIDC_ISSUER` and `FOLIO_OIDC_CLIENT_*` | OpenID Connect provider for sign-in; together with the URL they enable accounts and sync |
-| `OPENROUTER_API_KEY`                         | enables the AI assistant; presets, credit and caps have their own variables |
-| `FOLIO_S3_BUCKET` and the other `FOLIO_S3_*` | S3-compatible storage for snapshots and assets instead of the data volume   |
+| Variable                                     | Purpose                                                                               |
+| -------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `FOLIO_PUBLIC_URL`                           | URL people open folio on, e.g. `https://folio.example.com`. Enables accounts and sync |
+| `OPENROUTER_API_KEY`                         | enables the AI assistant; presets, credit and caps have their own variables           |
+| `FOLIO_S3_BUCKET` and the other `FOLIO_S3_*` | S3-compatible storage for snapshots and assets instead of the data volume             |
 
-**Accounts:** folio signs people in through any OpenID Connect provider and keeps its own sessions, which last 90 days from their last use. For Google, create an OAuth client of type "Web application" in the Google Cloud console with the redirect URI `<FOLIO_PUBLIC_URL>/api/auth/callback`, then set `FOLIO_OIDC_ISSUER=https://accounts.google.com`, `FOLIO_OIDC_CLIENT_ID` and `FOLIO_OIDC_CLIENT_SECRET`.
+**Accounts:** people sign in with a passkey (Face ID, Touch ID, a device PIN or a security key). Accounts are by invite. Run `folio-server invite` in the container (`docker exec <container> folio-server invite`) and send the printed link; it creates one account and expires after 7 days. Each account gets 10 single-use recovery codes. When someone loses their passkeys and codes, find their id with `folio-server users` and send them the link from `folio-server reset <user-id>`, which replaces their passkeys and codes. Passkeys are bound to the host of `FOLIO_PUBLIC_URL`: changing the domain means resetting every account. Sessions last 90 days from their last use.
 
 All server settings are listed in [`apps/server/README.md`](apps/server/README.md). Data lives in the `/app/data` volume (SQLite plus local assets): back it up, run a single replica.
 

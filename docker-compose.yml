@@ -10,13 +10,9 @@ services:
     volumes:
       - folio-data:/app/data
     environment:
-      # Accounts and sync: sign-in through an OpenID Connect provider (Google: https://accounts.google.com).
-      # Set all four, with <FOLIO_PUBLIC_URL>/api/auth/callback as the provider's redirect URI.
-      # Leave them empty to run the app local-only.
+      # Accounts and sync with passkey sign-in. Passkeys are bound to this URL's host.
+      # Leave it empty to run the app local-only. Invite people with `docker compose exec folio folio-server invite`.
       FOLIO_PUBLIC_URL: ${FOLIO_PUBLIC_URL:-}
-      FOLIO_OIDC_ISSUER: ${FOLIO_OIDC_ISSUER:-}
-      FOLIO_OIDC_CLIENT_ID: ${FOLIO_OIDC_CLIENT_ID:-}
-      FOLIO_OIDC_CLIENT_SECRET: ${FOLIO_OIDC_CLIENT_SECRET:-}
       # AI chat dock through OpenRouter. Per-user daily limit in USD (default 1.00).
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       FOLIO_AI_DAILY_CREDIT_USD: ${FOLIO_AI_DAILY_CREDIT_USD:-1.00}

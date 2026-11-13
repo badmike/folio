@@ -1159,21 +1159,14 @@ Benefits include:
 
 # 38. Authentication
 
-Delegate proving who someone is to an OpenID Connect provider, and keep sessions in folio-server.
+folio-server owns its accounts. People sign in with a passkey (WebAuthn, discoverable credentials, user verification required), so the server stores neither passwords nor anything a leak could replay.
 
-The server stores no passwords. After the provider's sign-in it issues its own session: a random token in an HttpOnly cookie, stored hashed, valid for 90 days from its last use. Sessions are rows, so they can be revoked.
+- Accounts are invite-only. The admin runs `folio-server invite` and sends the link; `folio-server reset <user-id>` makes a link that replaces an account's passkeys and recovery codes and signs it out everywhere. Links are single use and carry the token in the URL fragment, so it stays out of server logs.
+- Each account gets 10 single-use recovery codes, stored hashed. A code signs in once; the person then adds a new passkey.
+- After sign-in the server issues its own session: a random token in an HttpOnly cookie, stored hashed, valid for 90 days from its last use. Sessions are rows, so they can be revoked.
+- Passkeys are bound to the host of `FOLIO_PUBLIC_URL`.
 
-Clerk was the first provider. Its sessions ended after a day in practice, so it was replaced in November 2026.
-
-Initial provider:
-
-Google, through the generic OpenID Connect flow. Any compliant provider works for self-hosters.
-
-Possible later additions:
-
-- Apple
-- more than one provider at a time
-- passkeys where appropriate
+Clerk was the first provider; its sessions ended after a day in practice. An OpenID Connect sign-in replaced it briefly in November 2026 before passkeys did, so self-hosters need no external provider.
 
 The application should still support a completely local mode without an account.
 
@@ -1805,7 +1798,7 @@ This transforms the product from a drawing canvas into a machine-readable notebo
 
 Add:
 
-- sign-in through an OpenID Connect provider, sessions in folio-server
+- invite-only accounts with passkey sign-in, sessions in folio-server
 - local → account migration
 - Rust/Axum backend
 - CRDT synchronization
@@ -1885,7 +1878,7 @@ The current working stack is therefore:
 | Async Runtime | Tokio |
 | SQL | SQLx |
 | Server Database | SQLite/libSQL-compatible |
-| Authentication | OpenID Connect sign-in, server-side sessions |
+| Authentication | Passkey sign-in, invite-only accounts, server-side sessions |
 | Assets | S3-compatible object storage |
 | Local ML | Model-first evaluation |
 | Cloud AI | Provider-independent Rust gateway |

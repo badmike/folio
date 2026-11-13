@@ -19,8 +19,7 @@ cargo test && cargo clippy --all-targets
 | `FOLIO_WEB_DIR`                                                                                                   | unset                    | built web app to serve at `/` (with `/config.json`); unset = API only. The image sets `/app/web`                                               |
 | `DATABASE_URL`                                                                                                    | `sqlite://data/folio.db` | created (with parent dirs) on start; migrations run automatically                                                                              |
 | `FOLIO_CORS_ORIGINS`                                                                                              | empty                    | comma list or `*`; empty disables CORS headers                                                                                                 |
-| `FOLIO_PUBLIC_URL`                                                                                                | unset                    | URL people open folio on, e.g. `https://folio.example.com`. No path. Sign-in redirects to it and cookie-authenticated writes must come from it |
-| `FOLIO_OIDC_ISSUER`, `FOLIO_OIDC_CLIENT_ID`, `FOLIO_OIDC_CLIENT_SECRET`                                           | unset                    | OpenID Connect provider for sign-in (Google: `https://accounts.google.com`). Set all three plus `FOLIO_PUBLIC_URL`, or none for no accounts    |
+| `FOLIO_PUBLIC_URL`                                                                                                | unset                    | URL people open folio on, e.g. `https://folio.example.com`. No path. Enables accounts; passkeys are bound to its host, and cookie-authenticated writes must come from it. Unset = no accounts |
 | `FOLIO_SESSION_DAYS`                                                                                              | `90`                     | a session ends after this many days without use (1 to 400)                                                                                     |
 | `FOLIO_AUTH_DEV`                                                                                                  | `false`                  | accepts `Bearer dev:<user-id>`; logs a warning. Never in production                                                                            |
 | `FOLIO_S3_BUCKET`, `FOLIO_S3_ENDPOINT`, `FOLIO_S3_REGION`, `FOLIO_S3_ACCESS_KEY_ID`, `FOLIO_S3_SECRET_ACCESS_KEY` | unset                    | any S3-compatible store (AWS, R2, B2, MinIO). Without a bucket, files go to `FOLIO_ASSETS_DIR` (`data/assets`). `AWS_*` key vars are also read |
@@ -36,12 +35,16 @@ cargo test && cargo clippy --all-targets
 
 ## API
 
-All routes live under `/api` (`/health` is also served at the root for probes). All except `/health` and `/auth/*` need a session: the `folio_session` cookie set by sign-in (`__Host-folio_session` on HTTPS), or `Authorization: Bearer dev:<user-id>` with `FOLIO_AUTH_DEV`. Cookie-authenticated writes must carry `Origin: <FOLIO_PUBLIC_URL>`, which browsers send on their own. Errors are `{ "error": code, "message": text }`.
+All routes live under `/api` (`/health` is also served at the root for probes). All except `/health` and the sign-in routes under `/auth` need a session: the `folio_session` cookie set by sign-in (`__Host-folio_session` on HTTPS), or `Authorization: Bearer dev:<user-id>` with `FOLIO_AUTH_DEV`. Cookie-authenticated writes and the sign-in calls must carry `Origin: <FOLIO_PUBLIC_URL>`, which browsers send on their own. Errors are `{ "error": code, "message": text }`.
 Binary values are base64 (standard alphabet) strings. Ids (`docId`, `deviceId`, asset id) match `[A-Za-z0-9_.:-]{1,128}`.
 
 - `GET /health` -> `{status:"ok", version}`
-- `GET /auth/login` redirects the browser to the sign-in provider (authorization code flow with PKCE). The provider returns to `GET /auth/callback`, which starts the session and redirects to the app, with `?signin=failed` when it did not complete. Register `<FOLIO_PUBLIC_URL>/api/auth/callback` as the redirect URI at the provider.
-- `GET /auth/session` -> `{available, user: {id, name, email, picture} | null}`. `available` says whether sign-in is set up. Renews the cookie.
+- Passkeys: each ceremony is a `start` that returns `{ceremony, options}` (WebAuthn options, binary fields base64url) and a `finish` that takes `{ceremony, credential}` within 5 minutes.
+  - `POST /auth/passkey/register/start` `{token, name?}` for an invite (`name` required) or reset link, or `{}` for a signed-in person adding a passkey. `POST /auth/passkey/register/finish` -> `{user, recoveryCodes?}`. A link registration signs in and returns 10 new recovery codes.
+  - `POST /auth/passkey/login/start`, `POST /auth/passkey/login/finish` -> `{user}` and the session cookie.
+- `POST /auth/recover` `{code}` -> `{user}` and the session cookie. Uses the code up.
+- `GET /auth/account` -> `{passkeys: [{id, createdAt, lastUsedAt}], recoveryCodesLeft}`, `DELETE /auth/passkeys/{id}` (409 for the last one), `POST /auth/recovery-codes` -> `{recoveryCodes}` replaces them.
+- `GET /auth/session` -> `{available, user: {id, name} | null}`. `available` says whether accounts are set up. Renews the cookie.
 - `POST /auth/logout` ends this browser's session.
 - `POST /sync/push` `{docId, deviceId, update}` -> `{seq}` (413 over size limit, 429 rate limited). `seq` is strictly increasing per document.
 - `GET /sync/pull?docId=&since=<seq>&limit=` -> `{updates:[{seq, update}], latestSeq, hasMore, snapshot?:{uptoSeq, data}}`.
@@ -67,18 +70,19 @@ Binary values are base64 (standard alphabet) strings. Ids (`docId`, `deviceId`, 
 
 - Docker: the root `Dockerfile` builds web app + server into one image (`docker build -t folio .`, published as `ghcr.io/badmike/folio`). Run it with `docker run -p 8989:8989 -v folio-data:/app/data --env-file .env folio`. It runs as a non-root user and exposes a `--healthcheck` probe.
 - SQLite (WAL) is a single-node store: run one replica and back up the `data/` volume (or use Litestream). Snapshots and assets live in the object store, so use S3 for durability.
-- Terminate TLS in front (Caddy, nginx, a platform router). Set `FOLIO_PUBLIC_URL` and the `FOLIO_OIDC_*` variables for accounts; keep `FOLIO_AUTH_DEV` off. Sign-in needs the web app on the server's own origin: the session cookie is not sent from other origins, so `FOLIO_CORS_ORIGINS` only serves dev tokens.
+- Terminate TLS in front (Caddy, nginx, a platform router). Set `FOLIO_PUBLIC_URL` for accounts; keep `FOLIO_AUTH_DEV` off. Sign-in needs the web app on the server's own origin: the session cookie is not sent from other origins, so `FOLIO_CORS_ORIGINS` only serves dev tokens.
 - Logs are JSON on stdout. Failures carry a `counter` field (`auth_failure`, `sync_failure`, `storage_error`, `ai_failure`, `db_error`, `internal_error`) for log-based metrics; every request carries an `x-request-id`.
 - SIGTERM/SIGINT triggers graceful shutdown.
 
 ## Accounts and sessions
 
-- Sign-in runs through the OpenID Connect provider. The server stores no passwords. An account is the provider's `(issuer, subject)` pair in `identities`, mapped to a folio user id.
+- Accounts are invite-only and sign in with a passkey. The server stores no passwords: a passkey row holds the public key (`passkeys`), and a user's `passkey_handle` is the WebAuthn user handle its passkeys carry.
+- Admin commands run against the configured database and print to stdout (`docker exec <container> folio-server <command>`):
+  - `folio-server invite` prints a link that creates one account, valid 7 days.
+  - `folio-server reset <user-id>` prints a link, valid 1 day, that replaces the account's passkeys and recovery codes and signs it out everywhere.
+  - `folio-server users` lists accounts with their passkey count.
+- Links put the token in the URL fragment (`/#invite=...`, `/#reset=...`), so it never reaches access logs. The database keeps only token hashes (`enrollments`).
+- Each account has 10 single-use recovery codes (`recovery_codes`, hashed). One signs in once.
 - A session is a random 256-bit token in an `HttpOnly`, `SameSite=Lax` cookie. The database holds only its SHA-256 (`sessions`). It lasts `FOLIO_SESSION_DAYS` from its last use. Deleting a row signs that browser out, `DELETE FROM sessions WHERE user_id = ?` signs a person out everywhere.
-- Moving from the Clerk-based releases: data is keyed by the old Clerk user id (`user_...`). Sign in once, then point your identity at the old id and sign in again:
-
-  ```sql
-  UPDATE identities SET user_id = 'user_OLD' WHERE user_id = (SELECT id FROM users WHERE email = 'you@example.com');
-  DELETE FROM users WHERE email = 'you@example.com';
-  DELETE FROM sessions;
-  ```
+- Passkeys are bound to the host of `FOLIO_PUBLIC_URL`. A new domain needs a reset link for every account.
+- Moving from the Clerk-based releases: data is keyed by the old Clerk user id (`user_...`), and that row is in `users`. Run `folio-server reset user_...` and open the link to give the account its first passkey.
