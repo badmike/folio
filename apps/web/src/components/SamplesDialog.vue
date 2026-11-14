@@ -4,7 +4,6 @@ import type { CalibrationSample } from '@folio/recognition'
 import { computed, ref } from 'vue'
 import { downloadBlob } from '../services/diagnostics'
 import { settings } from '../services/settings'
-import Modal from './Modal.vue'
 import WritingPad from './WritingPad.vue'
 
 defineEmits<{ (e: 'close'): void }>()
@@ -84,6 +83,8 @@ const lines = computed(() => {
   return pools[0].flatMap((_, i) => pools.map((p) => p[i]))
 })
 
+const ROWS = 4
+
 const step = ref(0)
 const written = ref<InkStroke[][]>([])
 const current = computed({
@@ -100,22 +101,35 @@ function save() {
 </script>
 
 <template>
-  <Modal title="Record handwriting samples" wide @close="$emit('close')">
-    <p class="muted">Line {{ step + 1 }} of {{ lines.length }}. Write it on one line, the way you normally write. Skip any line you like.</p>
-    <p class="line">{{ lines[step] }}</p>
-    <WritingPad :key="step" v-model="current" />
-
-    <template #footer>
-      <button class="btn ghost small" :disabled="!current.length" @click="current = []">Clear</button>
-      <span class="spacer" />
-      <button class="btn small" :disabled="step === 0" @click="step--">Back</button>
-      <button class="btn small" data-testid="samples-next" :disabled="last" @click="step++">{{ current.length ? 'Next' : 'Skip' }}</button>
-      <button class="btn primary small" data-testid="samples-save" :disabled="!count" @click="save">Save {{ count }} to file</button>
-    </template>
-  </Modal>
+  <Teleport to="body">
+    <div class="samples" role="dialog" aria-modal="true" aria-label="Record handwriting samples">
+      <header>
+        <p class="muted">Line {{ step + 1 }} of {{ lines.length }}. Write it the way you normally write, on as many rows as you need. Skip any line you like.</p>
+        <p class="line">{{ lines[step] }}</p>
+      </header>
+      <WritingPad :key="step" v-model="current" class="sheet" :rows="ROWS" />
+      <footer>
+        <button class="btn ghost" @click="$emit('close')">Close</button>
+        <button class="btn ghost" :disabled="!current.length" @click="current = []">Clear</button>
+        <span class="spacer" />
+        <button class="btn" :disabled="step === 0" @click="step--">Back</button>
+        <button class="btn" data-testid="samples-next" :disabled="last" @click="step++">{{ current.length ? 'Next' : 'Skip' }}</button>
+        <button class="btn primary" data-testid="samples-save" :disabled="!count" @click="save">Save {{ count }} to file</button>
+      </footer>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
-.line { margin: 10px 0 14px; font-size: 18px; font-weight: 600; color: var(--text-strong); }
+.samples {
+  position: fixed; inset: 0; z-index: 900; display: flex; flex-direction: column; gap: 12px; background: var(--bg);
+  padding: max(16px, var(--safe-top)) max(16px, var(--safe-right)) max(16px, var(--safe-bottom)) max(16px, var(--safe-left));
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+}
+.muted { margin: 0; }
+.line { margin: 6px 0 0; font-size: 20px; font-weight: 600; color: var(--text-strong); }
+.samples .sheet { flex: 1; min-height: 0; height: auto; }
+footer { display: flex; gap: 8px; }
+footer .btn { min-height: 40px; padding: 0 16px; }
 .spacer { flex: 1; }
 </style>
