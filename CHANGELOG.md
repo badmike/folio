@@ -3,6 +3,19 @@
 All notable changes to folio are documented here.
 Commits follow the [Gitmoji](https://gitmoji.dev/) convention.
 
+## [v26.11.14-b0d9529] — 2026-11-14
+
+- ✨ web: use the cloud reading for Clean Up and keep it across re-reads
+- ✨ recognition: Clean Up converts the cloud reading
+- 🐛 recognition: keep a line of small handwriting together
+- ✅ recognition: report what line grouping costs in the eval
+- ✅ recognition: read samples written on several rows in the eval
+- 🐛 web: make the sample recorder usable with a pen on the iPad
+- ✨ web: record handwriting samples with known text to a file
+- ✅ recognition: measure character error rate on recorded handwriting
+- ✨ recognition: refine lines in one cloud request with a vocabulary hint
+- ✨ server: read handwriting line by line on the fast preset
+
 ## [v26.11.14-a21fca9] — 2026-11-14
 
 - 📝 docs: describe passkey accounts, invites and resets
