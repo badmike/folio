@@ -13,8 +13,9 @@ import {
 /**
  * Stroke grouping: raw strokes -> (shape candidates) + words -> lines -> blocks.
  *
- *  - Lines: strokes whose vertical extents overlap (tiny strokes such as i-dots get
- *    an expanded extent) and that are horizontally close (<= 3.5 text heights).
+ *  - Lines: strokes whose vertical extents overlap (dots, crossbars and dashes get an
+ *    expanded extent) and that are horizontally close (<= 3.5 ascender heights). A lone
+ *    mark left over joins the line whose band it sits in.
  *  - Words: within a line, split at horizontal gaps > 0.55 H (or > 0.25 H when the
  *    pen was lifted for a long time between the strokes, using `startedAt`).
  *  - Blocks: vertically adjacent lines that overlap horizontally or share a left edge.
@@ -176,15 +177,20 @@ export function groupTextStrokes(strokes: InkStroke[], opts: GroupingOptions = {
   const slowGap = opts.slowGapMs ?? 900
 
   // --- lines -------------------------------------------------------------
+  // H tracks the body of the letters. Strokes with an ascender or descender are 2 to 3 times
+  // taller in small handwriting, so reach and "too tall for one line" are measured against them.
+  const tallH = Math.min(3 * H, Math.max(H, percentile(infos.map((i) => i.bb.height), 0.9)))
   const uf = new UnionFind(n)
+  // dots, accents, and flat strokes such as crossbars and dashes
+  const isSmall = (i: Info) => i.bb.height < 0.45 * H || (i.bb.height < H && i.bb.width > 2.5 * i.bb.height)
   const extent = (i: Info): [number, number] => {
-    if (i.bb.height < 0.45 * H) {
+    if (isSmall(i)) {
       const cy = i.bb.y + i.bb.height / 2
       return [cy - 0.6 * H, cy + 0.6 * H]
     }
     return [i.bb.y, i.bb.y + i.bb.height]
   }
-  const tall = infos.map((i) => i.bb.height > 2.5 * H)
+  const tall = infos.map((i) => i.bb.height > 2.5 * tallH)
   const ext = infos.map(extent)
   for (let a = 0; a < n; a++) {
     if (tall[a]) continue
@@ -193,10 +199,10 @@ export function groupTextStrokes(strokes: InkStroke[], opts: GroupingOptions = {
       const A = infos[a].bb
       const B = infos[b].bb
       const hGap = Math.max(A.x, B.x) - Math.min(A.x + A.width, B.x + B.width)
-      if (hGap > 3.5 * H) continue
+      if (hGap > 3.5 * tallH) continue
       const overlap = Math.min(ext[a][1], ext[b][1]) - Math.max(ext[a][0], ext[b][0])
       const minH = Math.min(ext[a][1] - ext[a][0], ext[b][1] - ext[b][0])
-      const small = Math.min(infos[a].bb.height, infos[b].bb.height) < 0.45 * H
+      const small = isSmall(infos[a]) || isSmall(infos[b])
       // dots / dashes / accents only need to touch the other stroke's extent
       if (small ? overlap > 0.1 * H : overlap >= 0.5 * minH) uf.union(a, b)
     }
@@ -208,9 +214,30 @@ export function groupTextStrokes(strokes: InkStroke[], opts: GroupingOptions = {
     clusters.get(r)!.push(it)
   })
 
+  // A lone mark that overlaps no letter (a comma under the baseline, a dot, a crossbar) joins
+  // the line whose band it sits in.
+  const groups = [...clusters.values()]
+  const multi = groups.filter((g) => g.length > 1).map((items) => ({ items, bb: unionRects(items.map((i) => i.bb)) }))
+  const lineClusters = multi.map((m) => m.items)
+  for (const g of groups) {
+    if (g.length > 1) continue
+    const bb = g[0].bb
+    const cy = bb.y + bb.height / 2
+    let best: (typeof multi)[number] | undefined
+    let bestDist = Infinity
+    for (const m of multi) {
+      const hGap = Math.max(bb.x, m.bb.x) - Math.min(bb.x + bb.width, m.bb.x + m.bb.width)
+      const inBand = cy >= m.bb.y - 0.5 * tallH && cy <= m.bb.y + m.bb.height + 0.5 * tallH
+      const d = Math.abs(cy - (m.bb.y + m.bb.height / 2))
+      if (bb.height < tallH && inBand && hGap <= 3.5 * tallH && d < bestDist) [best, bestDist] = [m, d]
+    }
+    if (best) best.items.push(g[0])
+    else lineClusters.push(g)
+  }
+
   const lines: { group: StrokeGroup; items: Info[]; H: number }[] = []
   const words: StrokeGroup[] = []
-  for (const items of clusters.values()) {
+  for (const items of lineClusters) {
     const lineH = Math.max(6, Math.min(H * 1.5, percentile(items.map((i) => i.bb.height), 0.6)))
     const sorted = [...items].sort((a, b) => a.bb.x - b.bb.x)
     let cur: Info[] = []

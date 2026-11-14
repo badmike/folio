@@ -50,6 +50,26 @@ describe('groupTextStrokes', () => {
     expect(g.words[0].strokeIds).toContain('dot')
   })
 
+  it('keeps small handwriting with tall strokes, wide word gaps and stray marks on one line', () => {
+    const bar = (id: string, x0: number, y0: number, x1: number, y1: number, t: number) =>
+      makeStroke(polyline([{ x: x0, y: y0 }, { x: x1, y: y1 }], false, 3), { id, startedAt: t })
+    const strokes = [
+      // letter bodies are 10 high, words are 45 apart
+      ...word('a', 0, 20, 4, 0, 10),
+      ...word('b', 67, 20, 4, 2000, 10),
+      ...word('c', 134, 20, 4, 4000, 10),
+      // strokes with an ascender and a descender, three times the body height
+      bar('f', 10, 0, 10, 34, 6000),
+      bar('p', 80, 14, 80, 48, 6500),
+      // a crossbar above the letters and a comma under the baseline
+      bar('t', 60, 4, 78, 5, 7000),
+      bar('comma', 160, 36, 159, 43, 7500),
+    ]
+    const g = groupTextStrokes(strokes)
+    expect(g.lines).toHaveLength(1)
+    expect(g.lines[0].strokeIds).toHaveLength(strokes.length)
+  })
+
   it('separates distant blocks and distinct columns', () => {
     const strokes = [...word('a', 0, 0, 3, 0), ...word('b', 0, 300, 3, 1000), ...word('c', 900, 0, 3, 2000)]
     const g = groupTextStrokes(strokes)
