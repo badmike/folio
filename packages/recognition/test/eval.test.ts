@@ -7,12 +7,16 @@
  * Optional:
  *   EVAL_API_BASE + EVAL_TOKEN  also measure the cloud recognizer, e.g. http://localhost:8989/api and dev:me
  *   EVAL_READINGS=<file.json>   also score readings from another tool: { "<name>": ["<text per sample>", ...] }
- *   EVAL_DUMP=<dir>             write each sample as <n>.png plus truth.json, as input for other tools
+ *   EVAL_DUMP=<dir>             write each written row as <sample>.<row>.png plus truth.json, as input for other tools
+ *
+ * A sample may span several rows: its rows are read one by one and joined with spaces.
  */
 import fs from 'node:fs'
 import path from 'node:path'
 import { describe, it } from 'vitest'
+import type { InkStroke } from '@folio/document'
 import type { CalibrationSample } from '../src/calibrate'
+import { groupTextStrokes } from '../src/grouping'
 import { cer } from '../src/profile'
 import { rasterizeToPng } from '../src/raster'
 import { CLOUD_MAX_LINES, CloudRecognizer } from '../src/recognizers/cloud'
@@ -22,23 +26,39 @@ import { createNodeTesseractWorker } from './node-tesseract'
 const env = process.env
 const languages = ['en', 'de']
 
+/** The written rows of a sample, top to bottom. */
+function rows(strokes: InkStroke[]): InkStroke[][] {
+  const byId = new Map(strokes.map((s) => [s.id, s]))
+  return groupTextStrokes(strokes)
+    .lines.sort((a, b) => a.bounds.y - b.bounds.y)
+    .map((l) => l.strokeIds.map((id) => byId.get(id)!))
+}
+
 describe.skipIf(!env.EVAL_SAMPLES)('recognition quality on recorded samples', () => {
   it('reports the character error rate per recognizer', async () => {
     const samples = JSON.parse(fs.readFileSync(env.EVAL_SAMPLES!, 'utf8')) as CalibrationSample[]
+    const sampleRows = samples.map((s) => rows(s.strokes))
     const readings: Record<string, string[]> = {}
 
     const tesseract = new TesseractRecognizer({ createWorker: createNodeTesseractWorker })
     readings[tesseract.id] = []
-    for (const s of samples) readings[tesseract.id].push((await tesseract.recognize(s.strokes, { languages, mode: 'line' }))?.text ?? '')
+    for (const r of sampleRows) {
+      const texts: string[] = []
+      for (const row of r) texts.push((await tesseract.recognize(row, { languages, mode: 'line' }))?.text ?? '')
+      readings[tesseract.id].push(texts.join(' '))
+    }
     tesseract.dispose()
 
     if (env.EVAL_API_BASE) {
       const cloud = new CloudRecognizer({ apiBase: env.EVAL_API_BASE, getToken: () => env.EVAL_TOKEN, timeoutMs: 60_000 })
       readings[cloud.id] = []
-      for (let i = 0; i < samples.length; i += CLOUD_MAX_LINES) {
-        const batch = samples.slice(i, i + CLOUD_MAX_LINES)
-        const res = await cloud.recognizeLines(batch.map((s) => s.strokes), { languages })
-        readings[cloud.id].push(...(res?.lines ?? batch.map(() => '')))
+      for (const r of sampleRows) {
+        const texts: string[] = []
+        for (let i = 0; i < r.length; i += CLOUD_MAX_LINES) {
+          const batch = r.slice(i, i + CLOUD_MAX_LINES)
+          texts.push(...((await cloud.recognizeLines(batch, { languages }))?.lines ?? []))
+        }
+        readings[cloud.id].push(texts.join(' '))
       }
     }
 
@@ -46,7 +66,9 @@ describe.skipIf(!env.EVAL_SAMPLES)('recognition quality on recorded samples', ()
 
     if (env.EVAL_DUMP) {
       fs.mkdirSync(env.EVAL_DUMP, { recursive: true })
-      for (const [i, s] of samples.entries()) fs.writeFileSync(path.join(env.EVAL_DUMP, `${i}.png`), (await rasterizeToPng(s.strokes)).png)
+      for (const [i, r] of sampleRows.entries()) {
+        for (const [n, row] of r.entries()) fs.writeFileSync(path.join(env.EVAL_DUMP, `${i}.${n}.png`), (await rasterizeToPng(row)).png)
+      }
       fs.writeFileSync(path.join(env.EVAL_DUMP, 'truth.json'), JSON.stringify(samples.map((s) => s.text)))
     }
 
