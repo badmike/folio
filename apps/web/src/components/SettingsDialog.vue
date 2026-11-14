@@ -10,6 +10,7 @@ import { offlineReady, refreshApp } from '../services/pwa'
 import { settings, toggleZen } from '../services/settings'
 import AccountPanel from './AccountPanel.vue'
 import CalibrationDialog from './CalibrationDialog.vue'
+import SamplesDialog from './SamplesDialog.vue'
 import Icon from './Icon.vue'
 import InstructionsField from './InstructionsField.vue'
 import Modal from './Modal.vue'
@@ -42,6 +43,7 @@ function toggleLang(code: string) {
 }
 
 const calibrating = ref(false)
+const recordingSamples = ref(false)
 const pct = (x: number) => Math.round(x * 100)
 const learned = computed(() => ({ words: Object.keys(handwriting.value.words).length, fixes: Object.keys(handwriting.value.fixes).length }))
 const calibration = computed(() => {
@@ -84,6 +86,7 @@ const STORAGE: Record<typeof svc.storageKind, string> = { 'sqlite-opfs': 'SQLite
 
 <template>
   <CalibrationDialog v-if="calibrating" @close="calibrating = false" />
+  <SamplesDialog v-else-if="recordingSamples" @close="recordingSamples = false" />
   <Modal v-else title="Settings" bare @close="$emit('close')">
     <div class="settings">
       <nav class="nav" aria-label="Settings sections">
@@ -298,6 +301,13 @@ const STORAGE: Record<typeof svc.storageKind, string> = { 'sqlite-opfs': 'SQLite
                 <p>A file with recent error messages for bug reports. Never contains notebook content.</p>
               </div>
               <button class="btn small" @click="exportDiagnostics({ storage: svc.storageKind })">Export</button>
+            </div>
+            <div class="setting">
+              <div class="text">
+                <div class="name">Handwriting samples</div>
+                <p>Write given lines and save them, with your pen strokes, to a file for measuring recognition quality. Nothing is uploaded.</p>
+              </div>
+              <button class="btn small" data-testid="record-samples" @click="recordingSamples = true">Record</button>
             </div>
           </template>
         </div>
