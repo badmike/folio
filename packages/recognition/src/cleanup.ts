@@ -38,7 +38,7 @@ export function planCleanup(strokes: InkStroke[], recognitions: Recognition[], o
     if (src.length === 0) continue
     const color = dominantColor(src, opts.fallbackColor ?? '#1e1e1e')
     if (r.kind === 'text') {
-      const text = r.text?.trim()
+      const text = (r.refinedText ?? r.text)?.trim()
       if (!text) continue
       out.push({
         kind: 'text',

@@ -155,9 +155,26 @@ describe('RecognitionCoordinator (in-process)', () => {
     const [pageId, refined] = onRefined.mock.calls[0] as [string, Recognition[]]
     expect(pageId).toBe('p')
     expect(refined).toMatchObject([
-      { id: recs[0].id, text: 'eigen vector', refinedText: 'eigenvector' },
-      { id: recs[1].id, text: 'matrx', refinedText: 'matrix' },
+      { id: recs[0].id, text: 'eigen vector', refinedText: 'eigenvector', confidence: 0.97 },
+      { id: recs[1].id, text: 'matrx', refinedText: 'matrix', confidence: 0.97 },
     ])
+    c.dispose()
+  })
+
+  it('does not send lines that already have a cloud reading', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ lines: ['matrix'], confidence: 0.9 }), { status: 200 }))
+    const onRefined = vi.fn()
+    const strokes = [...letters('a', 0, 0, 5, 0), ...letters('b', 0, 200, 5, 5000)]
+    const first = recognitionId(letters('a', 0, 0, 5, 0).map((s) => s.id))
+    const c = createRecognitionCoordinator({
+      handwritingRecognizer: new FakeRecognizer(),
+      onRefined,
+      cloud: { apiBase: 'x', enabled: () => true, isRefined: (_page, id) => id === first, fetch: fetchMock as unknown as typeof fetch },
+    })
+    await c.recognizeNow({ pageId: 'p', strokes, languages: langs })
+    await c.idle()
+    expect(JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string).lines).toBe(1)
+    expect((onRefined.mock.calls[0] as [string, Recognition[]])[1].map((r) => r.id)).not.toContain(first)
     c.dispose()
   })
 

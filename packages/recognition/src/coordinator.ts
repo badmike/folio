@@ -5,6 +5,8 @@ import type { AnalysisResult } from './engine'
 import { topWords, type HandwritingProfile } from './profile'
 import type { RecognizerConfig, WorkerRequest, WorkerResponse } from './protocol'
 import { CLOUD_MAX_LINES, CloudRecognizer } from './recognizers/cloud'
+import { median } from './geometry'
+import { detectLanguage, guessSemanticType } from './text'
 import { createDefaultWorker } from './worker-factory'
 
 export interface CloudConfig {
@@ -13,6 +15,8 @@ export interface CloudConfig {
   getToken?: () => string | null | undefined | Promise<string | null | undefined>
   /** Evaluated before each refinement (user opt-in, online state, ...). */
   enabled: () => boolean
+  /** True when this recognition already has a cloud reading: it is not sent again. */
+  isRefined?: (pageId: string, recognitionId: string) => boolean
   fetch?: typeof fetch
 }
 
@@ -34,7 +38,10 @@ export interface CoordinatorOptions {
    * Grouping and shape recognition still run in the worker.
    */
   mainThreadRecognizer?: HandwritingRecognizer
-  /** Called when cloud refinement produced `refinedText` (same recognition ids as before). */
+  /**
+   * Called when the cloud read lines: same recognition ids as before, with `refinedText` and
+   * the cloud's confidence in it.
+   */
   onRefined?: (pageId: string, recognitions: Recognition[]) => void
   now?: () => number
 }
@@ -152,7 +159,7 @@ export class RecognitionCoordinator implements RecognitionCoordinatorApi {
     const cloud = this.cloud
     const onRefined = this.opts.onRefined
     if (!cloud || !onRefined) return
-    const texts = recs.filter((r) => r.kind === 'text')
+    const texts = recs.filter((r) => r.kind === 'text' && !cloud.cfg.isRefined?.(pageId, r.id))
     if (texts.length === 0) return
     const job = (async () => {
       const byId = new Map(strokes.map((s) => [s.id, s]))
@@ -162,13 +169,23 @@ export class RecognitionCoordinator implements RecognitionCoordinatorApi {
       const words = this.profile ? topWords(this.profile, HINT_WORDS) : []
       const hint = words.length ? `Words this writer uses: ${words.join(', ')}` : undefined
       const refined: Recognition[] = []
+      const lineHeight = median(recs.filter((r) => r.kind === 'text').map((r) => r.bounds.height))
+      const allowed = languages.map((l) => l.split('-')[0])
       // One request per batch of lines instead of one per line.
       for (let i = 0; i < lines.length; i += CLOUD_MAX_LINES) {
         if (this.disposed || !cloud.cfg.enabled() || !(await cloud.rec.isAvailable())) break
         const batch = lines.slice(i, i + CLOUD_MAX_LINES)
         const res = await cloud.rec.recognizeLines(batch.map((l) => l.strokes), { languages, hint }).catch(() => null)
         res?.lines.forEach((text, n) => {
-          if (text) refined.push({ ...batch[n].rec, refinedText: text })
+          const rec = batch[n].rec
+          if (!text) return
+          refined.push({
+            ...rec,
+            refinedText: text,
+            confidence: res.confidence,
+            language: detectLanguage(text, allowed.length ? allowed : undefined),
+            semanticType: guessSemanticType(text, rec.bounds, lineHeight),
+          })
         })
       }
       if (refined.length && !this.disposed) onRefined(pageId, refined)

@@ -330,10 +330,11 @@ export interface Recognition {
   bounds: Rect
   /** For kind=text. */
   text?: string
-  /** Cloud-refined machine text (does not rewrite visible content). */
+  /** The cloud's reading. Preferred over `text` wherever the recognized text is used. */
   refinedText?: string
   /** For kind=shape. */
   shape?: ShapeKind | 'arrow'
+  /** 0..1, of `refinedText` when there is one, else of `text` or `shape`. */
   confidence: number
   language?: string
   semanticType?: SemanticTextType

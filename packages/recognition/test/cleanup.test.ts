@@ -35,6 +35,13 @@ describe('planCleanup', () => {
     for (const k of ['id', 'z', 'createdAt', 'updatedAt']) expect(k in p.object).toBe(false)
   })
 
+  it('converts the cloud reading when there is one', async () => {
+    const strokes = letters('a', 40, 60, 5, 0)
+    const [rec] = await recognize(strokes)
+    const [p] = planCleanup(strokes, [{ ...rec, refinedText: 'Buy milk' }])
+    expect(p.kind === 'text' && p.object.text).toBe('Buy milk')
+  })
+
   it('honours minConfidence (manual 0.6 default, auto 0.85)', () => {
     const strokes = letters('a', 0, 0, 4, 0)
     const base: Recognition = {
