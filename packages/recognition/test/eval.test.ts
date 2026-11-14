@@ -9,13 +9,16 @@
  *   EVAL_READINGS=<file.json>   also score readings from another tool: { "<name>": ["<text per sample>", ...] }
  *   EVAL_DUMP=<dir>             write each written row as <sample>.<row>.png plus truth.json, as input for other tools
  *
- * A sample may span several rows: its rows are read one by one and joined with spaces.
+ * A sample may span several rows of the recorder: its rows are read one by one and joined with
+ * spaces. "+ grouping" is the same recognizer on the lines the app's own stroke grouping finds, so
+ * the difference between the two is what grouping costs.
  */
 import fs from 'node:fs'
 import path from 'node:path'
 import { describe, it } from 'vitest'
 import type { InkStroke } from '@folio/document'
 import type { CalibrationSample } from '../src/calibrate'
+import { boundsOf, strokeWorldPoints } from '../src/geometry'
 import { groupTextStrokes } from '../src/grouping'
 import { cer } from '../src/profile'
 import { rasterizeToPng } from '../src/raster'
@@ -26,11 +29,29 @@ import { createNodeTesseractWorker } from './node-tesseract'
 const env = process.env
 const languages = ['en', 'de']
 
-/** The written rows of a sample, top to bottom. */
+/** Rows in the recorder are about 170 px apart; strokes of one row stay well within this. */
+const ROW_GAP = 40
+
+/** The rows a sample was written on, top to bottom, split where the strokes' vertical centres jump. */
 function rows(strokes: InkStroke[]): InkStroke[][] {
+  const centre = (s: InkStroke) => {
+    const b = boundsOf(strokeWorldPoints(s))
+    return b.y + b.height / 2
+  }
+  const sorted = strokes.map((s) => ({ s, y: centre(s) })).sort((a, b) => a.y - b.y)
+  const out: InkStroke[][] = []
+  sorted.forEach((c, i) => {
+    if (i === 0 || c.y - sorted[i - 1].y > ROW_GAP) out.push([])
+    out[out.length - 1].push(c.s)
+  })
+  return out
+}
+
+/** The lines the app's stroke grouping finds in a sample, top to bottom. */
+function groupedLines(strokes: InkStroke[]): InkStroke[][] {
   const byId = new Map(strokes.map((s) => [s.id, s]))
   return groupTextStrokes(strokes)
-    .lines.sort((a, b) => a.bounds.y - b.bounds.y)
+    .lines.sort((a, b) => a.bounds.y - b.bounds.y || a.bounds.x - b.bounds.x)
     .map((l) => l.strokeIds.map((id) => byId.get(id)!))
 }
 
@@ -41,11 +62,16 @@ describe.skipIf(!env.EVAL_SAMPLES)('recognition quality on recorded samples', ()
     const readings: Record<string, string[]> = {}
 
     const tesseract = new TesseractRecognizer({ createWorker: createNodeTesseractWorker })
-    readings[tesseract.id] = []
-    for (const r of sampleRows) {
+    const readLines = async (lines: InkStroke[][]) => {
       const texts: string[] = []
-      for (const row of r) texts.push((await tesseract.recognize(row, { languages, mode: 'line' }))?.text ?? '')
-      readings[tesseract.id].push(texts.join(' '))
+      for (const line of lines) texts.push((await tesseract.recognize(line, { languages, mode: 'line' }))?.text ?? '')
+      return texts.join(' ')
+    }
+    readings[tesseract.id] = []
+    readings[`${tesseract.id} + grouping`] = []
+    for (const [i, s] of samples.entries()) {
+      readings[tesseract.id].push(await readLines(sampleRows[i]))
+      readings[`${tesseract.id} + grouping`].push(await readLines(groupedLines(s.strokes)))
     }
     tesseract.dispose()
 
