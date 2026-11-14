@@ -59,6 +59,7 @@ export class RecognitionService {
               apiBase: cloud.apiBase,
               getToken: cloud.getToken,
               enabled: () => settings.cloudRefinement && cloud.isSignedIn() && (typeof navigator === 'undefined' || navigator.onLine !== false),
+              isRefined: (pageId, id) => !!this.pageOwners.get(pageId)?.doc.recognitions(pageId).some((r) => r.id === id && r.refinedText),
             }
           : undefined,
         onRefined: (pageId, recs) => this.storeRecognitions(this.pageOwners.get(pageId), pageId, recs),
@@ -80,6 +81,11 @@ export class RecognitionService {
     this.busy.value++
     const p = now ? c.recognizeNow(req) : c.enqueue(req)
     return p.finally(() => { this.busy.value-- })
+  }
+
+  /** Resolves once running recognitions and their cloud readings are stored. */
+  settled(): Promise<void> {
+    return this.coordinator?.idle() ?? Promise.resolve()
   }
 
   /**
@@ -115,7 +121,12 @@ export class RecognitionService {
     const doc = session.doc
     const existing = doc.recognitions(pageId)
     const byId = new Map(existing.map((r) => [r.id, r]))
-    const fresh = recs.filter((r) => {
+    // Reading the same strokes again locally keeps the cloud reading they already have.
+    const kept = recs.map((r) => {
+      const prev = byId.get(r.id)
+      return prev?.refinedText && !r.refinedText ? { ...r, refinedText: prev.refinedText, confidence: prev.confidence } : r
+    })
+    const fresh = kept.filter((r) => {
       if (!r.strokeIds.every((id) => doc.object(pageId, id))) return false // strokes were deleted meanwhile
       const prev = byId.get(r.id)
       return !prev || prev.text !== r.text || prev.refinedText !== r.refinedText || prev.shape !== r.shape || prev.confidence !== r.confidence
@@ -252,6 +263,7 @@ export class AttachedRecognition {
     if (this.detached || settings.cleanupMode === 'keep') return
     if (this.pointerDown > 0 || this.editor.isEditingText) return this.armIdle()
     await Promise.allSettled([...this.inflight])
+    await this.svc.settled()
     if (this.detached || this.pointerDown > 0) return
     const plans = this.plan(AUTO_CLEANUP_MIN_CONFIDENCE, true)
     if (!plans.length) return
@@ -298,7 +310,12 @@ export class AttachedRecognition {
     const recs = await this.svc.recognize(this.session, pageId, strokes, true)
     if (this.detached) return 0
     this.svc.storeRecognitions(this.session, pageId, recs)
-    const plans = planCleanup(strokes, recs, { minConfidence: MANUAL_CLEANUP_CONFIDENCE })
+    // convert what the cloud read, when it reads these lines
+    await this.svc.settled()
+    if (this.detached) return 0
+    const recIds = new Set(recs.map((r) => r.id))
+    const stored = this.session.doc.recognitions(pageId).filter((r) => recIds.has(r.id))
+    const plans = planCleanup(strokes, stored, { minConfidence: MANUAL_CLEANUP_CONFIDENCE })
     for (const p of plans) this.attempted.add(p.recognitionId)
     const ids = this.editor.applyCleanup(plans)
     if (ids.length) this.editor.select(ids)

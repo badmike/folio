@@ -150,7 +150,7 @@ const STORAGE: Record<typeof svc.storageKind, string> = { 'sqlite-opfs': 'SQLite
             <div class="setting">
               <div class="text">
                 <div class="name">Improve recognition in the cloud</div>
-                <p>Sends a picture of your handwriting to the server for better searchable text. Your notes are never rewritten.
+                <p>Sends a picture of your handwriting to the server, which reads it far better. Search, copy and Clean Up then use that text. Your ink is never changed.
                   <strong v-if="cloudDisabledReason">{{ cloudDisabledReason }}</strong></p>
               </div>
               <Switch v-model="settings.cloudRefinement" label="Improve recognition in the cloud" :disabled="!!cloudDisabledReason" />
