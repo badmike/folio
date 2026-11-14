@@ -219,6 +219,19 @@ function adler32(buf: Uint8Array): number {
 }
 
 /** zlib stream using stored (uncompressed) deflate blocks: always available. */
+/** Stack bitmaps top to bottom, left aligned on white, with `gap` px of white between them. */
+export function stackBitmaps(bitmaps: Pick<Bitmap, 'width' | 'height' | 'data'>[], gap = 0): Pick<Bitmap, 'width' | 'height' | 'data'> {
+  const width = Math.max(0, ...bitmaps.map((b) => b.width))
+  const height = bitmaps.reduce((n, b) => n + b.height, 0) + gap * Math.max(0, bitmaps.length - 1)
+  const data = new Uint8Array(width * height).fill(255)
+  let y = 0
+  for (const b of bitmaps) {
+    for (let row = 0; row < b.height; row++) data.set(b.data.subarray(row * b.width, (row + 1) * b.width), (y + row) * width)
+    y += b.height + gap
+  }
+  return { width, height, data }
+}
+
 export function zlibStored(raw: Uint8Array): Uint8Array {
   const blocks = Math.max(1, Math.ceil(raw.length / 65535))
   const out = new Uint8Array(2 + raw.length + blocks * 5 + 4)

@@ -125,24 +125,28 @@ describe('RecognitionCoordinator (in-process)', () => {
     expect(await c.enqueue({ pageId: 'p', strokes: letters('a', 0, 0, 3, 0), languages: langs })).toEqual([])
   })
 
-  it('cloud refinement fills refinedText without changing the local result', async () => {
-    const fake = new FakeRecognizer(() => 'eigen vector')
+  it('cloud refinement reads all lines in one request and fills refinedText without changing the local result', async () => {
+    const fake = new FakeRecognizer((s) => (s[0].id.startsWith('a') ? 'eigen vector' : 'matrx'))
     const onRefined = vi.fn()
     const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
       const body = JSON.parse(init.body as string)
       expect(body.image).toMatch(/^iVBOR/) // base64 PNG
       expect(body.languages).toEqual(langs)
+      expect(body.lines).toBe(2)
+      expect(body.hint).toBe('Words this writer uses: eigenvector, matrix')
       expect((init.headers as Record<string, string>).authorization).toBe('Bearer tok')
-      return new Response(JSON.stringify({ text: 'eigenvector', confidence: 0.97 }), { status: 200 })
+      return new Response(JSON.stringify({ lines: ['eigenvector', 'matrix'], confidence: 0.97 }), { status: 200 })
     })
     const c = createRecognitionCoordinator({
       handwritingRecognizer: fake,
       debounceMs: 1,
       onRefined,
+      recognizerConfig: { profile: { words: { eigenvector: 3, matrix: 2, ab: 9 }, fixes: {}, confusions: {} } },
       cloud: { apiBase: 'https://api.test/v1/', getToken: () => 'tok', enabled: () => true, fetch: fetchMock as unknown as typeof fetch },
     })
-    const recs = await c.recognizeNow({ pageId: 'p', strokes: letters('a', 0, 0, 5, 0), languages: langs })
-    expect(recs[0].text).toBe('eigen vector')
+    const strokes = [...letters('a', 0, 0, 5, 0), ...letters('b', 0, 200, 5, 5000)]
+    const recs = await c.recognizeNow({ pageId: 'p', strokes, languages: langs })
+    expect(recs.map((r) => r.text)).toEqual(['eigen vector', 'matrx'])
     expect(recs[0].refinedText).toBeUndefined()
     await c.idle()
     expect(fetchMock).toHaveBeenCalledOnce()
@@ -150,7 +154,10 @@ describe('RecognitionCoordinator (in-process)', () => {
     expect(onRefined).toHaveBeenCalledOnce()
     const [pageId, refined] = onRefined.mock.calls[0] as [string, Recognition[]]
     expect(pageId).toBe('p')
-    expect(refined[0]).toMatchObject({ id: recs[0].id, text: 'eigen vector', refinedText: 'eigenvector' })
+    expect(refined).toMatchObject([
+      { id: recs[0].id, text: 'eigen vector', refinedText: 'eigenvector' },
+      { id: recs[1].id, text: 'matrx', refinedText: 'matrix' },
+    ])
     c.dispose()
   })
 

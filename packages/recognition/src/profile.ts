@@ -107,6 +107,15 @@ export function learnCorrection(p: HandwritingProfile, recognized: string, corre
   return true
 }
 
+/** The writer's most used words (3+ letters), most frequent first. */
+export function topWords(p: HandwritingProfile, limit: number): string[] {
+  return Object.entries(p.words)
+    .filter(([w]) => w.length >= 3)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([w]) => w)
+}
+
 interface Confusion {
   from: string
   to: string

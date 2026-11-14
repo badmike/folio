@@ -2,9 +2,9 @@ import type { InkStroke, Recognition } from '@folio/document'
 import type { HandwritingRecognizer, RecognitionCoordinatorApi, RecognitionRequest } from './contract'
 import { RecognitionEngine } from './engine'
 import type { AnalysisResult } from './engine'
-import type { HandwritingProfile } from './profile'
+import { topWords, type HandwritingProfile } from './profile'
 import type { RecognizerConfig, WorkerRequest, WorkerResponse } from './protocol'
-import { CloudRecognizer } from './recognizers/cloud'
+import { CLOUD_MAX_LINES, CloudRecognizer } from './recognizers/cloud'
 import { createDefaultWorker } from './worker-factory'
 
 export interface CloudConfig {
@@ -39,6 +39,9 @@ export interface CoordinatorOptions {
   now?: () => number
 }
 
+/** Vocabulary words sent along with a cloud request. */
+const HINT_WORDS = 120
+
 interface Pending {
   strokes: Map<string, InkStroke>
   languages: string[]
@@ -62,8 +65,10 @@ export class RecognitionCoordinator implements RecognitionCoordinatorApi {
   private disposed = false
   private readonly backend: Backend
   private readonly cloud?: { rec: CloudRecognizer; cfg: CloudConfig }
+  private profile: HandwritingProfile | undefined
 
   constructor(private readonly opts: CoordinatorOptions = {}) {
+    this.profile = opts.recognizerConfig?.profile
     this.backend = createBackend(opts)
     if (opts.cloud) this.cloud = { rec: new CloudRecognizer(opts.cloud), cfg: opts.cloud }
   }
@@ -89,7 +94,9 @@ export class RecognitionCoordinator implements RecognitionCoordinatorApi {
 
   /** Use a new handwriting profile for the following recognitions. */
   setProfile(profile: HandwritingProfile | undefined): void {
-    if (!this.disposed) this.backend.setProfile(profile)
+    if (this.disposed) return
+    this.profile = profile
+    this.backend.setProfile(profile)
   }
 
   /** Resolves when all queued work and cloud refinements have finished (useful in tests). */
@@ -149,12 +156,20 @@ export class RecognitionCoordinator implements RecognitionCoordinatorApi {
     if (texts.length === 0) return
     const job = (async () => {
       const byId = new Map(strokes.map((s) => [s.id, s]))
+      const lines = texts
+        .map((rec) => ({ rec, strokes: rec.strokeIds.map((id) => byId.get(id)).filter((s): s is InkStroke => !!s) }))
+        .filter((l) => l.strokes.length > 0)
+      const words = this.profile ? topWords(this.profile, HINT_WORDS) : []
+      const hint = words.length ? `Words this writer uses: ${words.join(', ')}` : undefined
       const refined: Recognition[] = []
-      for (const r of texts) {
+      // One request per batch of lines instead of one per line.
+      for (let i = 0; i < lines.length; i += CLOUD_MAX_LINES) {
         if (this.disposed || !cloud.cfg.enabled() || !(await cloud.rec.isAvailable())) break
-        const group = r.strokeIds.map((id) => byId.get(id)).filter((s): s is InkStroke => !!s)
-        const res = await cloud.rec.recognize(group, { languages }).catch(() => null)
-        if (res?.text) refined.push({ ...r, refinedText: res.text })
+        const batch = lines.slice(i, i + CLOUD_MAX_LINES)
+        const res = await cloud.rec.recognizeLines(batch.map((l) => l.strokes), { languages, hint }).catch(() => null)
+        res?.lines.forEach((text, n) => {
+          if (text) refined.push({ ...batch[n].rec, refinedText: text })
+        })
       }
       if (refined.length && !this.disposed) onRefined(pageId, refined)
     })()

@@ -46,7 +46,7 @@ describe('WebHandwritingRecognizer', () => {
 })
 
 describe('CloudRecognizer', () => {
-  it('posts image + languages + optional strokes and parses the response', async () => {
+  it('posts one image for all lines with their count, the hint and optional strokes', async () => {
     let seen: { url: string; init: RequestInit } | null = null
     const rec = new CloudRecognizer({
       apiBase: 'https://x.test/api',
@@ -54,24 +54,25 @@ describe('CloudRecognizer', () => {
       includeStrokes: true,
       fetch: (async (url: string, init: RequestInit) => {
         seen = { url, init }
-        return new Response(JSON.stringify({ text: ' refined ', confidence: 2 }), { status: 200 })
+        return new Response(JSON.stringify({ lines: [' refined ', ''], confidence: 2 }), { status: 200 })
       }) as unknown as typeof fetch,
     })
-    const res = await rec.recognize(letters('a', 0, 0, 3, 0), { languages: ['de'] })
+    const res = await rec.recognizeLines([letters('a', 0, 0, 3, 0), letters('b', 0, 100, 2, 0)], { languages: ['de'], hint: 'Physik' })
     expect(seen!.url).toBe('https://x.test/api/ai/recognize')
     const body = JSON.parse(seen!.init.body as string)
-    expect(body.languages).toEqual(['de'])
-    expect(body.strokes).toHaveLength(3)
+    expect(body).toMatchObject({ languages: ['de'], lines: 2, hint: 'Physik' })
+    expect(body.strokes).toHaveLength(5)
     expect(body.image.startsWith('iVBOR')).toBe(true)
-    expect(res).toEqual({ text: 'refined', confidence: 1, language: undefined, recognizer: 'cloud' })
+    expect(res).toEqual({ lines: ['refined', ''], confidence: 1 })
   })
 
-  it('returns null on HTTP errors, network errors and without token', async () => {
+  it('returns null on HTTP errors, network errors, a wrong line count and without token', async () => {
     const mk = (f: unknown, token: string | null = 't') => new CloudRecognizer({ apiBase: 'x', getToken: () => token, fetch: f as typeof fetch })
     const s = letters('a', 0, 0, 3, 0)
     expect(await mk(async () => new Response('no', { status: 500 })).recognize(s, { languages: [] })).toBeNull()
     expect(await mk(async () => { throw new Error('offline') }).recognize(s, { languages: [] })).toBeNull()
     expect(await mk(async () => new Response('{}')).recognize(s, { languages: [] })).toBeNull()
+    expect(await mk(async () => new Response(JSON.stringify({ lines: ['a', 'b'] }))).recognize(s, { languages: [] })).toBeNull()
     expect(await mk(vi.fn(), null).recognize(s, { languages: [] })).toBeNull()
     expect(await mk(vi.fn(), null).isAvailable()).toBe(false)
   })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { encodePng, planRaster, rasterize, rasterizeToPng, zlibStored } from '../src/raster'
+import { encodePng, planRaster, rasterize, rasterizeToPng, stackBitmaps, zlibStored } from '../src/raster'
 import { makeStroke, polyline } from './helpers'
 import { rotatePts } from './synth'
 import { inflateSync } from 'node:zlib'
@@ -7,6 +7,14 @@ import { inflateSync } from 'node:zlib'
 const line = (x0: number, y0: number, x1: number, y1: number, id = 's') => makeStroke(polyline([{ x: x0, y: y0 }, { x: x1, y: y1 }], false, 2), { id })
 
 describe('rasterize', () => {
+  it('stacks bitmaps top to bottom on white', () => {
+    const a = { width: 2, height: 1, data: new Uint8Array([0, 0]) }
+    const b = { width: 1, height: 2, data: new Uint8Array([0, 0]) }
+    const s = stackBitmaps([a, b], 1)
+    expect([s.width, s.height]).toEqual([2, 4])
+    expect([...s.data]).toEqual([0, 0, 255, 255, 0, 255, 0, 255])
+  })
+
   it('normalises ink height and adds padding', () => {
     const strokes = [line(0, 0, 0, 40, 'a'), line(0, 40, 200, 40, 'b')]
     const bmp = rasterize(strokes, { targetHeight: 80, padding: 20 })
