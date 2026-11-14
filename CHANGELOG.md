@@ -3,6 +3,15 @@
 All notable changes to folio are documented here.
 Commits follow the [Gitmoji](https://gitmoji.dev/) convention.
 
+## [v26.11.14-a21fca9] — 2026-11-14
+
+- 📝 docs: describe passkey accounts, invites and resets
+- ✨ web: passkey sign-in, invite links and recovery codes
+- ✨ server: invite-only accounts with passkey sign-in
+- 📝 docs: describe account setup with an OpenID Connect provider
+- ✨ web: sign in through the server session instead of Clerk
+- ✨ server: own accounts with OpenID Connect sign-in and cookie sessions
+
 ## [v26.10.28-62f10fe] — 2026-10-28
 
 - 🎨 server: cargo fmt
