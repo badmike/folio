@@ -464,21 +464,26 @@ async fn recognize_charges_the_credit() {
             "POST",
             "/api/ai/recognize",
             Some(&t),
-            Some(json!({"image": png_b64(), "languages": ["de","en"], "hint": "Physik"})),
+            Some(
+                json!({"image": png_b64(), "languages": ["de","en"], "lines": 1, "hint": "Physik"}),
+            ),
         )
         .await;
     assert_eq!(s, StatusCode::OK, "{v}");
     assert_eq!(v["text"], "Hallo Welt");
+    assert_eq!(v["lines"], json!(["Hallo Welt"]));
     assert_eq!(v["confidence"], 0.93);
     {
         let reqs = app.mock.requests.lock().unwrap();
         assert!(reqs[0].image_png_b64.is_some());
         assert!(reqs[0].user_text.contains("de, en"));
+        assert!(reqs[0].user_text.contains("exactly 1 line(s)"));
+        assert!(reqs[0].user_text.contains("Physik"));
         assert!(reqs[0].system.contains("ONLY"));
-        assert_eq!(reqs[0].model, "anthropic/claude-sonnet-5.5");
+        assert_eq!(reqs[0].model, "anthropic/claude-haiku-5.5");
     }
-    // 10 input and 5 output tokens at the Smart prices.
-    assert!((used_today(&app, "alice").await - 0.00007).abs() < 1e-12);
+    // 10 input and 5 output tokens at the Fast prices.
+    assert!((used_today(&app, "alice").await - 0.0000035).abs() < 1e-12);
 
     let (s, _) = app
         .json(
@@ -518,8 +523,8 @@ async fn recognize_failure_costs_nothing() {
 
 #[tokio::test]
 async fn recognize_stops_when_the_credit_is_exhausted() {
-    let app = TestApp::with(|c| c.ai_daily_credit_usd = 0.0001).await;
-    // Each call costs $0.00007, so the third one starts over the limit.
+    let app = TestApp::with(|c| c.ai_daily_credit_usd = 0.000005).await;
+    // Each call costs $0.0000035, so the third one starts over the limit.
     let app = &app;
     let call = |token: String| async move {
         app.json(

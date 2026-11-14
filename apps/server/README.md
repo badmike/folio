@@ -25,7 +25,8 @@ cargo test && cargo clippy --all-targets
 | `FOLIO_S3_BUCKET`, `FOLIO_S3_ENDPOINT`, `FOLIO_S3_REGION`, `FOLIO_S3_ACCESS_KEY_ID`, `FOLIO_S3_SECRET_ACCESS_KEY` | unset                    | any S3-compatible store (AWS, R2, B2, MinIO). Without a bucket, files go to `FOLIO_ASSETS_DIR` (`data/assets`). `AWS_*` key vars are also read |
 | `OPENROUTER_API_KEY`                                                                                              | unset                    | all AI goes through OpenRouter. Unset => `/api/ai/*` answers `503 AI not configured`                                                               |
 | `FOLIO_AI_PRESETS`                                                                                                | Fast, Smart, Deep        | JSON array of `{id, label, hint, model, vision, inputPrice, outputPrice, cachedInputPrice}` (OpenRouter slug, USD per million tokens; prices only estimate a stopped step). Defaults: Haiku 5.5, Sonnet 5.5, Opus 5.5 |
-| `FOLIO_AI_DEFAULT_PRESET`                                                                                         | `smart`                  | preset for new turns; `/ai/recognize` also uses its model                                                                                      |
+| `FOLIO_AI_DEFAULT_PRESET`                                                                                         | `smart`                  | preset for new turns                                                                                      |
+| `FOLIO_AI_RECOGNIZE_PRESET` | `fast` | preset whose model `/ai/recognize` uses. Without a `fast` preset it falls back to the default preset |
 | `FOLIO_AI_TITLE_MODEL`                                                                                            | `anthropic/claude-haiku-5.5` | writes thread titles; not charged to the user                                                                                              |
 | `FOLIO_AI_DAILY_CREDIT_USD`                                                                                       | `1.0`                    | AI spend per user per UTC day as OpenRouter reports it (`usage.cost`), then `credit_exhausted`. A step stopped before that report is estimated from its tokens at the preset prices. Failed calls cost nothing |
 | `FOLIO_AI_MAX_STEPS`, `FOLIO_AI_MAX_TURN_TOKENS`                                                                  | `25`, `2000000`          | per-turn caps; hitting one ends the turn `partial`. Answers to `ask_user` don't count as a step                                               |
@@ -54,7 +55,7 @@ Binary values are base64 (standard alphabet) strings. Ids (`docId`, `deviceId`, 
 - `GET /sync/docs` -> `[{docId, latestSeq, updatedAt}]` (ms epoch)
 - `POST /devices` `{deviceId, name}` register / heartbeat
 - `POST /assets?id=<optional client id>` raw body + `Content-Type` -> `{id}`; `GET /assets/{id}` -> bytes (owner only; served `nosniff` + CSP sandbox)
-- `POST /ai/recognize` `{image: base64 png, languages?: ["de","en"], hint?}` -> `{text, confidence}`
+- `POST /ai/recognize` `{image: base64 png, languages?: ["de","en"], lines?: n, hint?}` -> `{text, lines, confidence}`. `lines` in the request is the number of handwritten lines stacked into the image; the response has one entry per line
 - AI agent (shapes in `apps/web/src/ai/protocol.ts`, `/turns`, `/step` and `/continue` answer `text/event-stream`):
   - `GET /ai/config` -> presets, default preset, credit and caps
   - `GET /ai/threads?notebookId=<id>|library&search=&settled=0|1`, `POST /ai/threads` `{notebookId}`, `GET|PATCH|DELETE /ai/threads/{id}`

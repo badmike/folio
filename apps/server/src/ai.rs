@@ -634,18 +634,29 @@ impl AiProvider for OpenRouterProvider {
 
 pub const RECOGNIZE_SYSTEM: &str = "You are a handwriting transcription engine embedded in a note-taking app. \
 The image contains handwritten notes (English and/or German, possibly with math or symbols). \
-Transcribe exactly what is written, preserving line breaks and German umlauts/ß. \
+Transcribe exactly what is written, one entry per handwritten line from top to bottom, preserving German umlauts/ß. \
 Do not translate, correct, explain, or add commentary. \
-Respond with ONLY a single JSON object of the form {\"text\": \"<transcription>\", \"confidence\": <number between 0 and 1>} \
-and nothing else. If the image contains no legible writing, respond with {\"text\": \"\", \"confidence\": 0}.";
+Respond with ONLY a single JSON object of the form {\"lines\": [\"<line 1>\", \"<line 2>\"], \"confidence\": <number between 0 and 1>} \
+and nothing else. Use an empty string for a line you cannot read. \
+If the image contains no legible writing, respond with {\"lines\": [], \"confidence\": 0}.";
 
-pub fn recognize_user_text(languages: &[String], hint: Option<&str>) -> String {
+/// `lines` is the number of handwritten lines the client stacked into the image.
+pub fn recognize_user_text(
+    languages: &[String],
+    lines: Option<usize>,
+    hint: Option<&str>,
+) -> String {
     let langs = if languages.is_empty() {
         "en, de".to_string()
     } else {
         languages.join(", ")
     };
     let mut s = format!("Expected language(s): {langs}. Transcribe the handwriting in the image.");
+    if let Some(n) = lines {
+        s.push_str(&format!(
+            "\nThe image shows exactly {n} line(s) of handwriting stacked top to bottom. Return exactly {n} entries in `lines`."
+        ));
+    }
     if let Some(h) = hint.filter(|h| !h.trim().is_empty()) {
         s.push_str(&format!(
             "\nContext hint (may help disambiguate words; do not include it in the output): {h}"
@@ -654,21 +665,33 @@ pub fn recognize_user_text(languages: &[String], hint: Option<&str>) -> String {
     s
 }
 
-/// Extracts `{text, confidence}` from a model reply; tolerant of code fences and prose around the JSON.
-pub fn parse_recognition(raw: &str) -> (String, f64) {
+/// Extracts the transcribed lines and the confidence from a model reply; tolerant of code
+/// fences, prose around the JSON, and a single `text` string in place of `lines`.
+pub fn parse_recognition(raw: &str) -> (Vec<String>, f64) {
     let trimmed = raw.trim();
     let candidate = match (trimmed.find('{'), trimmed.rfind('}')) {
         (Some(a), Some(b)) if b > a => &trimmed[a..=b],
         _ => "",
     };
+    let split = |t: &str| t.lines().map(str::to_string).collect::<Vec<_>>();
     if let Ok(v) = serde_json::from_str::<Value>(candidate) {
-        if let Some(t) = v["text"].as_str() {
+        let lines = match (v["lines"].as_array(), v["text"].as_str()) {
+            (Some(items), _) => Some(
+                items
+                    .iter()
+                    .map(|l| l.as_str().unwrap_or_default().to_string())
+                    .collect(),
+            ),
+            (None, Some(t)) => Some(split(t)),
+            (None, None) => None,
+        };
+        if let Some(lines) = lines {
             let c = v["confidence"].as_f64().unwrap_or(0.5).clamp(0.0, 1.0);
-            return (t.to_string(), c);
+            return (lines, c);
         }
     }
     // Model ignored the format: treat the whole reply as the transcription with low confidence.
-    (trimmed.to_string(), 0.3)
+    (split(trimmed), 0.3)
 }
 
 #[cfg(test)]
@@ -676,15 +699,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_plain_and_fenced_json() {
+    fn parses_lines_text_and_prose() {
+        let lines = |l: &[&str]| l.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         assert_eq!(
-            parse_recognition(r#"{"text":"Hallo","confidence":0.9}"#),
-            ("Hallo".into(), 0.9)
+            parse_recognition(r#"{"lines":["Hallo","","Welt"],"confidence":0.9}"#),
+            (lines(&["Hallo", "", "Welt"]), 0.9)
         );
-        let (t, c) = parse_recognition("```json\n{\"text\":\"a\\nb\",\"confidence\":2}\n```");
-        assert_eq!((t.as_str(), c), ("a\nb", 1.0));
-        let (t, c) = parse_recognition("just words");
-        assert_eq!((t.as_str(), c), ("just words", 0.3));
+        assert_eq!(
+            parse_recognition("```json\n{\"text\":\"a\\nb\",\"confidence\":2}\n```"),
+            (lines(&["a", "b"]), 1.0)
+        );
+        assert_eq!(
+            parse_recognition("just words"),
+            (lines(&["just words"]), 0.3)
+        );
+    }
+
+    #[test]
+    fn recognize_prompt_states_the_line_count() {
+        let t = recognize_user_text(&["de".into()], Some(3), Some("Physik"));
+        assert!(t.contains("exactly 3 line(s)") && t.contains("Physik"));
+        assert!(!recognize_user_text(&[], None, None).contains("exactly"));
     }
 
     #[test]

@@ -11,6 +11,7 @@ use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
 const MAX_IMAGE_B64: usize = 14 * 1024 * 1024;
+const MAX_LINES: usize = 32;
 
 /// Runs one recognition call against the user's daily credit. Failed calls cost nothing.
 async fn run(st: &AppState, user: &AuthUser, req: AiRequest) -> AppResult<AiResponse> {
@@ -32,7 +33,7 @@ async fn run(st: &AppState, user: &AuthUser, req: AiRequest) -> AppResult<AiResp
         cached_tokens: 0,
         cost: res.cost,
     };
-    let cost = st.config.default_preset().cost(&usage);
+    let cost = st.config.recognize_preset().cost(&usage);
     store::record_usage(&st.db, &user.user_id, cost, res.tokens_in + res.tokens_out).await?;
     Ok(res)
 }
@@ -42,12 +43,17 @@ pub struct RecognizeReq {
     pub image: String,
     #[serde(default)]
     pub languages: Vec<String>,
+    /// Number of handwritten lines stacked into the image, when the client knows it.
+    pub lines: Option<usize>,
     pub hint: Option<String>,
 }
 
 #[derive(Serialize)]
 pub struct RecognizeRes {
+    /// `lines` joined with newlines.
     pub text: String,
+    /// One entry per handwritten line, top to bottom.
+    pub lines: Vec<String>,
     pub confidence: f64,
 }
 
@@ -71,18 +77,25 @@ pub async fn recognize(
     if req.languages.len() > 8 || req.languages.iter().any(|l| l.len() > 16) {
         return Err(AppError::BadRequest("invalid languages".into()));
     }
+    if req.lines.is_some_and(|n| n == 0 || n > MAX_LINES) {
+        return Err(AppError::BadRequest("invalid lines".into()));
+    }
     let hint = req
         .hint
         .as_deref()
         .map(|h| h.chars().take(2000).collect::<String>());
     let ai_req = AiRequest {
-        model: st.config.default_preset().model.clone(),
+        model: st.config.recognize_preset().model.clone(),
         system: ai::RECOGNIZE_SYSTEM.to_string(),
-        user_text: ai::recognize_user_text(&req.languages, hint.as_deref()),
+        user_text: ai::recognize_user_text(&req.languages, req.lines, hint.as_deref()),
         image_png_b64: Some(b64.to_string()),
         max_tokens: 2048,
     };
     let res = run(&st, &user, ai_req).await?;
-    let (text, confidence) = ai::parse_recognition(&res.text);
-    Ok(Json(RecognizeRes { text, confidence }))
+    let (lines, confidence) = ai::parse_recognition(&res.text);
+    Ok(Json(RecognizeRes {
+        text: lines.join("\n"),
+        lines,
+        confidence,
+    }))
 }

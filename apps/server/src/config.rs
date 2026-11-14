@@ -126,6 +126,8 @@ pub struct Config {
     pub openrouter_base_url: String,
     pub ai_presets: Vec<AiPreset>,
     pub ai_default_preset: String,
+    /// Preset whose model reads handwriting for `/ai/recognize`.
+    pub ai_recognize_preset: String,
     /// Writes thread titles. Not charged against the user's credit.
     pub ai_title_model: String,
     /// Per user and UTC day.
@@ -198,6 +200,18 @@ impl Config {
         };
         let ai_default_preset = get("FOLIO_AI_DEFAULT_PRESET").unwrap_or_else(|| "smart".into());
         validate_presets(&ai_presets, &ai_default_preset)?;
+        // Transcription is a small task: the fast preset when there is one.
+        let ai_recognize_preset = match get("FOLIO_AI_RECOGNIZE_PRESET") {
+            Some(id) => {
+                anyhow::ensure!(
+                    ai_presets.iter().any(|p| p.id == id),
+                    "FOLIO_AI_RECOGNIZE_PRESET {id} is not a preset"
+                );
+                id
+            }
+            None if ai_presets.iter().any(|p| p.id == "fast") => "fast".into(),
+            None => ai_default_preset.clone(),
+        };
         let ai_daily_credit_usd = match get("FOLIO_AI_DAILY_CREDIT_USD") {
             Some(s) => s
                 .parse::<f64>()
@@ -236,6 +250,7 @@ impl Config {
                 .unwrap_or_else(|| "https://openrouter.ai/api/v1".into()),
             ai_presets,
             ai_default_preset,
+            ai_recognize_preset,
             ai_title_model: get("FOLIO_AI_TITLE_MODEL").unwrap_or_else(|| HAIKU.into()),
             ai_daily_credit_usd,
             ai_max_steps: parse_num("FOLIO_AI_MAX_STEPS", 25)?,
@@ -253,6 +268,11 @@ impl Config {
     pub fn default_preset(&self) -> &AiPreset {
         self.preset(&self.ai_default_preset)
             .expect("default preset is validated at startup")
+    }
+
+    pub fn recognize_preset(&self) -> &AiPreset {
+        self.preset(&self.ai_recognize_preset)
+            .expect("recognize preset is validated at startup")
     }
 }
 
@@ -315,6 +335,7 @@ mod tests {
         let c = Config::from_map(&HashMap::new()).unwrap();
         assert_eq!(c.bind.port(), 8989);
         assert_eq!(c.default_preset().model, "anthropic/claude-sonnet-5.5");
+        assert_eq!(c.recognize_preset().model, "anthropic/claude-haiku-5.5");
         assert_eq!(c.ai_title_model, "anthropic/claude-haiku-5.5");
         assert_eq!(c.ai_daily_credit_usd, 1.0);
         assert!(matches!(c.storage, StorageConfig::Local(_)));
